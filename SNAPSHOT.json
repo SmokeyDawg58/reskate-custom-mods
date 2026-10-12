@@ -1,0 +1,771 @@
+{
+  "upstream": "https://github.com/Dingo-Shenanigans/ReSkate",
+  "upstream_commit": "314d31fe7bf73866b4ae9b6a8195de50ced26312",
+  "version": "2.0.6",
+  "tests_passed": 77,
+  "installed_dll_sha256": "CAE5805B42884D852C02B4F9F96094729EF91FCA7EAFBDD3674A8841B2BAB959",
+  "native_assets_sha256": "5933f44abc957382d08a9498da8a96543a64c337c0ae7930fbc7180b3bb2e1b5",
+  "files": [
+    {
+      "path": "CMakeLists.txt",
+      "sha256": "78d6928ba04507efa40e1f4d76886fe6cb443754c3b65a38af97ada50fe8dcaf",
+      "bytes": 30179
+    },
+    {
+      "path": "Engine/Game/Build/20260929/native_throwdowns.h",
+      "sha256": "81014bf8f91578dab753ca40664fd30f1d0b3e253607a0cc3061bc34114a3534",
+      "bytes": 14025
+    },
+    {
+      "path": "Engine/Game/Build/20260929/one_up_scoring.h",
+      "sha256": "13dd0f64e8da5cff22185adb84fd814d8234c59199e2eb1be2ccc470b1a37761",
+      "bytes": 2108
+    },
+    {
+      "path": "Engine/Game/Build/20260929/race_objects.h",
+      "sha256": "fd136f81a86f54e758c77d32aeee6cf7e0630ccd1a5e944ad66c8aad97576ad8",
+      "bytes": 398
+    },
+    {
+      "path": "Engine/Game/Build/20260929/skater_entities.h",
+      "sha256": "382de724d0314e715ea83bcb5f68e40c55bcff3a3979467c67c115939a017a7e",
+      "bytes": 4264
+    },
+    {
+      "path": "Engine/Game/World/load_completion.h",
+      "sha256": "2a143dbb2e42a88d3c9b0293b5f486c0536d0e9fd6adb8ce0c9db7c49420553f",
+      "bytes": 731
+    },
+    {
+      "path": "Engine/Vfs/Test/mod_merge_added_assets_tests.cpp",
+      "sha256": "86746439efbaa580fdf629d30d292775ca1d592c8751a381e8073e00ec89e9a6",
+      "bytes": 27365
+    },
+    {
+      "path": "Engine/Vfs/mod_catalog.cpp",
+      "sha256": "d154e1310bd98b2c72f94591bc1d7d99b33de29e7b4652f20a8f4c6352bc9eb0",
+      "bytes": 26455
+    },
+    {
+      "path": "Engine/Vfs/mod_merge_overrides.cpp",
+      "sha256": "a06ace466019b98dde298e568f85add21b5a320ac2733b907f472bdfa6e03170",
+      "bytes": 26454
+    },
+    {
+      "path": "Engine/Vfs/one_up_core_assets.cpp",
+      "sha256": "25a97a65d01f38740be535d4e2526940ed45e1c9717608f7812b9621661563bf",
+      "bytes": 5392
+    },
+    {
+      "path": "Engine/Vfs/one_up_core_assets.h",
+      "sha256": "49e50d9ce7ffbf55bb226927b93eac021f892112d1bc3a2aa76705abf884d463",
+      "bytes": 242
+    },
+    {
+      "path": "Engine/Vfs/race_core_assets.h",
+      "sha256": "fa0b585feb2ed3610c0ebc2fce5f6bc2cacdf4ec8fb03b83906dad3bef4c0f12",
+      "bytes": 1325
+    },
+    {
+      "path": "Extension/Console/commands.cpp",
+      "sha256": "35c58357d545729c7d84928fdd437d500fb8135ae59313698b838d0365feb054",
+      "bytes": 10814
+    },
+    {
+      "path": "Extension/Console/commands.h",
+      "sha256": "33b3cc660255946811d50a27c32e4fcdf36e5793e269cbae7355d6d9e3713059",
+      "bytes": 2175
+    },
+    {
+      "path": "Extension/Customization/local_player_card_runtime.cpp",
+      "sha256": "3cb0b545c7f8640ece9dcd4671a257db6d7a69e0abf7dcde40fcbc685f90b4d8",
+      "bytes": 18862
+    },
+    {
+      "path": "Extension/HallOfMeat/hall_of_meat.cpp",
+      "sha256": "2c3f102d14f87922b3f61b6a0b5551cccd0ce8dd815fb0d9a0bc9267a4603c7e",
+      "bytes": 11847
+    },
+    {
+      "path": "Extension/HallOfMeat/hall_of_meat.h",
+      "sha256": "0272f6b47a169d8a66606e3abbe7796a78ac3b337ecab33ab2d99ec4f4370db1",
+      "bytes": 3784
+    },
+    {
+      "path": "Extension/HallOfMeat/hall_of_meat_hud.cpp",
+      "sha256": "87bb273023dcd9bd4d6bbc44a1c0e61ebea83c44b46b118172f250f23385086f",
+      "bytes": 14896
+    },
+    {
+      "path": "Extension/HallOfMeat/hall_of_meat_hud.h",
+      "sha256": "23bd7fe52916733863451b138acfdb68a17909206e1d90e913faf21edd7a816b",
+      "bytes": 1791
+    },
+    {
+      "path": "Extension/HallOfMeat/hall_of_meat_overlay.cpp",
+      "sha256": "0e7a26a401308c2b576859b3c893400046f3a47e223af48c6fad8333b3cb1e57",
+      "bytes": 25387
+    },
+    {
+      "path": "Extension/Modes/Test/mode_rules_tests.cpp",
+      "sha256": "4d58e7abaea597a701d28cf7d67cf2cb770cdbbba5a16ea1ee1c60f953e1be71",
+      "bytes": 34121
+    },
+    {
+      "path": "Extension/Modes/Test/race_asset_contract_tests.cpp",
+      "sha256": "ea4633588a5d1e7ceb109cd935c99e2cca80ebd4f78e421899145becfc6017b5",
+      "bytes": 9494
+    },
+    {
+      "path": "Extension/Modes/Test/trick_gesture_tests.cpp",
+      "sha256": "5440e1afcde59f08d1e03691b3ee057c72fd6c3bad76d1623372f56b3298570c",
+      "bytes": 2216
+    },
+    {
+      "path": "Extension/Modes/bone_cam.cpp",
+      "sha256": "ea8440ece66290837e3f5c110a0bce8de0f5caa31b2c5283d6624526e4596167",
+      "bytes": 36104
+    },
+    {
+      "path": "Extension/Modes/bone_cam.h",
+      "sha256": "433fcd77475234b4155b593de07eff0438a8fa457aa2330d05eba29cd2c5e4f0",
+      "bytes": 1992
+    },
+    {
+      "path": "Extension/Modes/bone_sprites.h",
+      "sha256": "49eebcf6c25d3af3d6f37d502e26988961ceb8fba2f0756672ab24b8de4b2fea",
+      "bytes": 2073
+    },
+    {
+      "path": "Extension/Modes/console_commands.cpp",
+      "sha256": "c956d35e484e10854f91009608e62f74dda11f8a8248c7ab24477e778ad336e7",
+      "bytes": 3656
+    },
+    {
+      "path": "Extension/Modes/game_modes.cpp",
+      "sha256": "335ea7b479ffc8cf5edcd491cc74dc8e960afdd3de81c30fe170d1bb0e935c4d",
+      "bytes": 142688
+    },
+    {
+      "path": "Extension/Modes/game_modes.h",
+      "sha256": "a47259b29530263988d4ef54249d100481caf0532f73160408945acc8502e619",
+      "bytes": 3789
+    },
+    {
+      "path": "Extension/Modes/mode_rules.cpp",
+      "sha256": "75daed8aedd9f38510cae52fe670974c194546648d6833fdbd1e138693147743",
+      "bytes": 55064
+    },
+    {
+      "path": "Extension/Modes/mode_rules.h",
+      "sha256": "acbe44c2caf0256af40f0e6b50c1e980ef4ac3f2c10cf6386306fad4da7c8980",
+      "bytes": 16448
+    },
+    {
+      "path": "Extension/Modes/mode_view.h",
+      "sha256": "55dc31b7706368b5aa64ba39448bc200f867dd23464525148751766064e2623d",
+      "bytes": 11053
+    },
+    {
+      "path": "Extension/Modes/placement_camera.h",
+      "sha256": "d0077f08ff59a78b7f7a9f6a36d51d55300e40fbf02beed36ea6a99736608b58",
+      "bytes": 1174
+    },
+    {
+      "path": "Extension/Modes/race_asset_contract.h",
+      "sha256": "e9cb674b77f524d9d2a951ac2a009fd43f4015b89d32205ebe00725e2ef14b9d",
+      "bytes": 1185
+    },
+    {
+      "path": "Extension/Modes/race_group_reconciliation.h",
+      "sha256": "90a1dde940c4d5fd758897aed8ca4587aa59a0556978479064d6e46d90f7dd26",
+      "bytes": 1021
+    },
+    {
+      "path": "Extension/Modes/race_route.h",
+      "sha256": "b18ca8bdcfa55e5f189a9379ccbfdac4208eb7d4271aa341202b332b2ab65bce",
+      "bytes": 4835
+    },
+    {
+      "path": "Extension/Modes/race_source_contract.h",
+      "sha256": "32850c7d8cab9fd6b5be4f7f66a85a8d56345af2e01776858870573ff4ca55df",
+      "bytes": 3258
+    },
+    {
+      "path": "Extension/Modes/race_world.cpp",
+      "sha256": "ecfd00a8c841c310e54e5cb13a2dcf8704c8f5a8738f22e609df0daf65f56715",
+      "bytes": 16494
+    },
+    {
+      "path": "Extension/Modes/race_world.h",
+      "sha256": "d35349c07b0d744eedd85af14fe495c03d42db86a9a414bb7e814f9409519bb7",
+      "bytes": 286
+    },
+    {
+      "path": "Extension/Modes/skater_skeleton.h",
+      "sha256": "81929a9455c60603abc7b2c035e6d2be08d67abc90de87afb762aae87dd74735",
+      "bytes": 2934
+    },
+    {
+      "path": "Extension/Modes/trick_gestures.cpp",
+      "sha256": "47a1140c4b6ea0387b00d303fe76a212be57ec09ba66e810e88d4ee2a2890a2c",
+      "bytes": 8061
+    },
+    {
+      "path": "Extension/Modes/trick_gestures.h",
+      "sha256": "cd92629ee9af40d3cc4f08fef0be41f2c3a373959ada0aac3f731f503fd89b2a",
+      "bytes": 1273
+    },
+    {
+      "path": "Extension/Multiplayer/Hud/native_party.cpp",
+      "sha256": "7d8eef515084c73c1e4c90532019c39d50313afa29c11beb26ca5987d3b4a374",
+      "bytes": 30651
+    },
+    {
+      "path": "Extension/Multiplayer/Hud/native_party.h",
+      "sha256": "717ad930b37339c264f37c846615c594c4a4894c8d01b82c220e623dc0c33d95",
+      "bytes": 4001
+    },
+    {
+      "path": "Extension/Multiplayer/Hud/native_party_hooks.cpp",
+      "sha256": "285e8aee2f8a18329335f4180948f9afc81a51dcb57084798b077ade9b83c7d3",
+      "bytes": 54156
+    },
+    {
+      "path": "Extension/Multiplayer/Remote/native_skater.cpp",
+      "sha256": "9ec83fdf1035736c6d22c4de87808c5439a9b61d2d6d0c47cffc1748bf0787d9",
+      "bytes": 31709
+    },
+    {
+      "path": "Extension/Multiplayer/Session/session.cpp",
+      "sha256": "ea49ae45d94308168b8dbc93004ad2a89c03235bbbb49300e1e2e72982a07a69",
+      "bytes": 56108
+    },
+    {
+      "path": "Extension/Multiplayer/Session/session_commands.cpp",
+      "sha256": "2db7ae7a560ad4af73decc2ba447fa2fee93c9b72ee53b63c7e69ecdb297e67c",
+      "bytes": 64413
+    },
+    {
+      "path": "Extension/Multiplayer/Steam/steam_social.cpp",
+      "sha256": "15a5dbb6ea33603b9c70d55aad7db2f473e4234749e411843dcd3d852c5c233a",
+      "bytes": 10679
+    },
+    {
+      "path": "Extension/Multiplayer/Test/mesh_tests.cpp",
+      "sha256": "508b7bb243a20315afdcec57577088403c95fd0c923d4f31d675770e58f6c75d",
+      "bytes": 129843
+    },
+    {
+      "path": "Extension/Multiplayer/Test/protocol_tests.cpp",
+      "sha256": "b6f644a1b65fa424600bb7d33d5c289c17ba3656bc3178018b53b4ca8f150aba",
+      "bytes": 69782
+    },
+    {
+      "path": "Extension/Multiplayer/Test/voice_chat_tests.cpp",
+      "sha256": "7d4c9727165740157f6dbc69ddd26018ca1586d48c878682e55adb73883e4fb6",
+      "bytes": 13761
+    },
+    {
+      "path": "Extension/Multiplayer/console_commands.cpp",
+      "sha256": "0f44ffd553240019d81b0c7d3ff67c902af0eeecc842431f2b136a6b75d72c2c",
+      "bytes": 19057
+    },
+    {
+      "path": "Extension/Objects/ParkEditor/Test/park_editor_transaction_tests.cpp",
+      "sha256": "5913eb7aab408e23f419c7366c00930bef141ff611daefcf5ccabe381e237ef1",
+      "bytes": 57403
+    },
+    {
+      "path": "Extension/Objects/ParkEditor/park_editor_runtime.cpp",
+      "sha256": "20087a7cdb03a072b21602f00ed9bd84714cf55f3909505514284bc4ce0ed51a",
+      "bytes": 33853
+    },
+    {
+      "path": "Extension/Objects/ParkEditor/park_editor_runtime.h",
+      "sha256": "af5aa3a0825601e4a75f4e83fc15ada76a926553e6176b4c1e9f24101c06e47d",
+      "bytes": 3269
+    },
+    {
+      "path": "Extension/Objects/local_placements_runtime.cpp",
+      "sha256": "e26c985ef2b60518422237d93a483a2acf8b0d263e9d751f363a33c861c7afb5",
+      "bytes": 36505
+    },
+    {
+      "path": "Extension/Objects/local_placements_runtime.h",
+      "sha256": "31e5d03c80140360152ba5a51bb8817a0648b582dd0f362cee18b75533f01be3",
+      "bytes": 7437
+    },
+    {
+      "path": "Extension/Profile/local_profile_objects.cpp",
+      "sha256": "d4bc0aed263234ce551adc9c8b207ffde3f20f86e33cdd9659f8f23d55009813",
+      "bytes": 5686
+    },
+    {
+      "path": "Extension/Profile/local_profile_runtime.cpp",
+      "sha256": "094c2f025949fa475fcb80108621652e26711bcc9bbf47b919e54d06e7958979",
+      "bytes": 39048
+    },
+    {
+      "path": "Extension/Profile/local_profile_runtime.h",
+      "sha256": "7b94ee56733d7ab7a15400dbe26e349ba668a6a91d62048bcd83a92d6fb59fc8",
+      "bytes": 7649
+    },
+    {
+      "path": "Extension/Progression/local_entitlement_trigger_runtime.cpp",
+      "sha256": "07bc0ca193ec2336cffb9e87bd17274cfa3b7c800b06a4d84f4ffca7918fed02",
+      "bytes": 6371
+    },
+    {
+      "path": "Extension/Settings/named_settings.cpp",
+      "sha256": "e1fc354f7e2e92d643fb7eca886c6c747c02f00b379b468468c7c06f53c9a400",
+      "bytes": 32127
+    },
+    {
+      "path": "Extension/Skater/Test/client_camera_activation_tests.cpp",
+      "sha256": "cf16e72348e510273b08adbf4404aad6871b0c62f96427a7c8b5fc62abebb3f4",
+      "bytes": 5862
+    },
+    {
+      "path": "Extension/Skater/client_camera_activation.h",
+      "sha256": "e56a56746b5813d583b789bb001694ef2b4f243a580c8f3f5bc54a92a8534478",
+      "bytes": 2816
+    },
+    {
+      "path": "Extension/Skater/client_debug.cpp",
+      "sha256": "74748ff5ef00a5ca64ea0362e68fc54e705b44c19ea1059bb5af40d60846f8a8",
+      "bytes": 65299
+    },
+    {
+      "path": "Extension/Skater/client_source_spawn.h",
+      "sha256": "c0c31d037b27ff86b78a98517f95abf195b20c885324c031b3f283199c8519d8",
+      "bytes": 2976
+    },
+    {
+      "path": "Extension/Skater/no_bail.cpp",
+      "sha256": "ce1df418a56c2def01617d6498f0a1ce25d7fd5f1d7b367cb5e78bc3c869b65d",
+      "bytes": 23660
+    },
+    {
+      "path": "Extension/Skater/no_bail.h",
+      "sha256": "a5b4a1f4ee16d6604ae1e520c908452451873d2908b4975cdcf2147cbaf8c72b",
+      "bytes": 2728
+    },
+    {
+      "path": "Extension/Throwdowns/Test/challenge_registry_tests.cpp",
+      "sha256": "7876f5036ff566bd909a2449a75584991c91ae391242de4070ea0b818467a46d",
+      "bytes": 3219
+    },
+    {
+      "path": "Extension/Throwdowns/Test/native_throwdown_lifetime_tests.cpp",
+      "sha256": "f6b945276def2ac6caa7941272bc296bf1d12d929be6a408dce62136d517d42c",
+      "bytes": 10407
+    },
+    {
+      "path": "Extension/Throwdowns/Test/one_up_placement_tests.cpp",
+      "sha256": "61e54369fc92224e59486ccce5b9c71d54df254ca9060c4a318909bfefc61a65",
+      "bytes": 36465
+    },
+    {
+      "path": "Extension/Throwdowns/Test/one_up_runtime_tests.cpp",
+      "sha256": "02bccba6d2ba7822b5aa1c4fa0712ada1b99845ecc14dc8d9f4dcdba592fd62c",
+      "bytes": 22384
+    },
+    {
+      "path": "Extension/Throwdowns/Test/one_up_tests.cpp",
+      "sha256": "eec5a2afa8f01a4218a2c08a6956d277fd4750c535bd0db70124c3319e9474f9",
+      "bytes": 10868
+    },
+    {
+      "path": "Extension/Throwdowns/challenge_registry.cpp",
+      "sha256": "356553d155a2a0b65c041913e6c19dbac53004075d5c811d9203036bc971abf1",
+      "bytes": 4303
+    },
+    {
+      "path": "Extension/Throwdowns/challenge_registry.h",
+      "sha256": "5d3386a4cb0b4bbb08cc31435068054e4d388ea2bf63916582d82e12b23e29e5",
+      "bytes": 1329
+    },
+    {
+      "path": "Extension/Throwdowns/native_flag_bubble.h",
+      "sha256": "99ac797c80ffa9a07f735afecc3cd2dbec9e92438fb9f5a14d455022bd2f5c4a",
+      "bytes": 5764
+    },
+    {
+      "path": "Extension/Throwdowns/native_flag_preview.h",
+      "sha256": "d9b790a8a373997a198f05d945b07daaee4b0dd26a95b8777d22aa87248593b0",
+      "bytes": 2278
+    },
+    {
+      "path": "Extension/Throwdowns/native_throwdown_lifetime.h",
+      "sha256": "2307be65f99a0b039edfd8ffa3d3a6cc053e8fa42660ab57936724064f30ea87",
+      "bytes": 4309
+    },
+    {
+      "path": "Extension/Throwdowns/native_throwdowns.cpp",
+      "sha256": "cdfc5a7775997248c9563b80092ac0f9a1adc6768c9e61f8222168e66f1cd7f1",
+      "bytes": 49764
+    },
+    {
+      "path": "Extension/Throwdowns/native_throwdowns.h",
+      "sha256": "60cc183890abdb2fbfab24f76c46002b2432259ae797bb817e3409d0fa0191c7",
+      "bytes": 3076
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_input_contract.h",
+      "sha256": "1885e271a164681a59df69a450a62f8eb6c48c839af5f73604f72a7a180d4b1c",
+      "bytes": 1046
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_local_input.h",
+      "sha256": "20cfc7e65005c4a35e58c633c6163c306a06541171f6484b71b12596024a4b22",
+      "bytes": 899
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_match.cpp",
+      "sha256": "71089ac08d0e3895ea2cd66dc47affe6595a5b2a0cf8072dfae0150b23e40c98",
+      "bytes": 9397
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_match.h",
+      "sha256": "2bbdbaef8531169a06d66b917ffe796511a4bc9b7179e2bb2338cd9718a9599d",
+      "bytes": 3349
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_native.cpp",
+      "sha256": "de355f0797e342136567ff045972128426e54a41f4e58bbbca6b885fed89f032",
+      "bytes": 17943
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_native.h",
+      "sha256": "ba8b90425758edb1386196ed08e3d22287a4d1a696ebaab51ddde96fb7f9220b",
+      "bytes": 929
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_placement.cpp",
+      "sha256": "f8c67c2b49be0b58bd88389836bd139b09fa8b474a1929e2bbd711ef7c4aa7e6",
+      "bytes": 24071
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_placement.h",
+      "sha256": "fcb62a02df3bd22d16f7ee8f608bf97a25a750fe862f43b60584e4b4e7e59803",
+      "bytes": 3372
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_runtime.cpp",
+      "sha256": "0a95acd8306ec3628700b3a844cbd3d6d18b505c3d1060fff79fb603c2e0f95f",
+      "bytes": 24065
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_runtime.h",
+      "sha256": "026e0ee54c01f9549cf7f26c7f6d091fb11734a0f12916acf2f120554a8b075f",
+      "bytes": 1453
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_skating_score.h",
+      "sha256": "376cd1298d497c3e1f2e60f9737f2e65af83bddd92e4155a6df4c148b3d11313",
+      "bytes": 574
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_spawn.h",
+      "sha256": "af84d04db177333bad295c80a7d24ef27d9a07c2b1e1693af72b2baef8571d2a",
+      "bytes": 1389
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_wire.cpp",
+      "sha256": "6c54052c6837cd0432f4b09adb01c3a2397f71a8a37558d1c6b0baed54a71bab",
+      "bytes": 6507
+    },
+    {
+      "path": "Extension/Throwdowns/one_up_wire.h",
+      "sha256": "b00801de9870a01058c5852f2652843517e2b1343b0d4cc03ebe06aa6249cc5b",
+      "bytes": 1389
+    },
+    {
+      "path": "Extension/Throwdowns/throwdown_lab.cpp",
+      "sha256": "4bac1d180601ba35ddc886328bca93fc78b0622ca4e3cff954512d8a57620b7e",
+      "bytes": 154466
+    },
+    {
+      "path": "Extension/Throwdowns/throwdown_lab.h",
+      "sha256": "db9ec09c24bb3d9d2d81379d777ec9310f6ca0e98375b19e119a86e75c7575ad",
+      "bytes": 7365
+    },
+    {
+      "path": "Extension/Throwdowns/throwdown_relay.h",
+      "sha256": "d0295ba157c781f972d26c003b55f64e526460e70edea6f35a2b1c5cf3278066",
+      "bytes": 9059
+    },
+    {
+      "path": "Extension/Throwdowns/throwdown_wire.cpp",
+      "sha256": "c7dac7a81d2790e55aaf3fcd359ae582f51342c6d36ed8183679879c235eb98f",
+      "bytes": 10519
+    },
+    {
+      "path": "Extension/Throwdowns/throwdown_wire.h",
+      "sha256": "17f3630166a149ff5d3130fd542e456e70d51ea4580d324767381e430512abd4",
+      "bytes": 4047
+    },
+    {
+      "path": "Extension/Trainer/trainer.cpp",
+      "sha256": "2ab9c7980118ddf0379ae7cb6b298006a16b851aed4b8f14f2ddb0db70b6ce23",
+      "bytes": 90253
+    },
+    {
+      "path": "Extension/UI/NativeMenu/Test/native_menu_lifetime_tests.cpp",
+      "sha256": "645b9c0cf7e62de32474c3527af691d059d6d6541dbc0b1df63a13e1869954fd",
+      "bytes": 59975
+    },
+    {
+      "path": "Extension/UI/NativeMenu/native_array_publication.h",
+      "sha256": "67f4358b345a91a941651fd8c05318d67b55665dbdca9086e8a04913e645ba75",
+      "bytes": 1234
+    },
+    {
+      "path": "Extension/UI/NativeMenu/native_hub.cpp",
+      "sha256": "e06d67d6c13bf82400452bd316c01d2dc019d96fce27c268f3915401d94fa6d2",
+      "bytes": 12602
+    },
+    {
+      "path": "Extension/UI/NativeMenu/native_hud_selection.h",
+      "sha256": "1cdffc53c8db518116b87d24313bc6d3a0504d20bd1015d8c11bde5081b13884",
+      "bytes": 3199
+    },
+    {
+      "path": "Extension/UI/NativeMenu/native_hud_values.h",
+      "sha256": "2c4310cc6aa7df2dec4bcffcf3585300c86cb2691ecf122cfc49ab242b0f9c67",
+      "bytes": 1099
+    },
+    {
+      "path": "Extension/UI/NativeMenu/native_menu.cpp",
+      "sha256": "05725f8a288a23a4e65d0ec576b5b2d13ef84c66729f0976a7e8d79f73e49228",
+      "bytes": 46500
+    },
+    {
+      "path": "Extension/UI/NativeMenu/native_menu_data.cpp",
+      "sha256": "8af6e9c53657544636e9fbdedb24eddd660b0ee4c95112769dc896f907dcbea2",
+      "bytes": 32608
+    },
+    {
+      "path": "Extension/UI/NativeMenu/native_menu_data.h",
+      "sha256": "44a6502343e8c625f04c5f53271cf4e5640565fba5cf0a87c27779afc314bde4",
+      "bytes": 4982
+    },
+    {
+      "path": "Extension/UI/NativeMenu/native_menu_lifetime.h",
+      "sha256": "62bb9bd6a60d235bda38e7a8637275d1e14fa931973fbf7d35f013875043e349",
+      "bytes": 6154
+    },
+    {
+      "path": "Extension/UI/NativeMenu/native_menu_ownership.h",
+      "sha256": "1bc6c272d2c710dd9e64fa1c3e5249b0328697738a0045e15781fe15ac2fd195",
+      "bytes": 4012
+    },
+    {
+      "path": "Extension/UI/NativeMenu/native_setup_roles.h",
+      "sha256": "91b9da6f1bcf71c4c30d1cc82cc370a1c518732c10424dca87cfa834caae051a",
+      "bytes": 941
+    },
+    {
+      "path": "Extension/UI/NativeMenu/one_up_match_panel.inl",
+      "sha256": "d56b60edcf0471ce3dd28d433d5e844bedcd48971a381f0ea5f9cd66f0311f8c",
+      "bytes": 37341
+    },
+    {
+      "path": "Extension/UI/NativeMenu/one_up_menu.cpp",
+      "sha256": "8f09d6dd61dfff19d2f6e65bf6454b2720994de94e8a08b5a4ff3e7a4cbcf393",
+      "bytes": 173343
+    },
+    {
+      "path": "Extension/UI/NativeMenu/one_up_menu.h",
+      "sha256": "151399324f7ba75cebbe76f180e4952264cf7d69e80a136659cc3655156dd2c8",
+      "bytes": 350
+    },
+    {
+      "path": "Extension/UI/NativeMenu/throwdown_map_identity.inl",
+      "sha256": "9ee5340f3febdc243fcec3ea5046069a732e0ee93075b85d33861b94d4c300b5",
+      "bytes": 13226
+    },
+    {
+      "path": "Extension/UI/NativeMenu/throwdown_modes_ui.inl",
+      "sha256": "07b204c166fbdaaefcdf2562a00a25250b1c63afa551a74f8495018e2c4761e5",
+      "bytes": 56909
+    },
+    {
+      "path": "Extension/UI/Overlay/input_capture.cpp",
+      "sha256": "b0546040b15a9f263f998bde94cf46d85f5f316893799311b413129f36520954",
+      "bytes": 51619
+    },
+    {
+      "path": "Extension/UI/Overlay/multiplayer_session.cpp",
+      "sha256": "48d7b8769d1a9edcfba6afcd301c15708c3c83c8e58c534e63522694a8114a2c",
+      "bytes": 43435
+    },
+    {
+      "path": "Extension/UI/Overlay/one_up_overlay.cpp",
+      "sha256": "502a6fc05118f3ca0e5d1124bd4bd8408c8b6814988a2a541d1bd45481f2686c",
+      "bytes": 5715
+    },
+    {
+      "path": "Extension/UI/Overlay/overlay_input.cpp",
+      "sha256": "0857753fe70d6f62df8454958892f2fbed8ad51bfb5993d42588778ba0cb02be",
+      "bytes": 31930
+    },
+    {
+      "path": "Extension/UI/Overlay/overlay_internal.h",
+      "sha256": "331e6687ca73d77ee682eed9b00c9f8f395ab9d1a19a9c31d25183e5a1a974a2",
+      "bytes": 13658
+    },
+    {
+      "path": "Extension/UI/Overlay/overlay_render.cpp",
+      "sha256": "9e91ef4c73620677f253c7d34689462c800e0d605e6cedb26e6d14995bc25a57",
+      "bytes": 41999
+    },
+    {
+      "path": "Extension/UI/Overlay/skate_hud_overlay.cpp",
+      "sha256": "fae7c9c045aed3f811d4e10563d0333babc23032e7e9270921773d29d7034872",
+      "bytes": 17111
+    },
+    {
+      "path": "Extension/UI/Overlay/skate_menu.cpp",
+      "sha256": "9dc096f67ba034ebeae16c9a65c510786d1c025d75cfedf9448e6741af1f2cf3",
+      "bytes": 25350
+    },
+    {
+      "path": "Extension/UI/Overlay/skate_menu.h",
+      "sha256": "d5e03e3f42defc3b271119848cba517e7d4847c10e47515e37b25f5dd4820285",
+      "bytes": 5371
+    },
+    {
+      "path": "Extension/World/Test/loading_screen_tests.cpp",
+      "sha256": "907648b823d91fc1ea1854cd449665508170562c0c876bd66c669d6c4642c098",
+      "bytes": 2853
+    },
+    {
+      "path": "MODE-PACK-RESEARCH.md",
+      "sha256": "397f1a5fa899e4cfc4a2aba76ba72266eb164760fc06143d6540e4d834fcd4e0",
+      "bytes": 10367
+    },
+    {
+      "path": "ONE-UP-MATCH-CLEANUP-VALIDATION.txt",
+      "sha256": "24fee999ff09e0b72a066746ecb19050cbf92a1193940606cb705ae84b1c5cf1",
+      "bytes": 3720
+    },
+    {
+      "path": "ONE-UP-VALIDATION.txt",
+      "sha256": "ab663ab534caf72b1a7edb8b05f1175df32c7e064baf912c1dec2ff113b47a14",
+      "bytes": 35478
+    },
+    {
+      "path": "ONE-UP.txt",
+      "sha256": "8e2a7aa651c5974a7b9f43893c9645311004ceadcf8e2b88e7b4221c6fcd3c22",
+      "bytes": 13733
+    },
+    {
+      "path": "Runtime/client_tick.cpp",
+      "sha256": "a16a920d1c24c14dea5fd0836fc190cd2c625017ec52c48a7f0c102bf704ac59",
+      "bytes": 83490
+    },
+    {
+      "path": "Runtime/runtime_init.cpp",
+      "sha256": "a10aee2f753976e23c2d07321e66093f2a9ecf73f5d24771e63be28ab3a62831",
+      "bytes": 30395
+    },
+    {
+      "path": "SOLO-PENDING-QUEUE-VALIDATION.txt",
+      "sha256": "b4c5e9a9554f063c1bec1520df84b039e889bf700803bffdad74523fb0367e19",
+      "bytes": 2873
+    },
+    {
+      "path": "Server/GUI/server_gui.h",
+      "sha256": "64bfa00aec7e30c963098a9799eecebcade5befd1ebe7423ed25eb196c59945b",
+      "bytes": 2058
+    },
+    {
+      "path": "Server/GUI/server_gui_renderer.cpp",
+      "sha256": "6097c20f111bb2d2497994c9ccaf7a89e6f85bece2d0243e2b1cec469e09c3c3",
+      "bytes": 7753
+    },
+    {
+      "path": "Server/GUI/server_gui_renderer.h",
+      "sha256": "b444d16c9991d206a280ef99aa50199de2c2d2b68e2d753a8774a60b03f666af",
+      "bytes": 1261
+    },
+    {
+      "path": "Server/Test/server_activity_tests.cpp",
+      "sha256": "64f8e23c2b745788f649de118e301d5d6f60a0f42d3915beda528ebdba7f8528",
+      "bytes": 6794
+    },
+    {
+      "path": "Server/Test/server_config_tests.cpp",
+      "sha256": "7c24fd13a476f5ca9422f628ad11b77aec38a8346b35c5a9b8ef21ebbbe3eb42",
+      "bytes": 40737
+    },
+    {
+      "path": "Server/server_activity.cpp",
+      "sha256": "11bd39b3b3817bd6bc5abd21d8ae651c6970a22bc710b17fe8380f3aa6f66673",
+      "bytes": 11331
+    },
+    {
+      "path": "THROWDOWN-INTEGRATION.md",
+      "sha256": "c1ab5e3424045c91924c5b6f99b9704e3981cdc66c8e5af4b10709cb938152fa",
+      "bytes": 26554
+    },
+    {
+      "path": "UPSTREAM-UPDATE.md",
+      "sha256": "1d54b8d9bcc4b07819077de1120512db307533f45d3c575b442bbe5c91c1648f",
+      "bytes": 42413
+    },
+    {
+      "path": "cmake/Core.cmake",
+      "sha256": "662cc91c068b47b983a2f1c2ae2def1b9a6fc49b39df1d3a7b7422cf07cc9b0b",
+      "bytes": 5903
+    },
+    {
+      "path": "cmake/Runtime.cmake",
+      "sha256": "96415aa77258d96bc61e031360ce760302dfcf7d0377f932e4d0f24fcb4501e6",
+      "bytes": 13838
+    },
+    {
+      "path": "cmake/UI.cmake",
+      "sha256": "dd3d9b87484f0419b56e51a9d176be8bbc426a2081216ed2d265b496c5aaf148",
+      "bytes": 2571
+    },
+    {
+      "path": "contrib/throwdown-flags/README.md",
+      "sha256": "e2badfac20f6f6208bf4bb1c3936dbd5374d07c7e4d3155623d80c3f4432810f",
+      "bytes": 12838
+    },
+    {
+      "path": "contrib/throwdown-flags/build_oneup_native_bundle.py",
+      "sha256": "58adc916eee2ffa81cfc9df30959a09ed1fd8315f61b87dab65553313718edb6",
+      "bytes": 1613
+    },
+    {
+      "path": "contrib/throwdown-flags/native_throwdown_flags.inl",
+      "sha256": "1096ce37712086ceb69d1fd58e93a302a247041242202851bdede6bd8e8ae722",
+      "bytes": 35858
+    },
+    {
+      "path": "contrib/throwdown-flags/shader_depot.cpp",
+      "sha256": "2b1c07a26842d154f375ed5115a72c109beab234bd0b73c479c548a970d1eeef",
+      "bytes": 32545
+    },
+    {
+      "path": "contrib/throwdown-flags/shader_depot.h",
+      "sha256": "772ba4a883e2021facfee33fb418245c682de41278c8a5ca9d0bd4fb0cc4a51a",
+      "bytes": 5628
+    },
+    {
+      "path": "contrib/throwdown-flags/throwdown_menu_residency.inl",
+      "sha256": "4d4093953a4bb9886739cf1d56a1183960cf7ee2b92f2740be7c0085f261dc46",
+      "bytes": 5103
+    }
+  ],
+  "excluded": [],
+  "pending_work": [
+    "Spawn-facing investigation",
+    "Intermittent gameplay HUD mount",
+    "1-UP gameplay HUD styling/alignment"
+  ]
+}

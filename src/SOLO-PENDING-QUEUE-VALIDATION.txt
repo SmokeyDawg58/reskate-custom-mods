@@ -1,0 +1,55 @@
+Solo Throwdown pending-queue cleanup (2026-10-09)
+================================================
+
+Live fault capture
+------------------
+The previous candidate still locked Throwdowns after a Players 1 Spot Battle
+exit. ReSkate.log confirms server removal of local player 2 from activity
+0xb2c8f000 at 19:33:03.213 and ParticipantLeaveInProgressConfirmation.
+UIPlayerInfo was already 0/0 and native ClientPlayerVars were InActivity=0,
+IdleState=0, group=0. Resetting those values did not resolve the wheel lock.
+
+Read-only capture of the actual ID_THROWDOWNS radial item found its authored
+IsThrowdownerDisabled predicate dependencies:
+  OnlineEntitlementEnumResources/unlock_throwdownplacement = 1
+  TD_Page_ContentResources/IsInQueueState = false
+  TD_Page_ContentResources/IsPendingQueue = true
+  TD_Page_ContentResources/ThrowdownerDisabledByRule_RefCount = 0
+The native LimitedInteractivity status was 1 (Locked).
+Evidence: ../throwdown-radial-lock-state.json and
+../lock-investigation-after-quit.log.
+
+Change
+------
+Exact confirmed completion of a stock solo activity retains a separate
+UI cleanup request after client-state cleanup. Once the native Throwdowns
+radial model exists, its exact IsPendingQueue boolean is set to false using
+the game's typed model publication under its model write lock. This lets
+the existing authored predicate and UI bindings update normally. Entitlement,
+queue-state, rule restrictions and the predicate itself are preserved.
+The request survives opening the wheel later, is acknowledged once, and is
+cancelled by a new queue or level change. Quit requests, unrelated activities,
+other players and multiplayer events do not authorize it.
+
+Validation
+----------
+Release DLL build passed. Six suites passed: native_throwdown_lifetime,
+one_up_rules_and_wire, one_up_coordinator, one_up_flag_placement,
+native_menu_lifetime and throwdown_relay. New tests cover deferred UI cleanup,
+request/confirmation separation, independent client and UI consumption,
+new-queue and level cancellation, and multiplayer exclusion.
+
+Live follow-up on October 9: the user confirmed "Ok that fixed it" for
+the solo Throwdowns lock. The native log recorded exact IsPendingQueue
+true -> false publication at 20:20:55.969 and 20:21:24.856. The missing
+1-Up Throwdown Panel / native Quit route is a separate unfinished item.
+The runtime logs the exact pending-model publication when it occurs.
+Installed DLL hash and preserved backup are recorded in
+../solo-pending-queue-deploy.json.
+
+Deployment verified SHA256:
+98D0070A3A04EB810D19979D25D4491313B79E7230F2006CF766596FCE7213D6
+Normal launcher restarted game PID 17012 with no startup commands.
+It loaded the DLL and registered the fourth native Throwdowns card at
+20:19:01.588. Subsequent user-driven 1-Up setup, flag placement and native
+intro/countdown ran; this does not exercise a stock solo completion.

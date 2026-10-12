@@ -1,0 +1,11 @@
+game-source/
+build/
+*.dll
+*.exe
+*.pdb
+*.bin
+*.fbmod
+*.keys
+.env*
+__pycache__/
+*.log

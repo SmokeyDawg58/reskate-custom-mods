@@ -1,0 +1,65 @@
+Solo Throwdown exit and 1-Up marker restrictions (2026-10-09)
+===========================================================
+
+Candidate changes
+-----------------
+Stock one-player Throwdowns preserve the original LeaveInProgressRequested
+message while additionally requesting destruction of the otherwise empty
+native event. Replacing Leave with ForceDestroy in the previous candidate
+removed the normal participant confirmation needed by the client.
+
+Confirmed server removal or native EnterEnd releases the owning SDK flags.
+For a confirmed solo completion, the adapter also resets the native client's
+InActivity and MPActivityIdleState values once, provided the player and
+captured activity group still match. A new queue, other player, old activity,
+guest match, multiplayer event or world teardown cannot inherit this reset.
+LeaveInProgress alone is a request and does not prove completion.
+
+During active 1-Up participation, the native marker data model disables
+placing and returning to markers. Both native expression runners reject
+the verified Set, Setting, Undo and Return action graphs at entry. Hash and
+full resource layout must match; resumed and unrelated graphs still run.
+Trainer marker commands, teleport commands and automatic bail return also
+respect the active match. Internal 1-Up spawn positioning remains available.
+Restrictions end when the match ends or the local player leaves it.
+
+The native local-player activity predicate and UIPlayerInfo recognize an
+active 1-Up participant after the temporary flag queue is gone. This lets
+the original activity pause menu supply its Quit Match confirmation.
+Confirmed Quit Match requests end the owned 1-Up match. The owned waiting
+HUD action also reads QUIT MATCH during play, and LEAVE before play.
+
+Validation
+----------
+Release ReSkate.dll compiled successfully. Six targeted suites passed:
+  native_throwdown_lifetime, one_up_rules_and_wire, one_up_coordinator,
+  one_up_flag_placement, native_menu_lifetime, throwdown_relay.
+The added tests cover exact confirmed solo completion, once-only reset
+authorization, stale activity/other player rejection, request versus
+completion, new queue/world teardown, multiplayer/guest exclusions and
+native marker graph entry/layout/resume checks.
+
+Installed SHA256:
+9315FC700E13364AA08955987B48E29792B885DBABB5E3F990D56F2E048A377B
+Previous installed SHA256:
+A4DFC29B2CAC7A4E7B0740E855463A2263F6B7BF048390DC29CC47631ECB09C6
+Verified original DLL backup:
+E:\Games\ReSkate\ReSkate-OneUp-backups\native-match-cleanup-05a7969d601d407e9a5e55064c40eab7
+
+The normal launcher restarted the real installation with no automatic
+challenge start. Game PID 21452 loaded the adapters, registered the fourth
+card, placed a 1-Up flag, entered countdown/play and exited with UIPlayerInfo
+flags returning to 0/0. A subsequent native Spot Battle Players 1 event
+started; at 19:27:01.251 its server removed player 0x2 from activity
+0xb6bcf480 and delivered ParticipantLeaveInProgressConfirmation. The client
+mirrored removal at 19:27:01.270 and flags returned to 0/0 at 19:27:01.301.
+The game shut down normally shortly afterward; the read-only native model
+probe therefore could not sample its post-exit state. These log events do
+not establish that the menu visibly reopened or marker input was denied.
+
+Build/tests validate adapter policy and native ABI checks; they do not
+prove rendered gameplay. Live checks still required: start and
+quit/finish each stock solo mode and reopen Throwdowns; try both controller
+and keyboard marker controls during 1-Up; confirm the original pause menu
+says Quit Match and its confirmation ends 1-Up; verify marker controls
+return after quitting. Do not treat this candidate as live verified yet.

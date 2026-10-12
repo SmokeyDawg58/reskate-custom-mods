@@ -1,0 +1,224 @@
+1-Up for ReSkate -- development build 1.0.0-oneup-dev
+===================================================
+
+Play
+----
+Use the same package on every participating PC. Start Steam, launch ReSkate,
+and join the same Steam lobby or updated dedicated server. Load the same map.
+Open Throwdowns and select the fourth blue 1-UP card. It opens the original
+native Spot Battle Throwdown setup, adapted with the 1-Up title, rules, badge,
+Players (1-6) and turn time (20 seconds by default). There is no Rounds slider;
+1-Up continues until three penalties eliminate all but the winner. The native panel's sizing,
+layout, focus and Confirm navigation are preserved. Confirm advances into
+native flag/spawn placement. Place the flag, then start once players are ready.
+The flag is a shared spawn; points count anywhere on the map.
+This is a development candidate. See ONE-UP-VALIDATION.txt and
+ONE-UP-MATCH-CLEANUP-VALIDATION.txt for outstanding live checks.
+
+The host chooses a spawn and turn length. Other players choose Join in 1-Up,
+then Ready at the spawn. Start is available once two present skaters are
+ready; open slots do not have to fill. The native Start control routes into
+1-Up; the Spot Battle queue supplies native flag placement.
+Score anywhere in the loaded map. The flag is a shared spawn; there is no
+scoring-circle restriction.
+
+Solo play
+---------
+Choose Players 1 in Throwdowns -> 1-UP. Confirm, place the native flag,
+then press the normal START control. No console command is needed.
+Solo practice does not require a ReSkate multiplayer session. An early
+Start press waits for your skater to arrive at the flag, then begins the
+countdown automatically.
+Solo uses one actual skater, landed-trick scoring, the selected turn time,
+and penalties. Beat your previous target; three penalties end practice.
+Other people connected to the session do not interrupt Players 1 practice.
+For diagnostics, "oneup solo" and "oneup start" remain available after flag
+placement and readiness. "oneup status" reports the result; "oneup leave"
+ends the attempt. With Players 2-6, at least two ready skaters can start
+without waiting for every open slot to fill.
+Each turn moves its skater to the shared position, confirms that position,
+and starts a three-second countdown. Waiting skaters go offboard and watch
+the active player. Their avatars are hidden during the attempt.
+
+The native queue HUD supplies waiting status and Start/Leave controls.
+The score counters, timer, player rows and CountdownToGo widget use game
+assets. There is no custom ImGui gameplay HUD fallback. The approved blue
+badge and required native HUD records are embedded in ReSkate.dll; no
+separate badge mod is needed. Appearance and startup animation still need
+live verification on the current candidate.
+The current build resolves the native HUD from the badge's loaded asset
+bundle; the shared menu widget's parent bundle cannot see those resources.
+It attaches to the populated live gameplay HUD, excluding the registered
+authored defaults, and explicitly activates its private native stacks.
+The private HUD uses a vertical StackComponent so counters, timer and player
+rows can remain visible together. Each player has three native notice stamps,
+1, U and P; earned penalties use the game's blue focus style. Countdown values
+are whole seconds, rounded up from the synchronized match clock, and change
+once per displayed second to preserve the native number transitions.
+
+The native setup and HUD adaptations need a visual check in this build;
+automated tests cannot prove their live appearance. Native multiplayer
+transport carries the 1-Up rules. Every player and the server must use this
+package (1-Up wire version 4).
+
+Original Throwdowns: solo play
+------------------------------
+S.K.A.T.E., Spot Battle and Skate Jam also allow Players 1. Select the mode,
+set Players to 1, Confirm and complete that mode's normal placement. A
+one-player host queue can use the original native Start action without
+waiting for another participant. Stock flags, rules, timers, HUDs and results
+remain owned by their respective mode. Their maximum and default player
+counts stay the same; only their minimum becomes 1.
+Leaving a running stock Throwdown clears the local ownership flags when
+the native server removes that player from the same activity. The Start
+flag's normal removal does not unlock a challenge while it is running.
+Changing maps also discards the old activity ownership.
+The private 1-Up header, body and waiting presentation keep its badge and
+name out of the stock modes. The stock one-player start uses the native
+host predicate instead of replacing its waiting-screen buttons.
+
+Rules and defaults
+------------------
+The user-supplied verified Skate 3 core: take turns; strictly beat the
+preceding target; failures give 1, U, then P; three penalties eliminate;
+the last remaining contestant wins. Participants choose any native
+scoring tricks and combinations. Equal scores fail.
+
+The following are explicit implementation defaults, not claims of exact
+Skate 3 timing or team behavior:
+* Solo practice or individual matches with 2-6 contestants; four selected by default in the menu.
+* Twenty-second turns; the host can choose 10-120 seconds before placement.
+  Native setup cycles in ten-second steps; the overlay has a one-second slider.
+* Add the final native points from every successfully landed trick sequence
+  during the turn. Do not wait for the line/multiplier to finish; do not select
+  only the best line. The displayed TOTAL updates at each landing.
+* The native DisableLineMultiplier rule is enabled for 1-Up. Each landed
+  sequence contributes its native score once; no additional multiplier is applied.
+* A failed/bailed trick sequence contributes no points. Previously landed
+  trick scores remain banked, including earlier tricks in the same line.
+* A trick must be scored strictly before the turn timer reaches zero. There
+  is no extra time to finish a line. The leader allows up to 1.5 seconds for
+  reliable delivery of already-scored events, without adding skating time.
+* Failure gives exactly one penalty, resets the target to zero, and the
+  next eligible contestant sets a positive target. An opening zero fails.
+* The creator goes first; other players are sorted by Steam ID. Eliminated
+  and disconnected players are skipped. Feedback lasts 2.5 seconds.
+* Score anywhere; there is no scoring sphere. Ready/turn start require the
+  skater within two metres of the starting flag.
+* A non-host disconnect removes them. If they were active, clear the target
+  and advance. If one eligible contestant remains, award the win.
+* The creator leaving cancels the match; ownership is not migrated.
+* A map/session change or loss of scoring/physics eligibility ends 1-Up.
+* Late joiners watch and can enroll in the next lobby. Rematch resets
+  penalties and ready states, while retaining monotonic turn identities.
+
+The EA Skate 3 manual supports the core but does not establish these
+additional timings and edge cases. The request's defaults are used where
+the inspected manual/assets do not establish original behavior:
+https://www.gamesdatabase.org/Media/SYSTEM/Microsoft_Xbox_360/Manual/formated/Skate_3_-_2010_-_Electronic_Arts.pdf
+
+Install and launch
+------------------
+This is a native replacement package; do not drop it into Mods or install
+it through Thunderstore. Extract OneUp-native-install.zip to an ordinary folder.
+Close the game and launcher. In PowerShell in that extracted folder, run:
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-OneUp.ps1 -GameDirectory "E:\Games\ReSkate"
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\Launch-OneUp.ps1 -GameDirectory "E:\Games\ReSkate"
+
+Installation verifies the supported game and Steam API, checks the package,
+backs up the existing DLL and launcher, then replaces only those two files.
+It prints the restore.json path. Keep that path and the backup directory.
+The DLL contains the badge and native HUD assets. It materializes its own
+hidden asset cache on launch. Other mods, base game assets, saves and profile
+databases are preserved.
+The launch command uses the normal ReSkate save/profile and mods.
+
+The package launcher is built with binary auto-updates disabled, so it can
+also be opened normally. Avoid mixing it with an upstream launcher which
+might replace the custom DLL. For diagnostic logging, run the installed
+launcher with: --no-gui --no-update --log-level=debug
+
+Remove and restore
+------------------
+Close the game and launcher. Use the exact manifest path printed at install:
+
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\Remove-OneUp.ps1 -BackupManifest "E:\Games\ReSkate\ReSkate-OneUp-backups\YOUR-BACKUP\restore.json"
+
+This restores the backed-up DLL and launcher byte for byte and keeps the
+backup. It refuses to overwrite files changed by a later update. In that
+case inspect the files and copy the preserved originals manually.
+
+For this development session, Your-original-ReSkate contains the original
+DLL and launcher saved before testing in E:\Games\ReSkate. Its separate
+Restore-Original.ps1 returns directly to those originals. A new install
+backup taken while the test build is already installed would instead
+restore that test build; use Your-original-ReSkate for the session originals.
+
+Compatibility and dedicated servers
+-----------------------------------
+Windows x64; skate. Steam build 25414733. Exact Skate.exe and steam_api64.dll
+hashes are in package.json and Engine/Game/Build/supported_build.h. Native
+contracts are specific to this game build and fail closed on mismatch.
+Protocol is 43. All participants and dedicated servers must use this build;
+the existing handshake rejects old protocol versions. The existing checks
+excluding scoring/physics mods from competition still apply.
+
+Steam lobbies reuse the existing reliable relay. The match creator resolves
+the rules and publishes authoritative snapshots; guests submit native line
+events tagged with match, turn, player and line identities. Reorder buffers
+and sequence numbers reject delayed/duplicated previous attempts. Dedicated
+servers forward the new envelope, while the match creator still owns rules.
+
+To upgrade a dedicated server, close it, back up its existing executable,
+and replace that executable with Server-upgrade/ReSkateServer.exe. Keep its
+Steam DLLs (steam_api64.dll, steamclient64.dll, tier0_s64.dll, vstdlib_s64.dll),
+world-layers.json, configuration and Mods. This upgrade is not a complete
+standalone server distribution. Start with --no-update and set auto_update
+to false in its configuration. Upstream-server-instructions.txt describes
+the existing server setup. Original/upstream clients require an original
+server again; preserve the old executable for rollback.
+
+Why native code was necessary
+----------------------------
+The inspected custom Lua loader exposes mod.log/import/settings and the
+engine environment. It does not provide verified finalized line scoring,
+authenticated multiplayer inputs, or registration of a fourth native
+throwdown. ReSkate Studio indexes/exports Lua; its script editor is read-only,
+and replace_lua_source alone does not add those missing game bindings.
+
+This implementation rebuilds ReSkate instead. It reuses engine reflection,
+the existing expression hooks, local teleport and spectator facilities,
+offboard locking, transport, eligibility checks and native menu models.
+The flag bridge reuses native Throwdown navigation and event registrations.
+Build-specific predicate hooks preserve menu access and route Start while
+1-Up owns its registration. They do not alter ordinary Throwdowns.
+No base game scripts or native graph resources are replaced. Editable code is
+in Extension/Throwdowns, Extension/UI/NativeMenu/one_up_menu.cpp and
+Extension/UI/Overlay/one_up_overlay.cpp.
+
+Build source
+------------
+OneUp-complete-source.zip contains the complete changed ReSkate project,
+vendored dependencies and licenses. OneUp-source-changes.patch is a diff
+against the supplied ReSkate-main/ReSkate-main tree. The original source
+folders were not changed. Extract the complete source into a fresh folder.
+
+Windows: VS 2022 C++ x64 tools, v143 and a Windows SDK, plus CMake and Git.
+From that source root:
+
+  cmake --preset vs2022-x64 "-DDINGOSDK_BUILD_MULTIPLAYER_TESTS=ON" "-DDINGOSDK_BACKTRACE_URL=" "-DDINGOSDK_VERSION=1.0.0-oneup-dev" "-DDINGOSDK_LAUNCHER_AUTO_UPDATE=OFF"
+  cmake --build --preset release --target dingosdk_runtime dingosdk_launcher dingosdk_server dingosdk_one_up_tests dingosdk_one_up_runtime_tests dingosdk_one_up_placement_tests dingosdk_multiplayer_tests dingosdk_throwdown_relay_tests dingosdk_multiplayer_mesh_tests dingosdk_server_activity_tests dingosdk_native_menu_lifetime_tests dingosdk_native_menu_view_tests
+  ctest --test-dir build/vs2022-x64 -C Release -R "one_up|throwdown_relay|native_menu_(browser|tools|lifetime)" --output-on-failure
+
+Binaries are in build/vs2022-x64/Release. The native DLL/client is Windows
+only. The dedicated server source keeps its existing Linux build route:
+cmake --preset linux-x64, then cmake --build --preset linux-release. Linux
+was not built on this Windows test machine; see the existing server docs
+for Steam runtime dependencies and deployment.
+
+Validation
+----------
+See VALIDATION.txt for the current build, automated checks and gameplay
+observations. Automated simulations do not prove a live two-PC match.
+No point values or additional score multiplier are implemented by 1-Up.

@@ -1,0 +1,76 @@
+#pragma once
+#include "Extension/UI/Overlay/overlay.h"
+#include "mode_view.h"
+#include "mode_rules.h"
+#include <cstdint>
+#include <span>
+#include <string>
+#include <string_view>
+#include <vector>
+
+// ReSkate's game modes in the running game (rules: mode_rules.h). The game thread drives
+// everything: the session tick hands over who is here and what arrived, and the console's
+// `mode` command sets a game up. The local player's lines and bails come from what the
+// Trainer measures each tick; the HUD reads a snapshot from any thread.
+namespace dingosdk::modes {
+struct SessionPlayer {
+    std::uint64_t id{}; // Steam ID
+    std::string name;
+};
+struct SessionInput {
+    std::uint64_t local{};    // this player's Steam ID; 0 without a session (then playing alone)
+    std::string local_name;
+    std::vector<SessionPlayer> peers; // the other players in this world (never a dedicated server)
+    bool in_world{};          // the world is loaded and playing
+    std::uint64_t world{};    // changes whenever the map or world changes
+    bool barred{};            // the local player's mods change scoring: they cannot play
+};
+// Session tick (game thread): runs the local game and returns the messages to send to
+// every other player (dropped without a session).
+std::vector<std::vector<std::uint8_t>> tick(const SessionInput &input);
+// One game mode message from another player (game thread). False when the bytes are not one.
+bool receive(std::uint64_t sender, std::span<const std::uint8_t> message);
+// Lines for the local chat since the last call (game thread).
+std::vector<std::string> take_notices();
+// Infection: whether this other player is infected now, so their skater wears the reaper here
+// (game thread, from the session's outfit pass).
+bool infected_look(std::uint64_t player) noexcept;
+// Hide & Seek: whether this other player is hiding now, so their nametag, dot and chat bubbles
+// stay off (game thread).
+bool hidden_player(std::uint64_t player) noexcept;
+// `mode <verb> [arguments]` from the console dispatcher (game thread).
+// setup opens the native Throwdown creation page for any custom mode draft;
+// quit leaves immediately, while stop keeps the leader's results presentation.
+std::string command(std::string_view verb, const std::vector<std::string> &arguments);
+// The HUD's snapshot, with the latest camera (any thread).
+overlay::ModesHud hud();
+// What the ReSkate menu's Game Modes page shows (any thread).
+overlay::ModesMenu menu_view();
+struct NativeView {
+    bool active{}, leading{}, placing{};
+    bool pending_flag{}, flag_placed{}, waiting{};
+    std::uint64_t local{}, leader{}, world{};
+    std::uint32_t game{};
+    unsigned capacity=6;
+    bool route_finish{},cursor_valid{};
+    unsigned route_object=1;
+    Vec3 cursor{};
+    float cursor_yaw{},cursor_width=6.f;
+    Settings settings;
+    std::optional<Message> state;
+    std::string waiting_status;
+    std::vector<std::pair<std::uint64_t,std::string>> names;
+};
+NativeView native_view();
+void accept_race_start(std::uint64_t world, std::uint32_t game, const Vec3& at, float yaw);
+// The native flag callback only registers a matching draft's spawn. Starting
+// stays an explicit waiting-HUD hold action, dispatched on the client tick.
+void accept_native_start_flag(std::uint64_t world, std::uint32_t game, const Vec3& at, float yaw);
+bool request_native_start(std::uint64_t world, std::uint32_t game) noexcept;
+bool request_native_quit(std::uint64_t world, std::uint32_t game) noexcept;
+bool active() noexcept;
+bool internal_teleport() noexcept;
+bool countdown_locks_input() noexcept;
+bool placement_camera_requested() noexcept;
+bool restricts_session_markers() noexcept;
+} // namespace dingosdk::modes

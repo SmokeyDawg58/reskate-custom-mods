@@ -1,0 +1,562 @@
+Current candidate: solo exit and 1-Up marker controls (2026-10-09)
+---------------------------------------------------------------
+See ONE-UP-MATCH-CLEANUP-VALIDATION.txt for the installed candidate, its
+verified backup/hash, six passing checks and outstanding live checks.
+The solo S.K.A.T.E. candidate below was superseded after the user reported
+that stock solo challenges still locked the menu. The following iteration
+also replaced LeaveInProgressRequested with ForceDestroy; this current
+candidate preserves the original Leave request and its confirmation.
+
+Previous candidate: solo S.K.A.T.E. leave cleanup (2026-10-09)
+----------------------------------------------------------
+The previous installed build did start native S.K.A.T.E. with MaxPlayers 1:
+local player 0x2 joined server activity 0xb4b5f240 and the native setter turns
+ran. At 16:23:21.892 the server removed player 0x2 and sent the native leave
+confirmation. The client mirrored that removal at 16:23:21.929. The SDK's
+hosting flag stayed set because neither watched client end graph ran.
+This left UIPlayerInfo's Throwdown flags at 1/1 and locked the menu.
+
+The adapter now binds its ownership to the server activity confirmed by
+ThrowdownRegistration.QueueFilled. Confirmed removal of the owning player
+from that exact activity releases both hosting/joined flags. Other players,
+other activities, client replica addresses and old activity confirmations
+cannot clear a running challenge's ownership. Native end graphs and level
+teardown also reset the lifetime. Registration teardown at Start still
+does not count as activity completion. Only client queue creation acquires
+the hosting flag; the forwarded server event no longer acquires it again.
+
+Release DLL built successfully. All six checks passed:
+  native_throwdown_lifetime, one_up_rules_and_wire, one_up_coordinator,
+  one_up_flag_placement, native_menu_lifetime, throwdown_relay.
+The new lifetime regression replays the captured solo leave, then creates
+another challenge and rejects the first activity's late removal. It also
+checks joined queue cancellation, in-progress leave confirmation, missing
+identity resolved at Start, map teardown and 1-Up placeholder cleanup.
+Installed SHA256: DF0564B7FF99A2031AA10C9FE4541F6CA3592B09CE18D3CFFF84252AC729E56D
+Backup: E:\Games\ReSkate\ReSkate-OneUp-backups\native-results-936e5133d49d48d8946af005d818a6ed
+The launcher confirmed this DLL hash in the real installation (game PID
+16104). No challenge was started automatically. A fresh native S.K.A.T.E.
+start/leave/reopen cycle is still pending live verification. The tests
+exercise the ownership policy, not a rendered native menu interaction.
+
+Previous candidate: private 1-Up menus and stock solo starts (2026-10-09)
+---------------------------------------------------------------------
+S.K.A.T.E., Spot Battle and Skate Jam now declare MaxPlayers minimum 1 in
+ReSkate's native fallback parameter catalogue. Their native Players slider
+also accepts 1 while retaining its original model/backend bindings and
+existing maximum/default. The locally sent Update/HostSet queue parameters
+identify a one-player host queue. Only that queue can bypass the verified
+native CanStartThrowdown predicate's normal participant requirement;
+stock waiting controls, placement, scoring rules and start actions remain
+native. Queue creation/start/destruction and level changes clear the solo
+ownership flag. This is separate from 1-Up's private flag registration.
+
+1-Up now copies the mutable referenced UI models for its header, body,
+footer and mounted waiting notification. Styles remain borrowed read-only.
+Copies preserve cycles/sharing within the private graph. Setup publication
+happens after the full copy is prepared and rolls back on publication
+failure. Restoration checks ownership before replacing reused presenters.
+Rounds is removed only from the private 1-Up list. The existing elimination
+rules continue until the last player remains; the default turn is 20 seconds.
+Destroying the native registration flag no longer restores the Spot Battle
+waiting banner while the 1-Up match still owns its private presentation.
+Name/letter alignment now uses centered native labels in fixed-height rows.
+
+Release DLL built successfully. All five checks passed:
+  one_up_rules_and_wire, one_up_coordinator, one_up_flag_placement,
+  native_menu_lifetime, throwdown_relay.
+The menu test includes a shared-label graph, cyclic reference, repeated copy
+and fresh reopening to verify original-mode data remains untouched.
+Installed SHA256: A96781BC563EEFFBF891998A3C8FE9F30E701E068F14BFEF6F16A5FC034AC46F
+Backup: E:\Games\ReSkate\ReSkate-OneUp-backups\native-results-a408e48b666f4dc1b8c82599fd91f2e5
+The normal installed game was restarted and its launcher confirmed the new
+DLL loaded. No challenge was started automatically. Native menu appearance
+and an actual Players 1 start in each stock mode still need live verification;
+automated checks do not prove those interactions. Spawn facing, gameplay
+menu/marker restrictions and the native winner showcase are still pending
+from the earlier requests and are not completed by this candidate.
+
+Previous validation records
+===========================
+Current waiting-banner regression fix (2026-10-08)
+-------------------------------------------------
+The captured live secondary-notification stack mounted
+FoundationsNotificationViewModel (0xffb83e48), whose Content presenter then
+mounted NotificationViewModel (0x1053b9ec). The previous direct-handle filter
+excluded this live queue, losing both the embedded badge and 1-Up Start.
+The adapter now resolves that exact native wrapper chain, edits only its
+mounted waiting notification, and preserves the wrapper during compact
+Leave presentation and restoration. It still excludes registered templates.
+The participant decorator is now actually bound to its private 1-Up count.
+
+Release DLL rebuilt successfully. native_menu_lifetime passed, including
+the captured wrapped notification, compact Leave restoration, unrelated
+content and cyclic-wrapper rejection. one_up_coordinator passed, including
+Players 1 Start before flag arrival, readiness, countdown and timed turns.
+Installed DLL SHA256:
+F5498712BBA445B5CCD4BA7437B47D3520135B61DCB6C96BFA1EB557EA6198E4
+Post-restart live verification (game PID 25756):
+23:43:35.745: native flag handed to 1-Up, Players 1, turn 20 seconds.
+23:43:35.946: rendered queue HUD bound through its Foundations wrapper.
+23:43:39.428: native menu button dispatched the 1-Up action.
+23:43:39.444: Solo test started; turn 1 entered countdown.
+23:43:45.678: turn 1 began play; 20 seconds later it banked 4484 points.
+23:44:09.677: turn 2 countdown; subsequent play banked 5416 points.
+23:44:46.894: turn 3 began play without another Start command.
+The private 96x96 waiting-badge model 0x1760d0000 contains the embedded
+UI/ReSkate/OneUp/img_OneUp_Blue_1024 texture (read-only native capture).
+This confirms the texture binding, not a pixel-level screenshot review.
+One transient HUD-mount warning during turn-1 settling recovered within a
+second. Facing, gameplay input restrictions and native winner showcase
+remain separate outstanding work; this fix does not complete those items.
+
+Previous validation records
+---------------------------
+PRIOR CANDIDATE -- October 8, 2026: subsequent turns and owned card navigation
+===========================================================================
+The live log reproduces the user's stopped second turn: the social
+RequestTeleport wrapper returned UINT32_MAX on every on-board turn request.
+Initial flag-ready teleports through the local teleport manager succeeded.
+An initial turn beside the flag could therefore start without actually
+moving; later turns away from the flag failed their arrival check.
+
+The candidate restores the working local teleport manager and prepares the
+validated local skater component's native on-board option in both offline
+and multiplayer client ticks. Countdown presenters now hold immediately
+when feedback advances, until the next turn's teleport finishes.
+
+The 1-Up card has no unconditional SpotBattle NavigationId. Its callback
+reserves owned navigation, which the flag bridge publishes after any old
+native registration has finished cleanup. A finished/cancelled match is
+left before new setup opens. Rejected clicks cannot start ordinary Spot
+Battle. Reopening after cleanup retains the requested player and time values.
+
+Live verification on this candidate reached seven consecutive solo turns,
+including successful return-to-flag teleports and all three penalties. The
+native clock, GO art, name and penalty stamps render; an observed GO frame
+shows the local skater on the board. Strike-out/results rendering still needs
+visual verification. A first-open log also exposed an offline-to-host session
+identity change during native setup. The next revision retains setup ownership
+across that connection until flag placement is committed. Actual level teardown
+still abandons ownership and committed flags never rebind to another session.
+
+Regression coverage follows offline solo scoring through four turns, moving
+away from the flag and waiting for native arrival between turns, then earning
+all three penalties. Placement tests cover active-match rejection and one
+owned setup opening after cancelled-match flag cleanup.
+
+The previous native HUD candidate uses LinearList layouts, native counters,
+clock, stamps and scribble strokes, retained account names, and a native-widget
+results leaderboard. Native victory emotes/podium choreography are unfinished.
+No live multiplayer match has been verified. The final connection-identity
+revision requires live verification after installation.
+
+PREVIOUS CANDIDATE -- October 8, 2026: native clock, countdown and penalties
+=======================================================================
+The user's latest screenshot confirms the native score counter and embedded
+blue waiting badge render, but the countdown, turn timer and penalties were
+missing. A read-only capture of the installed HUD reproduced the cause:
+StackScreen had deactivated the title, clock and leaderboard, leaving only
+the counter combination visible. Its private score stack was horizontal.
+
+The HUD now uses vertical native StackComponent layouts, noninteractive
+items and the original counter/clock records. Each player has a native label
+and three native SmallNotice stamps for 1-U-P, using the game's blue focus
+and neutral default styles. The scoring rule still disables the multiplier;
+this patch does not change landed-trick scoring or elimination behavior.
+
+CountdownViewModel's times are Uint64 whole seconds. The prior publication
+wrote double bit patterns, which produced an invalid native formatted time.
+Captured stock Spot Battle data proves RemainingTime=0x1c displays "28s"
+with the external-clock path. The revised countdown and turn clock publish
+rounded-up seconds of the required type. Repeated frames with the same second
+do not republish it and restart the native number transition.
+
+The release build and all ten selected regression suites pass. New checks
+cover 3-second countdown rounding, the exact 28-second native capture, GO at
+zero, large values without overflow, and every earned penalty from zero to
+three. The tested DLL was installed, its SHA256 matched the built binary,
+and the real game was restarted with a verified previous-DLL backup.
+
+The new rendered timer, startup animation and penalty styles are not yet
+visually verified. Native model publication and unit tests are not proof of
+the renderer's appearance. No live two-player match has been tested.
+
+Earlier development findings below describe older candidates.
+=======================================================================
+
+PREVIOUS CANDIDATE -- October 8, 2026: bind the rendered gameplay HUD
+=================================================================
+The user reported that the previous candidate displayed no HUD despite
+successful widget-publication logs. Those logs were insufficient evidence
+of visibility. Captured running native Spot Battle data contains two
+HudViewModel roots: registered authored defaults first, then the rendered
+instance. The old code selected roots.front(), attaching 1-Up to the empty,
+inactive template. Its private authored score/leaderboard stacks also needed
+their IsActive state published by their owner.
+
+The current candidate selects an active HudViewModel containing game-owned
+compass/scoring/notification stacks, excludes empty authored defaults, and
+rebinds when the previous HUD retires. 1-Up items cannot make an empty
+template qualify as the live HUD. Private score/leaderboard stacks activate
+explicitly. Native fonts, counter widgets, countdown assets and layout remain
+in use. Logs identify the selected live root separately from publication.
+
+The release build and ten selected checks passed. Five new regression cases
+cover the actual captured template/live-root order, an earlier wrong binding,
+reversed registry order, inactive roots, and a replacement live HUD. The
+DLL was installed with a verified backup and ReSkate was launched. Rendered
+appearance is not verified by automated checks or by publication logs.
+
+Earlier development findings below describe older candidates.
+=================================================================
+
+PREVIOUS CANDIDATE -- October 8, 2026: native HUD asset-domain lookup
+=================================================================
+The installed offline solo repair started a real Players 1 attempt at
+16:47:11. Native landed events counted while that timed turn was armed.
+Disable Line Multiplier was enabled. The queue model was bound to 1-Up.
+This confirms the Start/scoring handoff, not the visual HUD or animation.
+
+The missing counters and countdown were traced with IDA, Ghidra and a
+read-only asset-registry inspection. TD_Hud_ContentResources and
+CountdownToGo_Widget are loaded in domains 7 and 11. The card's shared
+CategoryTile_Widget anchor is in parent domain 6, whose native lookup cannot
+search its child domains. The earlier bounded arena scan did not discover
+these assets; they were not actually absent from the loaded game.
+
+HUD lookup now starts from the retained embedded badge/category asset domain,
+then checks other loaded presenter domains. This keeps the original native
+records, widgets, animations and styles. Waiting-banner text/actions update
+before optional art resolution; the blue badge uses the game's Texture widget.
+All ten selected checks passed after this lookup change. The release DLL was
+installed with a verified backup and ReSkate was restarted.
+
+The new live attempt entered native Spot Battle flag placement at 17:11:16,
+handed its flag to 1-Up at 17:11:19, and started Players 1 at 17:11:21.
+The log then confirmed both the native animated 3-2-1/GO widget and the
+Spot Battle target/current counters, clock and native leaderboard mounted.
+No missing-HUD-resource warning was recorded in that attempt. The game
+subsequently performed an orderly level shutdown. Rendered appearance and
+the blue icon's displayed identity remain unverified; no screen was viewed
+or controlled. Multiplayer and native 1/U/P penalty styling remain pending.
+
+Earlier development findings below describe older candidates.
+=================================================================
+
+PREVIOUS CANDIDATE -- October 8, 2026: offline solo Start and flag ownership
+========================================================================
+Read-only inspection of the failed live attempt confirmed Players 1 was
+selected, but flag ownership had been cleared with "Flag placement ended
+because the session changed." No Steam multiplayer session existed. Native
+flag updates therefore stayed in the ordinary Spot Battle queue, explaining
+both the failed Start and the reverted waiting logo/title.
+
+Local practice now receives the real native skater ID, position and level
+generation without requiring a multiplayer connection. This input is isolated
+from the Steam relay and sends no network packets. Local ready/trick inputs
+use the match's rules directly; remote inputs keep their authenticated wire
+validation. Native flag ownership may bind to a late local capture through
+the placement phase. Players 1 does not auto-host a Steam session.
+
+An early Start press waits for arrival/readiness at the selected flag. Its
+new turn is published before teleport and countdown confirmation, preventing
+the countdown from being delayed until the next frame. The existing native
+waiting banner can then retain its 1-Up title, embedded blue badge and Start
+control rather than falling back to the ordinary Spot Battle waiting queue.
+
+Ten selected tests passed: rules/wire, coordinator, placement, loading,
+native menu browser/tools/lifetime, callback lifetime, relay and multiplayer
+mesh. The coordinator includes 69 checks, covering disconnected local
+practice, early Start, countdown input locking, immediate landed scoring,
+duplicate rejection, no network advertisement and map-change cleanup.
+The release DLL was built and installed with a verified backup. Live visual
+confirmation of the waiting badge and gameplay HUD remains pending.
+
+Earlier development findings below describe older candidates.
+========================================================================
+
+PREVIOUS CANDIDATE -- October 8, 2026: Players 1 and native HUD repair
+=================================================================
+Players now selects 1-6 in the native Throwdown slider and any legacy
+selector path. Config, placement, coordinator and wire validation accept 1.
+Players 1 routes ordinary Start into solo practice after flag readiness.
+Connected session peers cannot enroll in or cancel the selected solo game.
+Solo continues through timed turns until the real three penalties accrue.
+
+Nine selected automated tests passed: rules/wire, coordinator, placement,
+loading completion, native menu browser/tools/lifetime, callback lifetime
+and Throwdown relay.
+Tests cover one-player wire roundtrip, Start, capacity rejection, countdown
+input lock, immediate trick totals, and persistence when another peer joins.
+The release DLL was built and installed with a verified original backup.
+
+A missing OneUpBadge record was preventing waiting-HUD actions and the
+entire score-HUD update. The waiting logo now uses the native Texture model
+and embedded texture registry; waiting and score update failures are isolated.
+No custom ImGui gameplay HUD fallback is present. Live visual/startup checks
+are pending. Do not claim native startup animation or multiplayer is verified.
+
+Live Players 1 regression: the user confirmed it began skating, but it
+started Spot Battle instead of 1-Up. Native HostSet had MaxPlayers 1,
+which immediately filled the stock queue and entered its ordinary activity.
+The follow-up keeps only the owned flag registration's native queue open
+at the supported stock capacity. 1-Up retains its selected 1-6 capacity,
+readiness, timed turns and penalties. Ordinary Spot Battle is unaffected.
+The user confirmed this follow-up starts 1-Up; native landed events were
+armed during the timed attempt. The user reported no HUD or countdown.
+Existing Start/Leave actions are assigned before
+optional icon loading so missing art cannot block either input.
+
+Earlier HUD diagnosis: the bounded UI-arena scan did not find
+TD_Hud_ContentResources. A later direct registry inspection found it in
+child domains inaccessible to the original lookup anchor (see above).
+Exported imports alone do not load the owning bundle.
+The next candidate includes the unchanged stock HUD partition and required
+countdown/leaderboard blueprints in the fourth card's owning bundles.
+Its core bundle contains 12 verified files. Native countdown publication
+is independent of score/leaderboard initialization; either can recover
+from late resource availability without suppressing the other.
+This candidate's HUD appearance and animations require live verification.
+
+Earlier development findings below describe older candidates.
+=================================================================
+
+CURRENT CANDIDATE -- October 8, 2026: native controls and HUD widgets
+================================================================
+The previous build opens the real S.K.A.T.E. Throwdown setup (user verified).
+The latest candidate preserves its existing controls and changes the title,
+rules and blue badge. Players uses the original slider, limited to 2-6;
+Turn Timer uses its original slider, adjusted to 10-120 seconds in 10s steps.
+Optional badge lookup no longer prevents title or control changes.
+
+The delayed fourth card was traced to a 90-second level request timeout.
+The game was already playable, but a supplemental sublevel registry never
+reported BAM_LevelRoot. Completion now also accepts the exact requested
+WorldDescription with an initialized context and one controllable local
+player. Tests reject the splash, old worlds, incomplete loading and missing
+actors. Live timing on this candidate still needs confirmation.
+
+The user explicitly requested current multiplier scoring like Spot Battle.
+Eleven native landed sequence events (356, 1001, 2326, 3058, 1422, 1400,
+2341, 3037, 697, 2800, 80) total 18,518, matching the user's in-game LINE
+18,518 screenshot. Their points are already finalized native values; a
+second multiplier would double-count. Scoring remains immediate at landing.
+
+HUD candidate: the real HudViewModel.FullAspectRatioStack mounts an owned
+BasicNotice and CountdownToGo model. It uses native fonts and artwork and
+leaves the existing HUD items intact. The score panel sits on the left at
+18% screen height, above the stock trick history and multiplier. The native
+waiting header retains its icon; the custom sentence in that narrow icon
+slot was removed. A separately baked 240px fallback digit font avoids the
+previous enlargement of a 22px glyph. HUD appearance requires live QA;
+published models alone do not establish successful visual rendering.
+
+Live follow-up on October 8: the flag accepted its placement, native waiting
+HUD bound, and solo play captured landed scores. The first candidate stopped
+setup adaptation when it attempted to clone a primitive slider field; it now
+backs up the complete native slider. The TD_Hud round notice export was not
+resident, so the latest candidate constructs NoticeViewModel with the game's
+resident BasicNotice_Dark_Rough style and clones the live waiting countdown.
+The corrected candidate is installed; its visual result remains pending.
+
+The flag path retains the proven native location initializer and immediately
+hands off to flag placement. The flag supplies a spawn, not a scoring area.
+A speculative direct transition was removed after reviewing the previous
+live finding that this initializer is required.
+
+Automated: eight selected rules/wire, coordinator, flag placement, loading
+completion, native menu and callback lifetime tests passed on the final binary. The Release build succeeded. Live title, badge,
+sliders, countdown, HUD spacing and prompt card appearance remain pending.
+No second player is available for a live multiplayer match.
+
+Historical evidence follows; older candidates and UI paths are labeled below.
+CURRENT CANDIDATE -- October 7, 2026: official setup and total trick scoring
+=======================================================================
+Live follow-up: the first candidate did not show the fourth card. Reading the
+open card list and runtime log identified an unavailable shared list widget
+from the obsolete custom-panel construction. Card registration is now independent
+of setup widgets. Official setup styling is deferred until its native panel
+exists, and an optional styling error no longer releases the working card.
+The card was then confirmed visible, but its custom deferred click handler did
+not open setup. The regular S.K.A.T.E. card opens normally (user confirmed).
+Native HandleInteract bytecode executes the function callback and then processes
+NavigationId. The new candidate restores ThrowdownSkate on the 1-Up card and
+arms ownership synchronously before the native action, removing delayed replay.
+An unacknowledged setup entry expires safely without navigating out of an
+unrelated menu. Regression checks cover disconnected entry, binding to the
+hosted session, native Confirm, retry, and no duplicate navigation.
+All seven selected tests pass. Native panel appearance still requires live QA.
+
+Changes after the user's latest live feedback:
+- Card now opens and holds the actual ThrowdownSkate setup. Its existing
+  panel/anchors/Confirm flow stay in control; only 1-Up content is adapted.
+- Every native ScorableSequenceEnded success adds SequenceScore immediately.
+  Finalized line events remain diagnostic only and never add points again.
+- Turn total is additive, strict pre-zero scoring cutoff, bounded delivery.
+- Large visible 3-2-1 display; fixed native countdown's 8-byte time values.
+- Left HUD reserves bottom score-counter space; end notice expires after 5s.
+- 1-Up wire version 3 requires matching clients/server.
+Automated: all 7 selected rules/wire, coordinator, placement, native menu and
+relay checks passed on the total-score implementation. Build succeeded.
+Pending: live native event agreement, menu content/controls and flag transition,
+countdown appearance, HUD clearance and a real second-player match. No second
+player is available. Earlier live results below used the previous scoring path.
+
+1-Up validation -- 2026-10-07, Windows x64
+=========================================
+
+Current candidate changes
+-------------------------
+Players is limited to 2-6. The native flag registration remains alive after
+placement, with cleanup on leave/cancel/map change. Native Start is routed
+to 1-Up while it owns that queue; the native S.K.A.T.E. match does not start.
+The queue HUD is bound through its live NotificationViewModel, preserving
+its authored layout and controls. The countdown uses CountdownViewModel's
+documented external-time input. The previous card-domain template lookup
+failed in the real game and has been replaced with live-model lookup.
+The penalty tiles have independent fixed-size anchors. Scoring is unrestricted
+by the placement area. The native flag requires its location initializer;
+direct entry was rejected in a live test. The new handoff requests the flag
+immediately after that initializer completes, without a periodic UI delay.
+
+The user confirmed the prior candidate displayed the flag and accepted its
+placement, but briefly displayed the scoring-area picker first. The current
+immediate handoff, native HUD countdown rendering, penalty tiles and menu
+unlock/cleanup still require live confirmation. Model presence alone is not
+treated as proof that a widget renders or responds to input.
+
+Explicit "oneup solo" practice runs one actual skater through countdown,
+native scoring, target comparison and all three penalties. It is unavailable
+with connected peers and does not advertise itself as a competitive match.
+Tests cover normal two-player start remaining required, solo ready checks,
+no immediate one-player victory, actual tie/penalty handling, third-penalty
+termination, suppressed outgoing practice snapshots and ending when a peer
+joins. This is not evidence of a live two-PC match.
+
+Live trial on 2026-10-07 at 17:07 local time: the console accepted "oneup
+solo", the coordinator logged "Solo test started", and the native scoring
+adapter captured a finalized 2,388-point eligible line. The queue HUD bound
+to live NotificationViewModel 0x175940000 / type 0x1053b9ec. A logged timer
+type mismatch was traced with read-only memory inspection: TotalTime and
+RemainingTime are 8-byte float64, not float32. The latest candidate uses
+float64. The rendered countdown and full solo elimination need a live check.
+
+Build and earlier validation
+----------------------------
+Built successfully with Visual Studio 2022 v143 (MSVC 19.44), Windows SDK
+10.0.28000, C++20, Release, static CRT. Native targets use /W4 /WX.
+ReSkate.dll, ReSkateLauncher.exe and ReSkateServer.exe are included.
+The compiler emitted MSB8064 asset-path case warnings in this case-sensitive
+workspace; no compiler errors occurred. Binaries loaded in the real game.
+
+Automated checks
+----------------
+* one_up_rules_and_wire: passed. Higher score, tie, zero setter,
+  target resets, turn order, elimination, winner, bails retaining previous
+  completed score, bounded grace, delayed pre-expiry starts, stale/duplicate
+  lines, disconnects, rematch identities, authenticated snapshots, codec
+  truncations, nonfinite scores, reorder buffers and native graph contracts.
+* one_up_coordinator: passed using the actual coordinator source.
+  Includes a complete frame-by-frame host/guest input sequence, placement
+  confirmation, ready, countdown, native line delivery, five-second grace,
+  duplicate rejection, remote end-before-start, waiting/hiding flags, stale
+  local event rejection and map-change cleanup. Engine functions and clock
+  are controlled stubs in this test; it does not run the game renderer.
+* one_up_flag_placement: validates request eligibility, immediate native
+  handoff without overwriting unrelated navigation, retained registration,
+  no automatic start,
+  owned-queue-only cleanup, cancellation and stale/map-changed requests.
+* multiplayer_protocol: all checks passed, including 40,000 malformed/mutated
+  packets, the new envelope and invalid versions.
+* throwdown_relay: all existing checks passed, including Spot Battle,
+  Skate Jam, S.K.A.T.E., last-player/removal, coop and world transitions.
+* multiplayer_mesh: all existing checks passed for reliable host/guest
+  transport, malformed/wrong-world inputs, epochs, timeouts, eligibility
+  flags and other session behavior.
+* server_activity: all checks passed, including the added test preventing
+  1-Up envelopes from creating phantom legacy throwdown activities.
+* Installer: verified original DLL/launcher restored byte for byte. A later
+  modified DLL correctly made removal refuse to overwrite the new file.
+* native_menu_browser and native_menu_lifetime: existing checks passed.
+  These verify shared menu view and ownership helpers, not rendered 1-Up cards.
+
+Native gameplay evidence
+------------------------
+2026-10-09 stock solo Throwdown exit regression:
+The installed first cleanup build received native participant removal for
+player 2 from the exact running Spot Battle activity and cleared both SDK
+UIPlayerInfo ownership flags. The native leave confirmation reached the
+local client, but the user still reported a locked Throwdowns menu. Clearing
+SDK flags alone is therefore insufficient.
+
+The subsequent candidate replaces a stock Players 1 host's in-progress
+leave with ForceDestroyCurrentEvent while the host is still in that exact
+native activity. The game's event destruction should then retire the empty
+activity through its own lifecycle. Multiplayer sessions, guests, unknown
+identities and 1-Up's temporary flag picker retain their existing paths.
+The Release DLL built and all six relevant regression suites passed. These
+checks validate ownership and request scoping; live menu recovery with this
+candidate still requires verification and must not be described as proven.
+Installed candidate SHA256:
+  A4DFC29B2CAC7A4E7B0740E855463A2263F6B7BF048390DC29CC47631ECB09C6
+Previous DLL and launch log are backed up at:
+  E:\Games\ReSkate\ReSkate-OneUp-backups\native-results-c934150d62b6418aa2ad644ed09a24c0
+The game was restarted normally. Live verification was still pending while
+its startup merged the user's mods. A subsequent launcher session installed
+additional mods and started a fresh game process with this DLL; no solo
+challenge exit from this candidate had been observed at the final check.
+
+The real E:\Games\ReSkate installation loaded with its normal save/mods.
+The user confirmed playable skating. Scoring reflection resolved the
+ScorableLineEnded LineData offset 0, LineEndReason offset 40 and embedded
+ActiveScorableLine LineScore offset 0, type int32.
+
+The canonical start graph is ScoringTelemetryManager_Class__OnScorableLineStarted.
+The finalized listener is ScoringTelemetryManager_Class__OnScorableLineEnded.
+Compiled graph headers, input locations and reflection fields were read
+from the supported game's installed assets. OnStartLineTimer was excluded
+because restarting the timer is not the beginning of a new scoring line.
+
+The detailed real-game log recorded:
+  20:14:15.890 native line start: graph 0xa4d1121c
+  20:14:25.941 native line finalized: reason 1, score 22, eligible true
+The user independently reported "the line ended with 22". This verifies an
+exact finalized native score through timer expiry, without recalculation.
+
+The user then deliberately bailed. The detailed log recorded:
+  20:15:08.991 native line start: graph 0xa4d1121c
+  20:15:11.208 native line finalized: reason 7, score 840, eligible false
+The native failed line was discarded rather than banking its 840 points.
+The rule tests separately confirm an earlier completed line remains banked.
+
+This is actual game event capture, not simulated scoring. The adapter copies
+the game's LineScore once. It does not award points, read trick button presses
+or multiply scores. Only natural timer/stall finalization reasons qualify;
+teleport, activity/editor transitions, failed sequences and wipeouts do not.
+
+An isolated test copy could not reach usable skating, including with the
+original DLL. Testing therefore moved to the real installation with explicit
+user authorization and original DLL/launcher backups.
+
+Remaining validation and interface limits
+-----------------------------------------
+No second player was available. A complete live two-PC match has not been
+verified, on either a Steam lobby or dedicated server. The multiplayer state
+machine and transport simulations passed, but actual ready teleports, turn
+HUD layout, spectator behavior, late join/rematch and full winner flow need
+a live two-client trial. A large native multiplier/combo comparison and an
+in-game timer-expiry grace scenario also remain unverified. Linux server
+compilation was not run on this Windows machine.
+
+The native Throwdowns integration appends a fourth 1-UP card, uses native
+panel styles and selectors, and loads the approved blue 1UP badge mod. The
+user confirmed card persistence, readable labels, player selection, panel
+fit and removal of the small ImGui HUD on earlier builds. New native waiting
+and direct-placement behavior remain subject to the live checks above.
+The original modes passed relay regressions.
+
+Native binding is specific to Steam build 25414733. Future engine or asset
+changes require a fresh contract review. Protocol 43 requires matching
+custom clients and the included dedicated-server upgrade. Do not describe
+the automated checks as proof of a live multiplayer match.

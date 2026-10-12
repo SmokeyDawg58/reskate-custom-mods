@@ -1,0 +1,554 @@
+// A config written by an older server gains the settings added since, keeping its own values.
+#include "Server/server_config.h"
+#include "Extension/Multiplayer/Session/peer_slots.h"
+#include <algorithm>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+
+namespace {
+int failures{};
+void check(bool ok, const std::string &what) {
+    if (!ok) {
+        std::cerr << "FAIL: " << what << '\n';
+        ++failures;
+    }
+}
+std::string text(const std::filesystem::path &file) {
+    std::ifstream in(file, std::ios::binary);
+    std::stringstream s;
+    s << in.rdbuf();
+    return s.str();
+}
+} // namespace
+
+int run() {
+    using namespace dingosdk::server;
+    using dingosdk::valid_server_name;
+    const auto folder = std::filesystem::temp_directory_path() / "reskate_server_config_tests";
+    std::filesystem::remove_all(folder);
+    std::filesystem::create_directories(folder);
+    const auto file = folder / "ReSkateServer.json";
+    // No enforce_tuning, and a votes object without "seconds".
+    std::ofstream(file, std::ios::binary) << R"({"name": "Old Server", "tps": 60, "boosts": false,
+        "votes": {"map": {"enabled": true, "percent": 60}}})";
+
+    std::vector<std::string> added;
+    const auto config = load_config(file, &added);
+    const auto has = [&](std::string_view name) { return std::ranges::find(added, name) != added.end(); };
+    check(has("anti_cheat.enforce_tuning") && has("votes.seconds") && has("votes.kick") && has("anti_cheat.modified_scoring") && has("anti_cheat.allowed_scoring_mods") &&
+              has("access.use_global_bans") && has("maps.pool") && has("maps.rotation_minutes"),
+          "New settings not reported");
+    // A setting under its old name is read, written back under its new one, and not called new.
+    check(!has("players.allow_boosts") && has("players.allow_noclip"), "A renamed setting was reported as new, or a new one was not");
+    check(!has("server.name") && !has("tps") && !has("votes.map"), "Settings the file had reported as new");
+    // Settings added after 2.0.0's votes: each vote's own limits, polls, custom votes, announcements.
+    check(has("votes.map.seconds") && has("votes.map.min_players") && has("votes.polls") && has("votes.custom") &&
+              has("announcements.messages") && has("announcements.interval_minutes") && has("commands"),
+          "The new vote and announcement settings were not reported");
+    // Park mods came after commands.
+    check(has("maps.park_mods") && has("maps.park_limits") && config.park_mods.empty() && config.park_limits.parks == 3 &&
+              config.park_limits.objects == 512,
+          "park_mods and park_limits are not new settings with their defaults");
+    const auto written = text(file);
+    check(written.find("\"enforce_tuning\"") != std::string::npos && written.find("\"seconds\"") != std::string::npos,
+          "New settings not written into the file");
+    check(config.name == "Old Server" && config.tps == dedicated_tps /* fixed: the file's 60 is not kept */ && !config.boosts && config.votes.map.enabled &&
+              config.votes.map.percent == 60 && config.enforce_tuning && config.global_bans,
+          "The file's own values or the new defaults were lost");
+    const auto reloaded = load_config(file);
+    check(reloaded.name == "Old Server" && !reloaded.boosts && reloaded.votes.map.percent == 60, "Values lost on rewrite");
+
+    // steam_token: empty (anonymous) unless set, kept on a rewrite, and only letters and digits.
+    // (The maps are not loaded yet, so config_error has another complaint: look for this one.)
+    const auto token_refused = [](const ServerConfig &c) { return config_error(c).find("steam_token") != std::string::npos; };
+    check(has("server.steam_token") && config.steam_token.empty() && !token_refused(config), "steam_token is not a new, empty setting");
+    auto tokened = reloaded;
+    tokened.steam_token = "0123456789ABCDEF0123456789ABCDEF";
+    save_config(tokened);
+    check(load_config(file).steam_token == tokened.steam_token && !token_refused(tokened), "steam_token was not kept");
+    tokened.steam_token = "not a token";
+    check(token_refused(tokened), "A steam_token with other characters was accepted");
+    tokened.steam_token = std::string(65, 'A');
+    check(token_refused(tokened), "An overlong steam_token was accepted");
+    {
+        check(has("network.crowd_budget") && config.crowd_budget == 600, "crowd_budget is not a new setting of 600");
+        check(has("network.send_rate") && config.send_rate == 900, "send_rate is not a new setting of 900");
+        ServerConfig rate;
+        rate.send_rate = 64;
+        check(config_error(rate).find("send_rate") != std::string::npos, "A send rate too low to play with was accepted");
+        check(has("anti_cheat.bone_scale_limit") && config.bone_scale_limit == 2, "bone_scale_limit is not a new setting of 2");
+        ServerConfig scaled;
+        scaled.bone_scale_limit = 0.5f;
+        check(config_error(scaled).find("bone_scale_limit") != std::string::npos, "A bone scale limit under 1 was accepted");
+        check(has("anti_cheat.bone_reach_limit") && config.bone_reach_limit == 1, "bone_reach_limit is not a new setting of 1");
+        ServerConfig reached;
+        reached.bone_reach_limit = 0.1f;
+        check(config_error(reached).find("bone_reach_limit") != std::string::npos, "A bone reach limit under half a metre was accepted");
+        check(has("network.pack_ms") && config.pack_ms == 10, "pack_ms is not a new setting of 10");
+        check(has("network.threads") && config.threads == 0, "threads is not a new setting of 0");
+        check(has("network.finger_distance") && config.finger_distance == 25, "finger_distance is not a new setting of 25");
+        check(has("network.use_steam_relay") && config.use_steam_relay, "use_steam_relay is not a new setting of true");
+        ServerConfig crowd;
+        crowd.crowd_budget = 50;
+        check(config_error(crowd).find("crowd_budget") != std::string::npos, "A crowd budget too small to play with was accepted");
+    }
+    // Reserved slots: beyond max_players, for the listed players and the admins only.
+    {
+        check(has("access.reserved_players_slots") && config.reserved.empty(), "Reserved slots are not a new setting that reserves nothing");
+        ServerConfig slots;
+        slots.max_players = 4;
+        const std::uint64_t vip = 76561198000000001ULL, admin = 76561198000000002ULL, anyone = 76561198000000003ULL;
+        check(may_join(slots, anyone, 3) && !may_join(slots, anyone, 4) && !may_join(slots, vip, 4) && extra_slots(slots) == 0,
+              "A server with nothing reserved did not fill up plainly");
+        // Nothing is held back from anyone; the listed players and the admins have a slot each past the last.
+        const std::uint64_t vip2 = 76561198000000004ULL;
+        slots.reserved = {vip, vip2};
+        slots.roles = default_roles();
+        slots.roles.players = {{admin, "admin"}, {vip, "vip"}, {anyone, "muted"}}; // vip is listed twice: one slot
+        check(extra_slots(slots) == 3, "Extra slots were not one for each reserved player and each role with a slot");
+        check(may_join(slots, anyone, 3) && !may_join(slots, anyone, 4) && !may_join(slots, anyone, 6), "An extra slot was given to anyone, or a slot was held back");
+        check(may_join(slots, vip, 4) && may_join(slots, admin, 5) && may_join(slots, vip2, 6), "A reserved player or an admin was kept out of a full server");
+        check(!may_join(slots, vip, 7) && !may_join(slots, admin, 7), "More joined than there are extra slots");
+        ServerConfig brim;
+        brim.max_players = static_cast<unsigned>(dingosdk::multiplayer::max_players) - 2;
+        brim.reserved = {vip, vip2};
+        check(extra_slots(brim) == 1 && may_join(brim, vip, brim.max_players) && !may_join(brim, vip2, brim.max_players + 1),
+              "Extra slots went past what a session can hold");
+        const auto refused = [](const ServerConfig &c) { return config_error(c).find("reserved") != std::string::npos; };
+        check(!refused(slots), "Valid reserved slots were refused");
+        slots.reserved = {vip, 42};
+        check(refused(slots), "A reserved entry that is not a player was accepted");
+        auto kept = reloaded;
+        kept.reserved = {vip};
+        save_config(kept);
+        const auto back = load_config(file);
+        check(back.reserved == std::vector<std::uint64_t>{vip} && text(file).find("\"reserved_slots\"") == std::string::npos, "Reserved slots were not kept");
+        save_config(reloaded);
+    }
+    // object_limit: 100 unless set (0 is no limit), and kept on a rewrite.
+    check(has("players.object_limit") && config.object_limit == 100, "object_limit is not a new setting of 100");
+    auto limited = reloaded;
+    limited.object_limit = 50;
+    save_config(limited);
+    check(load_config(file).object_limit == 50, "object_limit was not kept");
+    limited.object_limit = 0;
+    save_config(limited);
+    check(load_config(file).object_limit == 0, "No object limit became the default again");
+    save_config(reloaded);
+
+    // Server names: letters, digits, spaces and - _ / [ ] ( ) only.
+    check(valid_server_name("Old Server") && valid_server_name("[EU] Skate_Park-2 (24x7)") && valid_server_name("a") &&
+              valid_server_name("EU/West 24/7") && !valid_server_name("///") && !valid_server_name("a\\b"),
+          "A plain server name was refused");
+    check(!valid_server_name("") && !valid_server_name(std::string(65, 'a')) && !valid_server_name("Best! Server") &&
+              !valid_server_name("caf\xC3\xA9") && !valid_server_name("a.b") && !valid_server_name("<b>x</b>") &&
+              !valid_server_name(" padded") && !valid_server_name("padded ") && !valid_server_name("[]--()") &&
+              !valid_server_name("two\nlines"),
+          "A server name with other characters was accepted");
+
+    // An up-to-date file is left alone.
+    const auto before = std::filesystem::last_write_time(file);
+    added.clear();
+    static_cast<void>(load_config(file, &added));
+    check(added.empty() && std::filesystem::last_write_time(file) == before, "A complete config was rewritten");
+
+    // The scoring check: its mode and the accepted fingerprints survive a save, and bad entries are dropped.
+    check(reloaded.score_check == "warn" && reloaded.score_allow.empty(), "Scoring check defaults wrong");
+    auto scoring = reloaded;
+    scoring.score_check = "kick";
+    scoring.score_allow = {0x00c0ffee12345678ULL, 0xffffffffffffffffULL};
+    save_config(scoring);
+    const auto saved = load_config(file);
+    check(saved.score_check == "kick" && saved.score_allow == scoring.score_allow, "Scoring check settings lost");
+    check(scoring_text(0x00c0ffee12345678ULL) == "00c0ffee12345678", "Fingerprint not written as 16 hex digits");
+    check(parse_scoring("00C0FFEE12345678") == 0x00c0ffee12345678ULL && !parse_scoring("0") && !parse_scoring("xyz") &&
+              !parse_scoring("123456789abcdef01"),
+          "Fingerprint text not read back, or a bad one accepted");
+    std::ofstream(file, std::ios::binary) << R"({"score_check": "ban", "score_allow": ["nothex", "0", "abc"]})";
+    const auto odd = load_config(file);
+    check(odd.score_check == "warn" && odd.score_allow == std::vector<std::uint64_t>{0xabc}, "Bad scoring settings not cleaned");
+
+    // A config from before the sections: every setting is read from where it was, under the name
+    // it had, and the file is written back in sections, in reading order, with nothing called new
+    // that was only moved.
+    {
+        std::ofstream(file, std::ios::binary) << R"({"name": "Flat", "no_bail": false, "score_check": "kick", "score_allow": ["abc"],
+            "speed_check": "off", "map": "Isle of Grom", "map_pool": ["Isle of Grom"], "map_rotation_minutes": 30, "welcome": "Hi",
+            "admins": ["76561198000000002"], "reserved": ["76561198000000001"], "reserved_slots": 2, "tps": 30, "global_bans": false,
+            "voice_chat": false, "send_rate": 700, "distances": {"half_rate_start": 70}, "parks": {"financial": "empty"},
+            "votes": {"map": {"enabled": false, "percent": 40}, "kick": {"enabled": true, "percent": 60},
+                      "time_of_day": {"enabled": true, "percent": 50}, "seconds": 30, "cooldown_seconds": 60}})";
+        std::vector<std::string> fresh;
+        const auto flat = load_config(file, &fresh);
+        check(flat.name == "Flat" && !flat.no_bail && flat.score_check == "kick" && flat.score_allow == std::vector<std::uint64_t>{0xabc} &&
+                  flat.speed_check == "off" && flat.map == "Isle of Grom" && flat.map_pool.size() == 1 && flat.map_rotation == 30 && flat.welcome == "Hi" &&
+                  flat.roles.players.size() == 1 && flat.roles.given(76561198000000002ULL) &&
+                  flat.roles.given(76561198000000002ULL)->name == "admin" && flat.reserved.size() == 1 && !flat.global_bans && !flat.voice_chat && flat.send_rate == 700 &&
+                  flat.distances.half_rate_start == 70 && !flat.votes.map.enabled && flat.votes.map.percent == 40,
+              "A config from before the sections lost a setting");
+        const auto fresh_has = [&](std::string_view name) { return std::ranges::find(fresh, name) != fresh.end(); };
+        check(!fresh_has("players.allow_no_bail") && !fresh_has("anti_cheat.modified_scoring") && !fresh_has("maps.pool") && !fresh_has("server.name") &&
+                  fresh_has("network.pack_ms"),
+              "A moved setting was called new, or a new one was not");
+        const auto now = text(file);
+        const auto at = [&](std::string_view what) { return now.find(what); };
+        check(at("\"server\"") < at("\"access\"") && at("\"access\"") < at("\"maps\"") && at("\"maps\"") < at("\"players\"") &&
+                  at("\"players\"") < at("\"anti_cheat\"") && at("\"anti_cheat\"") < at("\"network\"") && at("\"network\"") < at("\"votes\"") &&
+                  at("\"votes\"") != std::string::npos && at("\"name\"") < at("\"password\"") && at("\"password\"") < at("\"welcome_message\""),
+              "The config was not written in sections, in reading order");
+        check(at("\"no_bail\"") == std::string::npos && at("\"tps\"") == std::string::npos && at("\"score_check\"") == std::string::npos &&
+                  at("\"reserved_slots\"") == std::string::npos && at("\"modified_scoring\": \"kick\"") != std::string::npos,
+              "Old names were left in the config");
+        std::vector<std::string> again;
+        const auto back = load_config(file, &again);
+        check(again.empty() && back.name == "Flat" && !back.no_bail && back.score_check == "kick" && back.map_pool.size() == 1 && back.reserved.size() == 1 &&
+                  back.distances.half_rate_start == 70 && !back.votes.map.enabled && text(file) == now,
+              "A config in sections did not read back as it was written");
+        std::filesystem::remove_all(folder / "data");
+    }
+    // The away timer: off unless set, and no more than a day.
+    {
+        ServerConfig away;
+        check(away.afk_kick == 0 && config_error(away).find("afk_kick_minutes") == std::string::npos, "The away timer is not off by default");
+        away.file = folder / "away.json";
+        away.afk_kick = 15;
+        save_config(away);
+        check(load_config(away.file).afk_kick == 15, "The away timer was not kept");
+        away.afk_kick = 1441;
+        check(config_error(away).find("afk_kick_minutes") != std::string::npos, "An away timer over a day was accepted");
+        ServerConfig words;
+        check(words.word_warnings == 3 && config.word_warnings == 3, "word_warnings is not 3 unless set");
+        words.word_warnings = 11;
+        check(config_error(words).find("word_warnings") != std::string::npos, "More than ten word warnings were accepted");
+        std::filesystem::remove_all(folder / "data");
+    }
+    // Skater effects: shared unless turned off, and kept in the file.
+    {
+        ServerConfig plain;
+        check(plain.sync_effects, "Skater effects are not shared by default");
+        plain.file = folder / "plain.json";
+        plain.sync_effects = false;
+        save_config(plain);
+        check(!load_config(plain.file).sync_effects && text(plain.file).find("\"sync_effects\": false") != std::string::npos,
+              "The skater effects setting was not kept");
+        std::filesystem::remove_all(folder / "data");
+    }
+    // Object scaling: allowed unless turned off, and kept in the file.
+    {
+        ServerConfig sized;
+        check(sized.object_scaling, "Object scaling is not allowed by default");
+        sized.file = folder / "sized.json";
+        sized.object_scaling = false;
+        save_config(sized);
+        check(!load_config(sized.file).object_scaling && text(sized.file).find("\"allow_object_scaling\": false") != std::string::npos,
+              "The object scaling setting was not kept");
+        std::filesystem::remove_all(folder / "data");
+    }
+    // The server's chat colours: violet and lavender unless set, red first as written.
+    {
+        ServerConfig colours;
+        check(colours.chat_color == "#8E5CFF" && parse_colour(colours.chat_color) == 0xffff5c8eU && parse_colour("d9c8ff") == 0xffffc8d9U,
+              "The default chat colours are not violet and lavender");
+        check(!parse_colour("#12345") && !parse_colour("#12345G") && !parse_colour("") && !parse_colour("#1234567"), "A bad colour was read");
+        colours.chat_text_color = "blue";
+        check(config_error(colours).find("chat_text_color") != std::string::npos, "A chat colour that is not one was accepted");
+    }
+    // Bans have a file of their own; a config that still holds them has them moved there.
+    {
+        std::filesystem::remove_all(folder / "data");
+        std::ofstream(file, std::ios::binary) << R"({"name": "Old", "bans": [{"id": "76561198000000001", "name": "A", "added": 5}]})";
+        auto old = load_config(file);
+        check(old.bans.size() == 1 && old.bans[0].id == 76561198000000001ULL && old.bans[0].name == "A", "An old config's bans were not read");
+        std::stringstream now;
+        now << std::ifstream(file, std::ios::binary).rdbuf();
+        check(std::filesystem::exists(bans_file(old)) && now.str().find("\"bans\"") == std::string::npos, "Bans were not moved to data/bans.json");
+        old.bans.push_back({76561198000000002ULL, "B", 6});
+        save_config(old);
+        const auto again = load_config(file);
+        check(again.bans.size() == 2 && again.bans[1].name == "B" && again.bans[1].added == 6, "Bans were not kept in their own file");
+        std::ofstream(bans_file(old), std::ios::binary) << "{not a list";
+        bool refused_bans{};
+        try {
+            static_cast<void>(load_config(file));
+        } catch (const std::exception &) {
+            refused_bans = true;
+        }
+        check(refused_bans, "A server started without its bans");
+        std::filesystem::remove_all(folder / "data");
+    }
+    // A port outside 1-65535 is refused, not wrapped to another port, and the file keeps the typo.
+    const auto refused = [&](const char *json) {
+        std::ofstream(file, std::ios::binary) << json;
+        try {
+            static_cast<void>(load_config(file));
+        } catch (const std::exception &) {
+            return text(file) == json;
+        }
+        return false;
+    };
+    check(refused(R"({"query_port": 70000})") && refused(R"({"port": 65536})") && refused(R"({"port": 0})"),
+          "An out-of-range port was accepted or the file rewritten");
+    std::ofstream(file, std::ios::binary) << R"({"port": 65535, "query_port": 1})";
+    const auto edges = load_config(file);
+    check(edges.port == 65535 && edges.query_port == 1, "Ports at the ends of the range refused");
+
+    static_cast<void>(load_levels(folder / "Mods")); // no Mods folder: the retail maps only
+    {
+        // Only maps the server has: the game's own always, a custom one once its mod is in Mods.
+        ServerConfig elsewhere;
+        elsewhere.map = "Levels/Game/NotHere/NotHere";
+        check(config_error(elsewhere).find("not a map this server has") != std::string::npos && !installed_map(elsewhere.map),
+              "A map the server does not have was accepted");
+        check(installed_map("Isle of Grom") && installed_map("Levels/Game/DingoLevel_MPR/DingoLevel_MPR"), "One of the game's own maps was refused");
+    }
+    ServerConfig pool;
+    check(pool_levels(pool).size() == levels().size() && in_map_pool(pool, "Stadium 2"),
+          "An empty pool does not allow every map");
+    pool.map_pool = {"Isle", "Isle of Grom", "San Vansterdam", "Stadium 1"};
+    check(pool_levels(pool).size() == 3, "Pool maps not resolved once each");
+    check(in_map_pool(pool, "San Vansterdam") && in_map_pool(pool, "Levels/Game/DingoLevel_SDM/DingoLevel_SDM_Int_001/DingoLevel_SDM_Int_001") &&
+              !in_map_pool(pool, "Super Ultra Mega Resort") && !in_map_pool(pool, "Nowhere"),
+          "Pool membership wrong");
+    const auto next = [&](std::string_view map) {
+        const auto *level = next_pool_map(pool, map);
+        return level ? level->name : std::string{};
+    };
+    check(next("Isle of Grom") == "San Vansterdam" && next("Stadium 1") == "Isle of Grom" &&
+              next("Super Ultra Mega Resort") == "Isle of Grom",
+          "Rotation does not follow the pool's order");
+    pool.map_pool = {"Isle of Grom"};
+    check(next("Isle of Grom").empty() && next("San Vansterdam") == "Isle of Grom", "A one-map pool rotated to itself");
+    check(config_error(pool).empty(), "A valid pool refused");
+    pool.map_pool = {"Isle of Grom", "Nowhere"};
+    check(!config_error(pool).empty(), "An unknown pool map accepted");
+    pool.map_pool = {"Isle of Grom", "Stadium 1"};
+    pool.map_rotation = 15;
+    pool.file = file;
+    save_config(pool);
+    const auto rotating = load_config(file);
+    check(rotating.map_pool == pool.map_pool && rotating.map_rotation == 15, "Map pool or rotation lost on save");
+    std::ofstream(file, std::ios::binary) << R"({"map_pool": ["Isle of Grom", 7, ""], "map_rotation_minutes": 5000})";
+    const auto odd_pool = load_config(file);
+    check(odd_pool.map_pool == std::vector<std::string>{"Isle of Grom"} && odd_pool.map_rotation == 1440,
+          "Bad pool entries kept, or rotation not capped");
+
+    // Each vote's own limits, polls, custom votes and announcements are kept on a rewrite.
+    check(config.votes.polls == "admins" && config.votes.poll_seconds == 60 && config.votes.starter_votes_yes &&
+              config.votes.map.min_players == 1 && config.votes.custom.empty() && config.commands.empty(),
+          "The new vote settings do not start at their defaults");
+    {
+        auto voting = pool;
+        voting.votes.kick.seconds = 45;
+        voting.votes.kick.min_players = 4;
+        voting.votes.polls = "everyone";
+        voting.votes.custom = {{"restart", "Reload the current map", "map {map}", {}, {true, 70}},
+                               {"noclip", "Allow noclip", "noclip {arg}", {"on", "off"}, {false, 55, 20, 0, 3}}};
+        voting.announcements = {{"Welcome to the server!", "Join our Discord"}, 15};
+        voting.commands = {{"discord", "Join us: discord.gg/reskate", {}, false},
+                           {"rules", {}, {"announce-to {player} No griefing!", "say {arg}"}, false},
+                           {"restart", "Reloading...", {"map {map}"}, true}};
+        check(config_error(voting).empty(), "Valid custom votes, announcements and commands refused");
+        save_config(voting);
+        const auto back = load_config(file);
+        check(back.votes.kick.seconds == 45 && back.votes.kick.min_players == 4 && back.votes.polls == "everyone",
+              "Vote settings lost on save");
+        check(back.votes.custom.size() == 2 && back.votes.custom[0].name == "restart" && back.votes.custom[0].command == "map {map}" &&
+                  back.votes.custom[0].setting.percent == 70 && back.votes.custom[1].choices == std::vector<std::string>{"on", "off"} &&
+                  !back.votes.custom[1].setting.enabled && back.votes.custom[1].setting.seconds == 20 &&
+                  back.votes.custom[1].setting.min_players == 3,
+              "Custom votes lost on save");
+        check(back.announcements.messages == voting.announcements.messages && back.announcements.interval == 15,
+              "Announcements lost on save");
+        check(back.commands.size() == 3 && back.commands[0].name == "discord" && back.commands[0].reply == "Join us: discord.gg/reskate" &&
+                  back.commands[0].commands.empty() && !back.commands[0].admin &&
+                  back.commands[1].commands == voting.commands[1].commands && back.commands[2].admin,
+              "Custom commands lost on save");
+        const auto refused_custom = [&](auto change, const char *what) {
+            auto bad = voting;
+            change(bad);
+            check(!config_error(bad).empty(), what);
+        };
+        refused_custom([](ServerConfig &c) { c.votes.custom[0].name = "map"; }, "A custom vote named like a built-in one accepted");
+        refused_custom([](ServerConfig &c) { c.votes.custom[0].name = "Restart!"; }, "A custom vote name with capitals and marks accepted");
+        refused_custom([](ServerConfig &c) { c.votes.custom[0].name = "list"; }, "A custom vote named like /vote list accepted");
+        refused_custom([](ServerConfig &c) { c.votes.custom[0].name = "2"; }, "A custom vote named like a poll answer accepted");
+        refused_custom([](ServerConfig &c) { c.votes.custom[1].name = "restart"; }, "Two custom votes with one name accepted");
+        refused_custom([](ServerConfig &c) { c.votes.custom[0].command.clear(); }, "A custom vote without a command accepted");
+        refused_custom([](ServerConfig &c) { c.votes.custom[1].choices.clear(); }, "{arg} without choices accepted");
+        refused_custom([](ServerConfig &c) { c.votes.custom[0].choices = {"a"}; }, "Choices without {arg} accepted");
+        refused_custom([](ServerConfig &c) { c.votes.custom[1].choices = {"on now"}; }, "A choice with a space accepted");
+        refused_custom([](ServerConfig &c) { c.announcements.messages = {std::string(201, 'a')}; }, "An announcement over one chat line accepted");
+        refused_custom([](ServerConfig &c) { c.votes.custom.resize(17, c.votes.custom[0]); }, "More than 16 custom votes accepted");
+        refused_custom([](ServerConfig &c) { c.commands[0].name = "kick"; }, "A custom command named like a server command accepted");
+        refused_custom([](ServerConfig &c) { c.commands[0].name = "party"; }, "A custom command named like a chat command accepted");
+        refused_custom([](ServerConfig &c) { c.commands[0].name = "Discord"; }, "A custom command name with capitals accepted");
+        refused_custom([](ServerConfig &c) { c.commands[1].name = "discord"; }, "Two custom commands with one name accepted");
+        refused_custom([](ServerConfig &c) { c.commands[0].reply.clear(); }, "A custom command with no reply or command accepted");
+        refused_custom([](ServerConfig &c) { c.commands[0].reply = std::string(201, 'a'); }, "A custom reply over one chat line accepted");
+        refused_custom([](ServerConfig &c) { c.commands[0].name = "teleport"; }, "A custom command named teleport accepted");
+        // A vote written in by hand needs only its name and command; nonsense is evened out.
+        std::ofstream(file, std::ios::binary) << R"({"votes": {"polls": "sometimes", "poll_seconds": 5000,
+            "custom": [{"name": "restart", "command": "map {map}", "percent": 500}]},
+            "announcements": {"messages": ["hi", "", 3], "interval_minutes": 99999, "card": false},
+            "commands": [{"name": "discord", "reply": "hi", "command": "say hello"}]})";
+        const auto hand = load_config(file);
+        check(hand.votes.polls == "admins" && hand.votes.poll_seconds == 600 && hand.votes.custom.size() == 1 &&
+                  hand.votes.custom[0].setting.enabled && hand.votes.custom[0].setting.percent == 100 &&
+                  hand.announcements.messages == std::vector<std::string>{"hi"} && hand.announcements.interval == 1440 &&
+                  hand.commands.size() == 1 && hand.commands[0].commands == std::vector<std::string>{"say hello"},
+              "A hand-written custom vote, announcement list or command was not read sensibly");
+    }
+
+    // Roles: the ones a server starts with, what each comes to, and the file they are kept in.
+    {
+        using namespace dingosdk::multiplayer;
+        const auto roles = default_roles();
+        check(roles_error(roles).empty() && roles.default_role == "player" && roles.find("admin") && roles.find("moderator") &&
+                  roles.find("vip") && roles.find("muted"), "The default roles are not valid");
+        const std::uint64_t boss = 76561198000000002ULL, mod = 76561198000000005ULL, quiet = 76561198000000006ULL, nobody = 76561198000000007ULL;
+        auto held = roles;
+        held.players = {{boss, "admin"}, {mod, "moderator"}, {quiet, "muted"}};
+        // Everybody given no role is a player: chat, votes, parties and private messages, no commands.
+        const auto *player = held.of(nobody);
+        check(player && player->name == "player" && !held.given(nobody) && !staff(player) && !allows(player, "kick") && !allows(player, "help") &&
+                  may(player, role_chat) && may(player, role_votes) && may(player, role_parties) && may(player, role_whisper) &&
+                  !(player->granted & role_reserved_slot), "A player given no role is not the default role");
+        // A role has the default role's as well as its own; one that does not inherit has only its own.
+        const auto *moderator = held.of(mod);
+        check(moderator && staff(moderator) && allows(moderator, "kick") && allows(moderator, "help") && allows(moderator, "roles") &&
+                  allows(moderator, "role") && !allows(moderator, "map") && !allows(moderator, "reserved") && may(moderator, role_chat) &&
+                  (moderator->granted & role_alerts), "The moderator role does not come to what it lists and what a player has");
+        const auto *muted = held.of(quiet);
+        check(muted && !may(muted, role_chat) && !may(muted, role_whisper) && may(muted, role_votes) && !staff(muted), "The muted role can talk");
+        // Every command, but who has a slot or a role only when listed; the menu's names for commands count.
+        const auto *admin = held.of(boss);
+        check(admin && allows(admin, "map") && allows(admin, "voice-allow") && allows(admin, "role") && allows(admin, "reserved") &&
+                  admin->rank > moderator->rank && moderator->rank > player->rank, "The admin role does not have every command");
+        auto star = roles;
+        star.list.push_back({});
+        star.list.back().name = "helper";
+        star.list.back().all_commands = true;
+        star.settle();
+        check(allows(star.find("helper"), "kick") && !allows(star.find("helper"), "role") && !allows(star.find("helper"), "reserved"),
+              "\"*\" gave out the commands only a listing gives");
+        // A server with no default role, and a player with none: as it always was.
+        auto bare = roles;
+        bare.default_role.clear();
+        bare.settle();
+        check(!bare.of(nobody) && may(bare.of(nobody), role_chat) && !allows(bare.of(nobody), "kick") && !(bare.find("moderator")->granted & role_chat),
+              "A server without a default role does not leave players as they were");
+        // The file: written and read back the same, and wrong_roles when it is wrong.
+        const auto back = read_roles(roles_text(held));
+        check(back.default_role == held.default_role && back.players == held.players && back.list.size() == held.list.size() &&
+                  back.find("moderator")->commands == held.find("moderator")->commands && back.find("moderator")->granted == moderator->granted &&
+                  !back.find("muted")->inherit && back.find("admin")->all_commands && back.find("vip")->tag == "VIP",
+              "The roles file did not read back as written");
+        const auto wrong_roles = [](std::string_view json) {
+            try { (void)read_roles(json); } catch (const std::exception &) { return true; }
+            return false;
+        };
+        check(!wrong_roles(R"({"roles": [{"name": "helper", "tag": "Helper", "color": "#00FF00", "rank": 5, "commands": ["kick", "voice-allow"], "permissions": ["chat"]}],
+                          "default_role": "helper", "players": {"76561198000000002": "helper"}})"), "A valid roles file was wrong_roles");
+        check(read_roles(R"({"roles": [{"name": "helper", "commands": ["voice-allow", "*"]}]})").list[0].commands == std::vector<std::string>{"voice"},
+              "A command's menu name was not read as the command");
+        check(wrong_roles(R"({"roles": [{"name": "Helper"}]})") && wrong_roles(R"({"roles": [{"name": "none"}]})") &&
+                  wrong_roles(R"({"roles": [{"name": "a"}, {"name": "a"}]})"), "A role with a bad name was accepted");
+        check(wrong_roles(R"({"roles": [{"name": "a", "tag": "Server"}]})") && wrong_roles(R"({"roles": [{"name": "a", "tag": "content creator"}]})") &&
+                  wrong_roles(R"({"roles": [{"name": "a", "tag": "12345678901234567"}]})"), "A tag the game uses itself, or too long a one, was accepted");
+        check(wrong_roles(R"({"roles": [{"name": "a", "permissions": ["fly"]}]})") && wrong_roles(R"({"roles": [{"name": "a", "commands": ["Kick!"]}]})") &&
+                  wrong_roles(R"({"roles": [{"name": "a", "color": "pink"}]})") && wrong_roles(R"({"roles": [{"name": "a", "rank": 5000}]})"),
+              "A role with an unknown permission, command, colour or rank was accepted");
+        check(wrong_roles(R"({"roles": [{"name": "a"}], "default_role": "b"})") && wrong_roles(R"({"roles": [{"name": "a"}], "players": {"76561198000000002": "b"}})") &&
+                  wrong_roles(R"({"roles": [{"name": "a"}], "players": {"42": "a"}})") && wrong_roles(R"([])"),
+              "A roles file naming a role or a player that is not one was accepted");
+        // An older config's admins become the admin role's players, and leave the config.
+        const auto old = folder / "roles" / "old-admins.json";
+        std::filesystem::create_directories(old.parent_path());
+        {
+            std::ofstream out(old, std::ios::binary);
+            out << R"({"access": {"admins": ["76561198000000002", "76561198000000005"]}})";
+        }
+        const auto moved = load_config(old);
+        check(moved.roles.players.size() == 2 && moved.roles.given(boss) && moved.roles.given(boss)->name == "admin" &&
+                  text(old).find("\"admins\":") == std::string::npos && std::filesystem::exists(roles_file(moved)),
+              "An older config's admins were not moved into the admin role");
+        const auto again = load_config(old);
+        check(again.roles.players == moved.roles.players && again.roles.default_role == "player", "The roles were not kept from one start to the next");
+    }
+    // Park mods: spawned by name on the map each belongs to; the folder may have spaces in it, and
+    // need not be there yet (spawning says so).
+    {
+        ServerConfig parks;
+        parks.file = file;
+        parks.park_mods = {{"street", "popular skate 2 street park", "San Vansterdam", "bam"},
+                           {"plaza-2", "Not Installed Yet", "Isle of Grom", ""}};
+        parks.park_limits = {16, 1024};
+        check(config_error(parks).empty(), "Valid park mods refused: " + config_error(parks));
+        save_config(parks);
+        const auto written_parks = text(file);
+        check(written_parks.find("\"park_mods\"") != std::string::npos && written_parks.find("\"park_limits\"") != std::string::npos,
+              "Park mods not written into the maps section");
+        const auto back = load_config(file);
+        check(back.park_mods.size() == 2 && back.park_mods[0].name == "street" && back.park_mods[0].folder == "popular skate 2 street park" &&
+                  back.park_mods[0].map == "San Vansterdam" && back.park_mods[0].key == "bam" && back.park_mods[1].key.empty() &&
+                  back.park_limits.parks == 16 && back.park_limits.objects == 1024,
+              "Park mods lost on save");
+        // Written in by hand: a park needs no more than its name, folder and map.
+        std::ofstream(file, std::ios::binary) << R"({"maps": {"park_mods": [{"name": "street", "folder": "street park", "map": "San Vansterdam"}],
+            "park_limits": {"parks": 2}}})";
+        const auto hand = load_config(file);
+        check(hand.park_mods.size() == 1 && hand.park_mods[0].key.empty() && hand.park_limits.parks == 2 && hand.park_limits.objects == 512,
+              "A hand-written park mod was not read");
+        std::ofstream(file, std::ios::binary) << R"({"maps": {"park_mods": ["street"]}})";
+        bool thrown{};
+        try { load_config(file); } catch (const std::exception &) { thrown = true; }
+        check(thrown, "A park mod that is not an object was accepted");
+        const auto turned_down = [&](auto change, const char *what) {
+            auto bad = parks;
+            change(bad);
+            check(config_error(bad).find("park_") != std::string::npos, what);
+        };
+        turned_down([](ServerConfig &c) { c.park_mods[0].name = "Street!"; }, "A park name with capitals and marks accepted");
+        turned_down([](ServerConfig &c) { c.park_mods[0].name = std::string(17, 'a'); }, "A park name over 16 characters accepted");
+        turned_down([](ServerConfig &c) { c.park_mods[0].name.clear(); }, "A park without a name accepted");
+        turned_down([](ServerConfig &c) { c.park_mods[1].name = "street"; }, "Two parks with one name accepted");
+        turned_down([](ServerConfig &c) { c.park_mods[0].folder = "parks/street"; }, "A folder with a path accepted");
+        turned_down([](ServerConfig &c) { c.park_mods[0].folder = "..\\street"; }, "A folder with a backslash accepted");
+        turned_down([](ServerConfig &c) { c.park_mods[0].folder = ".."; }, "The parent folder accepted");
+        turned_down([](ServerConfig &c) { c.park_mods[0].folder = " street"; }, "A folder starting with a blank accepted");
+        turned_down([](ServerConfig &c) { c.park_mods[0].folder.clear(); }, "A park without a folder accepted");
+        turned_down([](ServerConfig &c) { c.park_mods[0].map = "Nowhere"; }, "A park on an unknown map accepted");
+        turned_down([](ServerConfig &c) { c.park_mods[0].map.clear(); }, "A park without a map accepted");
+        turned_down([](ServerConfig &c) { c.park_mods[0].key = "BAM"; }, "A key that is not a base map's accepted");
+        turned_down([](ServerConfig &c) { c.park_mods[0].key = "../bam"; }, "A key with a path accepted");
+        turned_down([](ServerConfig &c) { c.park_limits.parks = 0; }, "A limit of no parks accepted");
+        turned_down([](ServerConfig &c) { c.park_limits.parks = 17; }, "More than 16 parks at once accepted");
+        turned_down([](ServerConfig &c) { c.park_limits.objects = 0; }, "A limit of no park objects accepted");
+        turned_down([](ServerConfig &c) { c.park_limits.objects = 1025; }, "More park objects than one owner can have accepted");
+        turned_down([](ServerConfig &c) { c.park_mods.resize(33, c.park_mods[0]); }, "More than 32 park mods accepted");
+        check(!custom_command_name_free("park-mod"), "A custom command may be called park-mod");
+        // A command a role can be given: the admin role's "*" has it, the moderator's list does not.
+        const auto roles = default_roles();
+        check(allows(roles.find("admin"), "park-mod") && !allows(roles.find("moderator"), "park-mod") && !allows(roles.find("player"), "park-mod"),
+              "park-mod is not the admin role's alone among the default roles");
+        // The vote README.txt shows: "park" is a server command, and still a fine vote name.
+        auto voting = parks;
+        voting.votes.custom = {{"park", "Spawn a park for 30 min", "park-mod add {arg} 30", {"street", "plaza-2"}, {true, 60}},
+                               {"unpark", "Remove a park", "park-mod remove {arg}", {"street", "plaza-2"}, {true, 60}}};
+        check(config_error(voting).empty(), "The park votes from README.txt were refused: " + config_error(voting));
+    }
+
+    std::filesystem::remove_all(folder);
+    if (failures) return 1;
+    std::cout << "server config: ok\n";
+    return 0;
+}
+int main() {
+    try {
+        return run();
+    } catch (const std::exception &e) {
+        std::cerr << "FAIL: " << e.what() << '\n';
+        return 1;
+    }
+}
