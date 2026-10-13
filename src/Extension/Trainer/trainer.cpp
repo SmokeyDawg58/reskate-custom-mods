@@ -1,4 +1,5 @@
 #include "trainer.h"
+#include "Extension/Modes/game_modes.h"
 #include "trainer_classes.h"
 #include "trainer_jump.h"
 #include "trainer_presets.h"
@@ -141,7 +142,7 @@ struct State {
     std::vector<std::size_t> class_entries; // the entries that are fields of those classes
     // A session whose host sets everyone's physics (session_physics.h): what the host shares
     // beyond its tuning, and what each class field holds for it. The player's own stand down.
-    bool enforced{};
+    bool enforced{}, competition{};
     std::uint64_t host_revision{};
     SessionExtras host;
     std::array<float, class_field_count> host_classes{};
@@ -650,11 +651,14 @@ void publish_extras() {
 void sync_session() {
     auto &s = state();
     const bool enforced = session_tuning_enforced();
+    const bool competition = competition_stock_physics();
+    const bool competition_changed = competition != s.competition;
     std::vector<std::uint8_t> bytes;
     bool fresh = false;
-    if (enforced) fresh = host_physics_extras(s.host_revision, bytes);
+    if (competition) { fresh = competition_changed; s.host_revision = 0; }
+    else if (enforced) fresh = host_physics_extras(s.host_revision, bytes);
     else s.host_revision = 0; // read again the next time a host sets the physics
-    if (enforced == s.enforced && !fresh) return;
+    if (enforced == s.enforced && !fresh && !competition_changed) return;
     if (fresh) {
         auto decoded = decode_session_extras(bytes);
         if (!decoded) say(logging::Level::warning, "Trainer: what the host shares beyond its tuning could not be read; the game's own is used for it.");
@@ -665,6 +669,7 @@ void sync_session() {
             say(logging::Level::info, std::format("Trainer: skating with the host's trick multipliers and {} of its class values.", s.host.classes.size()));
     }
     s.enforced = enforced;
+    s.competition = competition;
     for (const auto index : s.class_entries) want_class(s.entries[index]);
     changed(false);
 }
@@ -966,7 +971,7 @@ bool teleport_allowed(std::string &why) {
         why = "Quit the active match before using markers or teleporting.";
         return false;
     }
-    if (multiplayer_session_active() && !session_noclip_allowed()) {
+    if (multiplayer_session_active() && !session_noclip_allowed() && !modes::internal_teleport()) {
         why = "The host has turned off teleporting in this session.";
         return false;
     }
@@ -1535,6 +1540,7 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool playing, const std::s
         // The speeds pushes aim for are the push class's (value_links ties them to the tuning's top
         // pushing speed, which only gates whether a push may start).
         const auto *top_speed = find_entry("physicspush.maxpushablespeed");
+        if(const auto recovery=modes::take_race_recovery_velocity())(void)queue_race_recovery_velocity(client,s.entity,*recovery);
         set_push_speed(client, s.entity, 1.0f, top_speed ? static_cast<float>(top_speed->stock) : 0.0f, s.boosts.cruise);
         for (TrickLaunch launch; take_trick_launch(launch);)
             if (launch.factor != 1.0f)

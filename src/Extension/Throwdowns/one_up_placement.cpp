@@ -264,7 +264,8 @@ void observe_flag_position(std::uint32_t mmid,const std::array<float,3>& spawn,c
     }
     p.spawn=spawn; p.mmid=mmid; p.step=Step::closing; p.until=GetTickCount64()+15000;
     p.status="Saving the starting flag...";
-    logging::log(logging::Level::info,logging::Channel::ui,"1-Up flag: accepted spawn ({:.2f}, {:.2f}, {:.2f}), native queue {:#x}.",spawn[0],spawn[1],spawn[2],mmid);
+    logging::log(logging::Level::info,logging::Channel::ui,"1-Up flag: accepted spawn ({:.2f}, {:.2f}, {:.2f}), facing {:.2f} degrees, native queue {:#x}.",spawn[0],spawn[1],spawn[2],
+        std::atan2(p.facing[6],p.facing[8])*180.f/3.14159265f,mmid);
 }
 void observe_flag_exit(bool cancelling) noexcept {
     auto& p=placement(); std::lock_guard lock(p.mutex);

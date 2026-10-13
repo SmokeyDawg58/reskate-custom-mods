@@ -26,4 +26,11 @@ inline std::array<float,16> spawn_transform(const std::array<float,3>& position,
 inline Facing transform_facing(const std::array<float,16>& transform) {
     return {transform[0],transform[1],transform[2],transform[4],transform[5],transform[6],transform[8],transform[9],transform[10]};
 }
+// CreateThrowdownQueueParams.SpawnPoint is XYZ plus a yaw in radians.
+// TeleportLocation is only a Vec3; treating it as a transform discards the
+// facing chosen in the native placement editor and leaves an identity spawn.
+inline std::array<float,16> native_spawn_transform(const std::array<float,4>& spawn) {
+    const float co=std::cos(spawn[3]),si=std::sin(spawn[3]);
+    return spawn_transform({spawn[0],spawn[1],spawn[2]},Facing{co,0,-si,0,1,0,si,0,co});
+}
 }

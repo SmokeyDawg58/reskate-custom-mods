@@ -211,3 +211,199 @@ Regression fixtures cover retained delegates after a picker generation
 change, a closed picker, repeated card reuse, and each rejected ownership
 state. Other picker and match callbacks keep their original generation
 checks. Manual repeated Leave/Start and mode-switch checks remain required.
+
+## White guides and the complete picker asset contract, 2026-10-12
+
+The initial white-guide pack was authored from an older project that lacked
+the resident `LogoTexture` and `LogoContents` model exports. The runtime
+registered the custom mode cards, then failed while creating the first grid
+logo and fell back to the three stock cards. The repaired pack starts from
+the full persistent-grid project instead. An independent binary audit
+confirms all 207 original resource payloads, metadata and bundle memberships
+are unchanged; it appends only the three private white-guide roots.
+
+`deathrace_guide_assets.inl` now validates the typed defaults and resource
+exports for `LogoGrid`, `LogoTexture` and `LogoContents` before authoring. It
+reloads the saved project and verifies all picker default target identities
+remain unchanged. The older project is rejected before any output is made.
+Gate-only extensions must use a project containing these resident templates;
+successful asset compilation alone does not validate the native grid.
+
+The repaired 17-file archive is 298,022,035 bytes, SHA256
+`ad111da5ed579c631eaf7d92ac3d8f1a85ba65b3956561c5bb94e109ffb331a2`.
+The new Deathrace routing rules and existing map, flag, bubble, controls,
+spawn and HUD fixes are retained. No GitHub push was made for this repair.
+
+All 77 CTest checks passed in 23.47 seconds. The asset contract rejection
+check and the 207-resource preservation audit passed, and the embedded DLL
+archive matches the compiled pack exactly. The repair was installed with
+verified backups while the game and launcher were already closed; neither
+process was closed, restarted or controlled. Visual grid confirmation on
+the next launch remains pending.
+
+## Editable Deathrace deadline, snapping and race HUD, 2026-10-12
+
+Deathrace now uses the selected `Settings::duration_s` for the shared finish
+cutoff, checkpoint messages, late countdown and DNF. The native setup slider
+allows 30 through 3600 seconds in 30-second steps. The alternate setup panel
+also exposes deadline choices. Only the final 30 seconds are visible during a
+race. Modes wire version 12 rejects older fixed-deadline race clients; all
+participants need this build.
+
+`race_gate_missed` uses a swept crossing of the next required gate's plane.
+A wide detour or flying over it raises a persistent red `MISSED GATE / GO BACK`
+notice until the required gate is crossed. Optional guides are exempt. This
+removes the old 20-metre warning cutoff without advancing required progress.
+Race status also no longer gets overwritten by the general mode description.
+
+Placement snaps by default to a 0.5-metre X/Z grid and 15-degree yaw steps.
+Near the preceding placed gate's centre line (within 1.5 metres laterally,
+with at least 3 metres longitudinal separation), it aligns centres and snaps
+spacing to a metre. Ground-hit height is preserved. Controller Y or keyboard G
+toggles free placement for curves and forks. Preview and placement consume the
+same snapped pose; the reserved finish does not become the alignment reference.
+
+The new `deathrace-visual-assets` Studio CLI command starts from the repaired
+210-resource project and requires the complete typed picker contract. It dims
+only the three private guide roots to neutral RGB 0.22 and scales the three
+mandatory roots' existing colour vectors by 0.18. The native additive shader
+therefore gives gray guides and a stronger fade on mandatory gates without
+inventing an unsupported alpha parameter. Finish roots stay red. The private
+HUD logo presenter's root and both texture elements now measure 96 by 96.
+
+The Deathrace HUD uses this measured logo with its brush title and live required
+gate progress, a large red ordinal, gold/silver rank panels, highlighted local
+player names and 800-by-76 standings rows. A separate red missed-gate notice and
+late countdown keep critical race information distinct. 1-UP has a wider
+508-by-76 name panel and aligned penalty stamps in a 760-wide row.
+Layout references: the official [Mario Kart 8 manual](https://csassets.nintendo.com/noaext/image/private/t_KA_PDF/manual-WiiU-Mario_Kart_8?_a=BATCtdAA0)
+and [Gran Turismo 7 race-screen manual](https://www.gran-turismo.com/au/gt7/manual/race/04).
+The implementation uses existing native ReSkate widgets and styles.
+
+The independent asset audit preserves all 210 resource identities and bundle
+memberships and 203 payloads byte for byte; only the six private gate roots and
+private HUD logo widget change. The complete custom picker payload is unchanged.
+The embedded 17-file bundle is 298,022,175 bytes, SHA256
+`970de5f969bbeed205ce4e7d608da3391ac748d9e55d128dcc9097c2c2456ed2`.
+
+All 77 CTest checks passed in 13.77 seconds, including custom deadlines from
+30 seconds to 60 minutes, cutoff/late-clock behavior, serialized settings,
+wide/vertical detours, normal crossings and alignment/free-placement cases.
+The release DLL and exact embedded asset bundle passed verification. The build
+was staged in `outputs/ReSkate-2.0.6-custom` and installed with verified backups
+while the game and launcher were already closed. Neither process was closed,
+started or controlled. No GitHub push was made. In-game appearance, input and
+multiplayer confirmation remain pending on the user's next manual launch.
+
+## Saved courses, confirmed editor exit and native HUD assets, 2026-10-12
+
+`RaceCourseMemory` retains a deep copy of each map's Deathrace settings in the
+current process. The course is saved after edits and before finish/cancellation
+cleanup; reopening Deathrace restores its checkpoints, guiding gates, widths,
+yaws and single finish. The native starting flag can be repositioned for the
+next placement. Gate entities are still removed when leaving the event. This
+is session memory, not disk persistence across game restarts.
+
+In the editor, controller B or Escape opens a native UI confirmation. A/Enter
+leaves the editor and keeps the course; B/Escape dismisses the confirmation.
+Other editor actions are suspended while the confirmation is visible.
+Controller Back/View or keyboard Backspace must be held for 1.5 seconds to
+Clear All. Its native device prompt shows progress; partial holds, focus loss
+and a held button after clearing cannot cause repeated resets. Clearing retains
+the starting anchor and removes every checkpoint, guide and finish. X still
+undoes the last gate. Y/G toggles snapping; left/right stick clicks select the
+previous/next angle in 5, 15, 30, 45 and 90 degrees. LT/RT is labelled Gate types.
+
+Gate width now scales the crossing height too, in both local swept geometry
+and referee acceptance. A missed mandatory gate queues native teleport recovery
+to the last cleared mandatory gate, skipping guides, or the start if none is
+cleared. Crossing reports are suspended during recovery so teleport movement
+cannot count as progress. After the native teleport reaches the recovery pose,
+the verified local physics body receives a bounded 4 m/s rolling speed. The
+request expires, validates local body ownership and requires competition stock
+physics; speed cheats, no-bail and noclip stay disabled.
+
+The prior HUD presenters inherited notice icons and model visibility defaults.
+`deathrace_hud_assets.inl` authors private native rank, name, progress, position
+and warning presenters with explicit geometry, dark fill and red accents, plus
+editor and confirmation backgrounds. Static native Deathrace and 1-UP artwork
+removes the generated texture model's visibility and size overrides. Existing
+native text/font helpers and device-aware button models are retained. 1-UP
+names are now 620 by 76 pixels inside an 872-wide standings row.
+
+Copy the companion `deathrace_hud_assets.inl` and updated
+`deathrace_guide_assets.inl` into Studio's `src/cli`. The guide command includes
+and dispatches the HUD command, which starts from the complete polish project:
+
+```text
+reskate_cli deathrace-hud-assets <game-root> <polish.fbproject> <output.fbproject>
+reskate_cli compile-mod <game-root> <staging-directory> <output.fbmod>
+python build_oneup_native_bundle.py <staging-directory>/Patch assets/one_up/native_assets.bin
+```
+
+The preservation audit verifies all 210 existing resource identities and bundle
+memberships. Of these, 209 payloads are byte-identical and only the private
+HUDLogo_Widget changes. Eight new private widgets bring the total to 218
+resources; the complete picker remains unchanged. The verified embedded bundle
+contains 17 files and 298,654,275 bytes, SHA256
+`1807b53cb64ba61c8cc69aea035afce53b437c5966b455701d119180afd9f035`.
+
+All 77 CTest checks pass in 23.18 seconds, including course deep-copy/map
+isolation, last-mandatory recovery, scaled trigger height, adjustable angle
+snapping, partial/focus-lost holds and Clear All. The release DLL and symbols
+were installed with verified backups while the game and launcher were already
+closed; neither process was stopped, started or controlled. No GitHub push was
+made. Native appearance, device input, recovery speed and multiplayer behavior
+still require manual in-game verification.
+
+## Black/red HUD, discrete controls and world changes, 2026-10-12
+
+The native renderer uses `ColorValue.RawColor`; changing only the older `Color`
+field left the editor and race panels white. The authoring helper now writes
+both fields, clears palette overrides, uses translucent near-black fills and
+four red outline edges, and explicitly sets white label colors. The editor
+background covers the complete control block, with separate compact action
+rows. Race headers, rank/name/progress cells and results use the same palette.
+Existing file/root GUIDs and bundle memberships are retained when replacing
+private presenters. Three private backdrop widgets are added.
+
+Gate sizing uses rising-edge inputs and changes five percentage points of the
+default width per press. Holding the D-pad no longer repeatedly resizes. Each
+rotation press advances the full selected angle, including 45/90-degree steps.
+The snap angle also controls positional attraction to the previous gate's
+centreline: reach increases from 0.5 to 6 metres while permitting fork routes.
+Y toggles snapping; left/right stick clicks select its angle. LT/RT selects Gate
+types; Back/View remains a hold-to-clear action.
+
+Mandatory miss detection tests the scaled swept crossing before recovery and
+waits until a forward outside crossing has travelled beyond a scaled grace
+region. Backwards approaches do not trigger recovery. The later-gate proximity
+sphere is removed: only a valid later crossing after passing the current plane
+can count as a skip. Recovery applies a bounded 6 m/s local rolling speed after
+the native teleport completes. Width and height remain shared by visuals and
+the local/referee crossing tests.
+
+Reopening a mode now retires the old game, flag/input ownership and recovery
+before restoring its course. The native HUD detaches when the game ID changes;
+results reuse their anchor graph instead of allocating more roots every tick.
+These changes address lifecycle hazards found during the reopening crash
+investigation; no new dump established its exact cause. Repeat in-game reopening
+still requires manual verification.
+
+The grid disappearance after a map switch logged a missing private picker
+widget. Asset lookup now searches all `0xbbf` native domain-table slots instead
+of only the first 32, and releases cached assets/anchors when the world changes.
+The complete custom picker resource remains byte-identical in the asset pack.
+
+The independent audit verifies 211 payloads unchanged, seven private HUD roots
+updated, three added, and all 218 prior identities/bundle memberships preserved.
+The 221-resource compiled pack embeds 17 files totalling 298,898,203 bytes:
+SHA256 `2c891bb17c1f6bebfc51feb2b8e3467bb371d1d06325e40ee5d8332b91b960af`.
+The DLL contains that exact archive; all 77 CTest checks passed. The update is
+staged while the user's game remains running. New native appearance, enlarged
+gate recovery, map changes, reopening and multiplayer checks remain pending.
+
+Public releases at [reskate-custom-mods](https://github.com/SmokeyDawg58/reskate-custom-mods)
+include the matching DLL, launcher, native asset archive and SHA-256 manifest.
+Those release files must accompany every future owner-authorized push. Future
+updates are pushed only when the owner explicitly requests them.

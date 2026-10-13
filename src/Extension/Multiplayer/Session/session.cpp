@@ -918,7 +918,7 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool ready, std::string_vi
             erase_password(s.lobby_password);
         expire_remote_collision(base, now_us());
         if (s.mode == Mode::off) {
-            physics_tuning::release(base); // the player's own tuning again after a session
+            if (!competition_stock_physics()) physics_tuning::release(base);
             set_session_tuning_enforced(false);
             NativeFrame solo;
             if(ready && !map_name.empty()) {
@@ -926,6 +926,9 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool ready, std::string_vi
                 catch(...) {}
             }
             relay_throwdowns(s, ready, &solo);
+            if (competition_stock_physics() && solo.ready) {
+                physics_tuning::prepare();physics_tuning::enforce(base,solo.entity,{});
+            } else if (!competition_stock_physics()) physics_tuning::release(base);
             if (solo.ready && (one_up::countdown_locks_input() || modes::countdown_locks_input()))
                 prepare_on_board_teleport(client, solo.entity);
             // Without a session the UI model follows at the same 10 Hz as in one;

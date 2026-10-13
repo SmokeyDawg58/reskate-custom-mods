@@ -353,6 +353,15 @@ void live_hud_binding() {
     roots[1]={0x180000000ULL,true,2};
     check(mounted_hud_root(roots,0x16ced0000ULL)==0x180000000ULL,
           "Rebind when the previous live HUD retires");
+    roots[1].gameplay_stacks=0;
+    check(mounted_hud_root(roots)==0,"An empty root cannot establish a new HUD binding");
+    check(mounted_hud_root(roots,roots[1].handle)==roots[1].handle,
+          "Keep the verified active HUD through temporarily empty native stacks");
+    roots[0]={0x190000000ULL,true,1};
+    check(mounted_hud_root(roots,roots[1].handle)==roots[0].handle,
+          "A newly mounted populated root supersedes an empty previous root");
+    roots[0].active=false;roots[1].active=false;
+    check(mounted_hud_root(roots,roots[1].handle)==0,"Never retain a retired inactive HUD");
 }
 void native_hud_clock_and_penalties() {
     using dingosdk::multiplayer::menu_data::native_hud_seconds;
@@ -377,6 +386,10 @@ void native_hud_clock_and_penalties() {
 }
 void native_one_up_slider_values() {
     using namespace dingosdk::multiplayer::menu_data;
+    check(native_slider_position(120,120,120)==0.f && native_slider_choice(1.f,120,120,10)==120,
+          "A fixed Deathrace deadline has a finite readonly native slider");
+    check(native_setup_role("Finish deadline")==NativeSetupRole::timer,
+          "Renamed Deathrace deadline remains identifiable after a UI refresh");
     check(native_slider_choice((1.16f-1.f)/5.f,1,6,1)==1,
           "The captured fractional Players value snaps to a whole player");
     check(native_slider_choice((106.8f-10.f)/110.f,10,120,10)==110,

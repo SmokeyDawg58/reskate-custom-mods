@@ -1667,8 +1667,15 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
             if (const auto f = find_field(p->type, field_series); f && f->kind == kind_string)
                 series = read_string(payload + p->offset + f->offset);
             std::array<float, 3> spawn{};
-            if (const auto f = find_field(p->type, field_spawn); f && f->size >= 12 && memory::read(payload + p->offset + f->offset, spawn)) selected_spawn=spawn;
-            if(const auto f=find_field(p->type,field_teleport);f && f->size==64) {
+            if (const auto f = find_field(p->type, field_spawn); f && f->size >= 12 && memory::read(payload + p->offset + f->offset, spawn)) {
+                selected_spawn=spawn;
+                if(f->size==16) {
+                    std::array<float,4> pose{};
+                    if(memory::read(payload+p->offset+f->offset,pose))
+                        selected_transform=one_up::native_spawn_transform(pose);
+                }
+            }
+            if(!selected_transform)if(const auto f=find_field(p->type,field_teleport);f && f->size==64) {
                 std::array<float,16> transform{};
                 if(memory::read(payload+p->offset+f->offset,transform))selected_transform=transform;
             }

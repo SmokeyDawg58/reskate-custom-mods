@@ -72,6 +72,16 @@ int main() {
     const auto check=[&](bool value) { ++count; if(!value) throw std::runtime_error("Flag bridge check "+std::to_string(count)); };
     const auto tick=[&] { ++test_now; tick_flag_placement(context); };
     try {
+        // Captured native SpawnPoint: XYZ + 2.7408998 radians. The old
+        // TeleportLocation-only reader lost this yaw and spawned at zero.
+        const auto native_pose=native_spawn_transform({643.75787f,198.9449f,1082.6879f,2.7408998f});
+        const auto native_facing=transform_facing(native_pose);
+        check(valid_facing(native_facing));
+        check(std::abs(std::atan2(native_facing[6],native_facing[8])-2.7408998f)<.00001f);
+        check(native_pose[12]==643.75787f && native_pose[13]==198.9449f && native_pose[14]==1082.6879f);
+        const auto quarter=transform_facing(native_spawn_transform({7,8,9,1.5707963268f}));
+        check(std::abs(quarter[6]-1.f)<.00001f && std::abs(quarter[8])<.00001f);
+        check(!valid_facing(transform_facing(native_spawn_transform({7,8,9,std::numeric_limits<float>::quiet_NaN()}))));
         check(!begin_flag_placement(30,4));
         current_view.can_create=true; current_view.world=11; current_view.local=42;
         check(!begin_flag_placement(30,7));

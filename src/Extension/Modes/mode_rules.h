@@ -41,11 +41,12 @@ bool timed(Mode) noexcept; // ends when the clock runs out (1-Up ends on strikes
 enum class Phase : std::uint8_t { setup = 1, countdown = 2, playing = 3, results = 4 };
 
 inline constexpr std::uint8_t wire_magic = 0xD5; // never a throwdown message's first byte (1..15)
-inline constexpr std::uint8_t wire_version = 10; // 10: authoritative per-player Deathrace clock
+inline constexpr std::uint8_t wire_version = 12; // required/guide gates, large routes, shared race deadline
 inline constexpr std::size_t max_corners = 16, max_points = 16, max_players = 16, max_zones = 64, max_calls = 4,
                              max_call_length = 96, max_tags = 64, max_tag_points = 6, max_line_tags = 6;
 inline constexpr std::uint32_t countdown_ms = 5000, results_ms = 12000;
-inline constexpr std::uint32_t race_gate_bonus_ms = 2000;
+inline constexpr std::uint32_t race_deadline_ms = 120000, race_warning_ms = 30000;
+enum class RaceGateKind : std::uint8_t { mandatory, guiding };
 
 struct Settings {
     Mode mode = Mode::jam;
@@ -58,6 +59,7 @@ struct Settings {
     std::vector<Vec3> points;       // Deathrace checkpoints in order, Domination spots
     std::vector<float> yaws;        // Deathrace: each gate's facing in degrees (empty: along the route)
     std::vector<float> widths;      // Deathrace: each gate's half width in metres (empty: `radius`)
+    std::vector<RaceGateKind> gate_kinds; // empty: every gate mandatory; guides never block progress
     Vec3 spawn{};                   // where everyone starts when the countdown begins
     bool has_spawn{};
     bool race_finish{};             // final route point is the sole red finish, including during setup
@@ -86,13 +88,17 @@ bool has_area(const Settings &) noexcept;
 // Where to put back a player who wandered out: the corners' average height, at their middle.
 Vec3 area_centre(const std::vector<Vec3> &corners) noexcept;
 inline constexpr float min_area_radius = 3.0f, max_area_radius = 1500.0f; // up to 3 km across (Skate Tag on a whole district)
-// Skate Tag: within this far (metres, the game's adius) the one who is it tags; the one just tagged
+// Skate Tag: within this far (metres, the game's radius) the one who is it tags; the one just tagged
 // cannot tag back the one who tagged them for a while; a position older than this is not trusted.
 inline constexpr float default_tag_reach = 3.0f;
 inline constexpr std::uint64_t no_tag_back_ms = 3000, position_fresh_ms = 1500;
 // A Deathrace gate's half width: its own, or the game's checkpoint radius.
 inline constexpr float min_gate_half_width = 1.5f, max_gate_half_width = 40.0f;
 float gate_half_width(const Settings &, std::size_t gate) noexcept;
+bool guiding_gate(const Settings &, std::size_t gate) noexcept;
+std::size_t next_race_gate(const Settings &, std::size_t from) noexcept;
+std::size_t mandatory_gates(const Settings &, std::size_t before) noexcept;
+inline bool race_clock_visible(std::uint32_t remaining) noexcept { return remaining>0 && remaining<=race_warning_ms; }
 
 // Graffiti tags, the way THPS tags what you skate: a grind is the path the board slid along a
 // curb, ledge or rail; a gap is a drop of a metre or more from takeoff to landing (stair sets,
@@ -135,7 +141,7 @@ struct Standing {
     std::int32_t score{}, aux{}; // aux: best line or bail, finish time (ms), strikes; Skate Tag: score the
                                  // tenths of a second spent it (fewer is better)
     bool out{}, up{};
-    std::uint32_t remaining_ms{}; // Deathrace: this player's clock, including gate bonuses
+    std::uint32_t remaining_ms{}; // Deathrace: shared deadline, zero for a finisher or DNF
     bool operator==(const Standing &) const = default;
 };
 struct ZoneOwner {

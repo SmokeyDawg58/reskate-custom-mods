@@ -2,6 +2,9 @@
 // the events players would send.
 #include "Extension/Modes/mode_rules.h"
 #include "Extension/Modes/race_route.h"
+#include "Extension/Modes/mode_transport.h"
+#include "Engine/Game/Multiplayer/session_tools.h"
+#include "Engine/Game/Multiplayer/session_physics.h"
 #include "Extension/Modes/placement_camera.h"
 #include <algorithm>
 #include <iostream>
@@ -235,44 +238,131 @@ void race_builder_flow() {
     Message msg;msg.kind=Message::Kind::setup;msg.leader=a;msg.game=12;msg.settings=s;
     check(decode(encode(msg))==msg,"finish identity and gate poses reach other racers");
     check(undo_race_gate(s,finish) && !race_route_ready(s,finish) && !s.race_finish,"undo removes finish identity");
-    while(s.points.size()<max_points-1)check(edit_race_route(s,finish,RaceObject::checkpoint,gate,90,6),"multiple normal gates accepted");
-    check(!edit_race_route(s,finish,RaceObject::checkpoint,gate,90,6),"builder reserves a slot for finish");
-    check(edit_race_route(s,finish,RaceObject::finish,end,90,6) && s.points.size()==max_points,"finish fits the last slot");
-    check(!edit_race_route(s,finish,RaceObject::checkpoint,gate,90,6),"full route remains bounded");
-    check(cycle_race_object(RaceObject::start,false)==RaceObject::checkpoint && cycle_race_object(RaceObject::start,true)==RaceObject::checkpoint &&
-        cycle_race_object(RaceObject::finish,false)==RaceObject::checkpoint && cycle_race_object(RaceObject::checkpoint,true)==RaceObject::finish,
-        "editor cycles checkpoint and finish, never the already placed start flag");
+    while(s.points.size()<1025)check(edit_race_route(s,finish,RaceObject::checkpoint,gate,90,6),"more than 1024 required gates accepted");
+    check(edit_race_route(s,finish,RaceObject::finish,end,90,6),"finish fits an uncapped route");
+    check(edit_race_route(s,finish,RaceObject::guiding,{100,0,0},90,6) && s.points.size()==1027 && guiding_gate(s,1025),"guiding gate inserts before the sole finish");
+    check(edit_race_route(s,finish,RaceObject::finish,replacement,90,6) && s.points.size()==1027 && s.points.back()==replacement,"moving finish never adds another finish on a long route");
+    check(mandatory_gates(s,s.points.size())==1024,"guide and finish excluded from mandatory count");
+    check(cycle_race_object(RaceObject::start,false)==RaceObject::checkpoint && cycle_race_object(RaceObject::checkpoint,false)==RaceObject::finish &&
+        cycle_race_object(RaceObject::finish,false)==RaceObject::guiding && cycle_race_object(RaceObject::guiding,false)==RaceObject::checkpoint &&
+        cycle_race_object(RaceObject::checkpoint,true)==RaceObject::guiding && cycle_race_object(RaceObject::guiding,true)==RaceObject::finish,
+        "editor cycles default mandatory, finish, white guide in both directions");
+    Message long_route;long_route.kind=Message::Kind::setup;long_route.leader=a;long_route.game=99;long_route.settings=s;
+    auto packets=transport_messages(long_route);check(packets.size()>1,"long route is fragmented");
+    for(const auto& packet:packets)check(packet.size()<=4096,"each route fragment fits multiplayer payload");
+    ModeTransfers incoming;std::optional<Message> decoded;
+    for(auto i=packets.rbegin();i!=packets.rend();++i) {
+        check(!incoming.receive(b,*i,1),"foreign sender cannot supply another host's route");
+        auto result=incoming.receive(a,*i,1);if(result)decoded=result;
+    }
+    check(decoded==long_route,"1024 mandatory gates, guide kind, poses and finish reconstruct out of order");
+    incoming.clear();check(!incoming.receive(a,packets.front(),1) && !incoming.receive(a,packets.front(),2),"duplicate fragment cannot complete a partial route");
+    auto corrupt=packets;corrupt.back().back()^=1;decoded.reset();
+    for(const auto& packet:corrupt)if(auto result=incoming.receive(a,packet,3))decoded=result;
+    check(!decoded,"corrupt assembled route rejected");
+    auto invalid=packets.front();for(unsigned i=19;i<23;++i)invalid[i]=255;
+    check(!incoming.receive(a,invalid,4),"advertised huge allocation rejected before buffering");
+    incoming.clear();incoming.receive(a,packets.front(),1);decoded.reset();
+    for(std::size_t i=1;i<packets.size();++i)if(auto result=incoming.receive(a,packets[i],10002))decoded=result;
+    check(!decoded,"expired incomplete route discarded");
+    incoming.clear();for(const auto& packet:packets)if(auto result=incoming.receive(a,packet,10003))decoded=result;
+    check(decoded==long_route,"next periodic route publication recovers from missing fragments");
+    auto bad=long_route;bad.settings.gate_kinds.back()=RaceGateKind::guiding;
+    bool refused{};try{encode(bad);}catch(const std::invalid_argument&){refused=true;}
+    check(refused,"finish cannot be optional");
+
 }
 void race_clock_flow() {
-    Settings s; s.mode=Mode::race; s.duration_s=30;
+    Settings s;s.mode=Mode::race;s.duration_s=120;s.race_finish=true;
     s.points={{0,0,0},{20,0,0},{40,0,0},{60,0,0}};
     Referee r(s,a,3);r.add_player(a);r.add_player(b);r.start(0);r.tick(countdown_ms);
-    const auto of=[&](std::uint64_t id,std::uint64_t t) {
-        const auto m=r.state(t);
-        return *std::find_if(m.standings.begin(),m.standings.end(),[&](const auto& p){return p.player==id;});
-    };
-    check(of(a,countdown_ms).score==1 && of(b,countdown_ms).score==1,"all racers begin at checkpoint one without crossing the flag");
-    r.event(a,Event::checkpoint,0,{0,0,0},1,countdown_ms+100);
-    check(of(a,countdown_ms+100).remaining_ms==29900,"start flag awards no bonus");
-    r.event(a,Event::checkpoint,1,{20,0,0},2,countdown_ms+1000);
-    check(of(a,countdown_ms+1000).remaining_ms==31000,"checkpoint adds exactly two seconds");
-    check(of(b,countdown_ms+1000).remaining_ms==29000,"another racer's clock is independent");
-    r.event(a,Event::checkpoint,1,{20,0,0},3,countdown_ms+1000);
-    check(of(a,countdown_ms+1000).remaining_ms==31000,"crossing the same checkpoint again awards nothing");
-    r.tick(countdown_ms+30000);
-    check(of(b,countdown_ms+30000).out && !of(a,countdown_ms+30000).out,"only expired racers time out");
-    r.event(b,Event::checkpoint,0,{0,0,0},1,countdown_ms+30001);
-    check(of(b,countdown_ms+30001).score==1,"expired racers cannot revive their clock");
-    r.event(a,Event::checkpoint,2,{40,0,0},4,countdown_ms+31000);
-    check(of(a,countdown_ms+31000).remaining_ms==3000,"second checkpoint adds its own bonus");
-    check(decode(encode(r.state(countdown_ms+31000)))==r.state(countdown_ms+31000),"per-player race clocks round trip");
-    r.event(a,Event::checkpoint,3,{60,0,0},5,countdown_ms+32000);
-    r.tick(countdown_ms+32000);
-    check(r.phase()==Phase::results && r.state(countdown_ms+32000).standings.front().player==a,"finish ranks ahead of DNF");
+    const auto of=[&](std::uint64_t id,std::uint64_t t) {const auto m=r.state(t);return *std::find_if(m.standings.begin(),m.standings.end(),[&](const auto& p){return p.player==id;});};
+    check(of(a,countdown_ms).remaining_ms==120000,"race uses its selected shared deadline");
+    r.event(a,Event::checkpoint,1,{20,0,0},1,countdown_ms+1000);
+    check(of(a,countdown_ms+1000).remaining_ms==119000 && of(b,countdown_ms+1000).remaining_ms==119000,"gate awards no time and racers share deadline");
+    r.tick(countdown_ms+89999);check(!race_clock_visible(of(a,countdown_ms+89999).remaining_ms),"timer hidden until ninety seconds");
+    r.tick(countdown_ms+90000);check(race_clock_visible(of(a,countdown_ms+90000).remaining_ms),"timer appears with thirty seconds remaining");
+    r.event(a,Event::checkpoint,2,{40,0,0},2,countdown_ms+119998);
+    r.event(a,Event::checkpoint,3,{60,0,0},3,countdown_ms+119999);
+    r.tick(countdown_ms+120000);
+    check(r.phase()==Phase::results && of(b,countdown_ms+120000).out && !of(a,countdown_ms+120000).out &&
+        r.state(countdown_ms+120000).standings.front().player==a,"unfinished racer DNF; finish just before deadline wins");
+    check(!race_clock_visible(0),"no clock left after deadline");
     Referee late(s,a,4);late.add_player(a);late.start(0);late.tick(countdown_ms);
-    late.event(a,Event::checkpoint,0,{0,0,0},1,countdown_ms+30000);
-    late.tick(countdown_ms+30000);
-    check(late.phase()==Phase::results && late.state(countdown_ms+30000).standings.front().out,"exact deadline cannot accept a late crossing");
+    late.event(a,Event::checkpoint,1,{20,0,0},1,countdown_ms+1);late.event(a,Event::checkpoint,2,{40,0,0},2,countdown_ms+2);
+    late.event(a,Event::checkpoint,3,{60,0,0},3,countdown_ms+120000);late.tick(countdown_ms+120000);
+    check(late.phase()==Phase::results && late.state(countdown_ms+120000).standings.front().out,"finish at exact deadline is DNF");
+    Referee early(s,a,5);early.add_player(a);early.start(0);early.tick(countdown_ms);
+    for(int i=1;i<4;++i)early.event(a,Event::checkpoint,i,s.points[i],i,countdown_ms+i);
+    early.tick(countdown_ms+4);check(early.phase()==Phase::results,"all finished ends race without waiting two minutes");
+}
+void race_custom_deadlines_and_snap() {
+    Settings route;route.mode=Mode::race;route.race_finish=true;
+    route.points={{0,0,0},{0,0,20},{0,0,40}};route.yaws={0,0,0};route.widths={6,6,6};
+    for(const auto duration:{30u,90u,180u,300u,3600u}) {
+        route.duration_s=duration;
+        Referee race(route,a,duration);race.add_player(a);race.start(0);race.tick(countdown_ms);
+        const auto deadline=duration*1000ull;
+        check(race.state(countdown_ms).remaining_ms==deadline,"selected deadline applies from GO");
+        if(duration>30)race.tick(countdown_ms+deadline-30001);
+        if(duration>30)check(!race_clock_visible(race.state(countdown_ms+deadline-30001).remaining_ms),"custom deadline stays hidden before final thirty seconds");
+        race.tick(countdown_ms+deadline-30000);
+        check(race_clock_visible(race.state(countdown_ms+deadline-30000).remaining_ms),"custom deadline exposes final thirty seconds");
+        race.tick(countdown_ms+deadline-1);check(race.phase()==Phase::playing,"not DNF before selected deadline");
+        race.tick(countdown_ms+deadline);check(race.phase()==Phase::results && race.state(countdown_ms+deadline).standings.front().out,"DNF exactly at selected deadline");
+        Message setup;setup.kind=Message::Kind::setup;setup.game=12;setup.leader=a;setup.settings=route;
+        const auto restored=decode(encode(setup));check(restored && restored->settings.duration_s==duration,"selected deadline survives multiplayer setup transfer");
+    }
+    route.duration_s=120;
+    check(race_gate_missed(route,1,{50,0,10},{50,0,30}),"wide detour beyond twenty metres warns");
+    check(race_gate_missed(route,1,{0,25,10},{0,25,30}),"flying over mandatory gate warns");
+    check(!race_gate_missed(route,1,{0,0,10},{0,0,30}),"valid crossing does not warn");
+    check(!race_gate_missed(route,1,{50,0,10},{50,0,15}),"approaching a gate does not warn");
+    route.gate_kinds={RaceGateKind::mandatory,RaceGateKind::guiding,RaceGateKind::mandatory};
+    check(!race_gate_missed(route,1,{50,0,10},{50,0,30}),"optional branch is never a missed required gate");
+    route.points={{0,0,0},{10,3,20}};route.yaws={0,90};route.race_finish=false;
+    const Vec3 raw{25.3f,7.2f,20.9f};
+    const auto snap=snap_race_gate(route,raw,94,true);
+    check(std::abs(snap.at[0]-25.f)<.001f && std::abs(snap.at[2]-20.f)<.001f && snap.at[1]==raw[1] && snap.yaw==90,"snap aligns previous gate axis and yaw while keeping ground height");
+    const auto free=snap_race_gate(route,raw,94,false);check(free.at==raw && free.yaw==94,"snap off preserves exact placement for forks");
+    const auto fork=snap_race_gate(route,{25.3f,7,28.1f},139,true);
+    check(fork.at[2]==28.f && fork.yaw==135,"fork does not attract a distant centre line and rotates in fifteen-degree steps");
+    route.race_finish=true;
+    const auto before_finish=snap_race_gate(route,{.7f,8,12.2f},359,true);
+    check(before_finish.at[0]==0 && before_finish.at[2]==12 && before_finish.yaw==0,"snap references the last placed gate rather than reserved finish; yaw wraps");
+}
+void race_optional_flow() {
+    Settings s;s.mode=Mode::race;s.race_finish=true;
+    s.points={{0,0,0},{5,0,0},{10,0,-5},{10,0,5},{20,0,0},{30,0,-5},{30,0,5},{40,0,0},{50,0,0}};
+    s.gate_kinds={RaceGateKind::mandatory,RaceGateKind::guiding,RaceGateKind::guiding,RaceGateKind::guiding,
+        RaceGateKind::mandatory,RaceGateKind::guiding,RaceGateKind::guiding,RaceGateKind::mandatory,RaceGateKind::mandatory};
+    check(mandatory_gates(s,s.points.size())==2,"required count ignores both fork branches and finish");
+    Referee r(s,a,13);r.add_player(a);r.add_player(b);r.add_player(c);r.start(0);r.tick(countdown_ms);
+    const auto of=[&](std::uint64_t id,std::uint64_t time){auto m=r.state(time);return *std::find_if(m.standings.begin(),m.standings.end(),[&](const auto& p){return p.player==id;});};
+    check(of(a,countdown_ms).score==4,"race begins at first required gate beyond white guides");
+    r.event(a,Event::checkpoint,8,s.points[8],1,countdown_ms+1);r.event(a,Event::checkpoint,7,s.points[7],2,countdown_ms+2);
+    check(of(a,countdown_ms+2).score==4,"finish and later required gate blocked while mandatory gate missing");
+    for(int i=1;i<4;++i)r.event(a,Event::checkpoint,i,s.points[i],i+2,countdown_ms+10+i);
+    check(of(a,countdown_ms+15).score==4,"either or both guide branches never alter required progress");
+    r.event(a,Event::checkpoint,4,{20,30,0},6,countdown_ms+16);
+    check(of(a,countdown_ms+16).score==4,"crossing above mandatory arch refused");
+    r.event(a,Event::checkpoint,4,s.points[4],7,countdown_ms+20);
+    check(of(a,countdown_ms+20).score==7 && mandatory_gates(s,7)==1,"required crossing advances past all optional guides");
+    r.event(b,Event::position,0,{10,0,0},1,countdown_ms+21);r.event(c,Event::position,0,{19,0,0},1,countdown_ms+21);
+    const auto ranked=r.state(countdown_ms+22);check(ranked.standings[0].player==a && ranked.standings[1].player==c,"required progress then fresh distance determines racing places");
+    r.event(a,Event::checkpoint,7,s.points[7],8,countdown_ms+30);r.event(a,Event::checkpoint,8,s.points[8],9,countdown_ms+40);
+    check(of(a,countdown_ms+40).score==9 && of(a,countdown_ms+40).aux==40,"required route finishes without crossing any guides");
+}
+void race_stock_policy_flow() {
+    using namespace dingosdk;
+    set_session_tools_allowed(true,true,true);set_session_tuning_enforced(false);
+    set_competition_stock_physics(true);
+    check(!session_noclip_allowed() && !session_no_bail_allowed() && !session_boosts_allowed() && session_tuning_enforced(),"race overrides host/admin tools and forces stock physics offline too");
+    set_competition_stock_physics(false);
+    check(session_noclip_allowed() && session_no_bail_allowed() && session_boosts_allowed() && !session_tuning_enforced(),"leave restores retained free-skate permissions");
+    set_session_tools_allowed(false,true,false);set_session_tuning_enforced(true);set_competition_stock_physics(true);set_competition_stock_physics(false);
+    check(!session_noclip_allowed() && session_no_bail_allowed() && !session_boosts_allowed() && session_tuning_enforced(),"leaving race respects existing session policy");
+    set_session_tools_allowed(true,true,true);set_session_tuning_enforced(false);
 }
 
 // Each Deathrace gate has its own width: it goes over the wire, bad ones are refused, and the
@@ -318,7 +408,7 @@ void gate_width_flow() {
     check(fast.crossed && fast.inside && std::abs(fast.at[0]-50)<.001f,"fast movement crossing is interpolated on the gate plane");
     check(race_gate_crossing(s,1,{70,0,20},{30,0,20}).inside,"reversed gate orientation still counts a crossing");
     check(!race_gate_crossing(s,1,{30,0,30},{70,0,30}).inside,"movement outside the posts does not count");
-    check(!race_gate_crossing(s,1,{30,20,0},{70,20,0}).inside,"movement above the gate does not count");
+    check(!race_gate_crossing(s,1,{30,50,0},{70,50,0}).inside,"movement above a scaled gate does not count");
     check(!race_gate_crossing(s,1,{30,0,0},{40,0,0}).crossed,"approaching the gate does not count as crossing");
 }
 
@@ -627,6 +717,51 @@ void skate_flow() {
 }
 } // namespace
 
+void race_saved_course_and_recovery() {
+    using namespace dingosdk::modes;
+    Settings route;route.mode=Mode::race;bool finish=false;
+    check(edit_race_route(route,finish,RaceObject::start,{0,0,0},0,6),"memory start");
+    check(edit_race_route(route,finish,RaceObject::checkpoint,{0,0,20},0,12),"memory mandatory");
+    check(edit_race_route(route,finish,RaceObject::guiding,{10,0,10},90,6),"memory fork guide");
+    check(edit_race_route(route,finish,RaceObject::finish,{0,0,40},0,6),"memory finish");
+    RaceCourseMemory memory;memory.save("map-a",route);
+    auto restored=memory.restore("map-a");check(restored && restored->points==route.points && restored->widths==route.widths && restored->gate_kinds==route.gate_kinds && race_route_ready(*restored,true),"finish/cancel retains complete course");
+    check(!memory.restore("map-b"),"courses cannot leak to another map");
+    route.points.clear();check(memory.restore("map-a")->points.size()==4,"match cleanup cannot mutate saved course");
+    const auto pose=race_recovery_pose(*restored,3);check(pose.at==Vec3{0,0,21.5f},"recovery skips optional guides and continues from last mandatory");
+    check(race_gate_crossing(*restored,1,{0,19,19},{0,19,21}).inside,"enlarged gate accepts enlarged vertical trigger");
+    restored->widths[1]=6;check(!race_gate_crossing(*restored,1,{0,19,19},{0,19,21}).inside,"default height excludes high bypass");
+    auto snap=snap_race_gate(Settings{},Vec3{0,0,0},26,true,45);check(snap.yaw==45,"selected angle is used by preview and placement");
+    Settings alignment;alignment.mode=Mode::race;alignment.points={{0,0,0}};alignment.yaws={0};alignment.widths={6};
+    const auto weak=snap_race_gate(alignment,{4,0,20},0,true,5);
+    const auto strong=snap_race_gate(alignment,{4,0,20},0,true,90);
+    check(weak.at[0]==4 && strong.at[0]==0,"larger snap angles increase positional alignment reach");
+    check(snap_race_gate(alignment,{10,0,20},90,true,90).at[0]==10,"strong snapping still permits distinct fork branches");
+    for(const auto angle:{5.f,15.f,30.f,45.f,90.f}) {
+        const auto next=rotate_race_gate(2,1,true,angle);
+        check(std::abs(next-angle)<.001f,"one rotate press advances the selected full snap step");
+        check(std::abs(rotate_race_gate(next,-1,true,angle))<.001f,"one reverse press restores previous step");
+    }
+    check(std::abs(size_race_gate(6,1)-6.3f)<.001f && std::abs(size_race_gate(6,-1)-5.7f)<.001f,"size advances five percentage points per press");
+    RaceEditorPresses presses;check(presses.update(8)==8 && presses.update(8)==0,"holding size does not repeat");
+    presses.update(0);check(presses.update(8)==8,"size rearms after release");
+    alignment.points.push_back({0,0,20});alignment.yaws.push_back(0);alignment.widths.push_back(24);
+    bool pending=false;
+    check(!race_miss_recovery_ready(alignment,1,{23,0,18},{23,0,21},pending),"large mandatory gate counts within opening without recovery");
+    check(!race_miss_recovery_ready(alignment,1,{30,0,18},{30,0,20.5f},pending) && pending,"outside pass gives time to clear the plane");
+    check(race_miss_recovery_ready(alignment,1,{30,0,20.5f},{30,0,24},pending),"actual missed mandatory recovers beyond grace distance");
+    pending=false;check(!race_miss_recovery_ready(alignment,1,{30,0,22},{30,0,18},pending) && !pending,"backward approach cannot trigger mandatory recovery");
+    pending=true;check(!race_miss_recovery_ready(alignment,1,{30,0,20.5f},{30,0,19},pending) && !pending,"returning before grace cancels false recovery");
+    alignment.points.push_back({0,0,30});alignment.yaws.push_back(0);alignment.widths.push_back(40);
+    pending=false;check(!race_miss_recovery_ready(alignment,1,{0,0,15},{0,0,18},pending),"nearby oversized later gate never penalizes entry into required gate");
+    RaceClearHold hold;
+    check(!hold.update(true,true,100) && !hold.update(true,true,1599),"tap cannot clear course");
+    check(hold.update(true,true,1600) && !hold.update(true,true,1700),"full hold clears once");
+    hold.update(false,true,1800);check(!hold.update(true,true,1900),"release resets hold");
+    hold.update(true,false,3300);check(!hold.update(true,true,3400),"focus loss resets hold");
+    memory.clear("map-a");check(!memory.restore("map-a"),"explicit clear removes saved course");
+    clear_race_gates(*restored,finish);check(restored->points.size()==1 && !finish && !restored->race_finish && restored->widths.size()==1,"clear removes all gates and finish while retaining start flag");
+}
 int main() {
     try {
         area_flow();
@@ -637,7 +772,11 @@ int main() {
         one_up_flow();
         race_flow();
         race_builder_flow();
+        race_saved_course_and_recovery();
         race_clock_flow();
+        race_custom_deadlines_and_snap();
+        race_optional_flow();
+        race_stock_policy_flow();
         gate_width_flow();
         skate_tag_flow();
         domination_flow();

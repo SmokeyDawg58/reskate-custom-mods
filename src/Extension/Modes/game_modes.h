@@ -54,6 +54,9 @@ struct NativeView {
     unsigned capacity=6;
     bool route_finish{},cursor_valid{};
     unsigned route_object=1;
+    bool route_snap=true,exit_confirm{},recovering{};
+    float snap_degrees=15.f,clear_progress{};
+    unsigned missed_gate{};
     Vec3 cursor{};
     float cursor_yaw{},cursor_width=6.f;
     Settings settings;
@@ -69,6 +72,7 @@ void accept_native_start_flag(std::uint64_t world, std::uint32_t game, const Vec
 bool request_native_start(std::uint64_t world, std::uint32_t game) noexcept;
 bool request_native_quit(std::uint64_t world, std::uint32_t game) noexcept;
 bool active() noexcept;
+std::optional<Vec3> take_race_recovery_velocity() noexcept;
 bool internal_teleport() noexcept;
 bool countdown_locks_input() noexcept;
 bool placement_camera_requested() noexcept;

@@ -58,15 +58,22 @@ template<class Read> std::optional<NotificationMount> mounted_notification(
 inline std::uint64_t mounted_hud_root(std::span<const HudRootCandidate> roots,
                                      std::uint64_t preferred = 0) {
     std::uint64_t selected{};
+    std::uint64_t retained{};
     unsigned most{};
     for (const auto& root : roots) {
-        if (!root.handle || !root.active || !root.gameplay_stacks) continue;
+        if (!root.handle || !root.active) continue;
+        // Native score/compass stacks briefly empty during activity changes.
+        // Retain only a previously verified live identity, never a new default.
+        if (!root.gameplay_stacks) {
+            if(root.handle==preferred)retained=root.handle;
+            continue;
+        }
         if (root.handle == preferred) return root.handle;
         if (root.gameplay_stacks > most) {
             selected = root.handle;
             most = root.gameplay_stacks;
         }
     }
-    return selected;
+    return selected?selected:retained;
 }
 } // namespace dingosdk::multiplayer::menu_data

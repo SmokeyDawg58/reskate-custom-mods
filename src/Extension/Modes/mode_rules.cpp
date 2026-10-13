@@ -50,7 +50,11 @@ bool valid_settings(const Settings &s) noexcept {
         return false;
     if (s.trick_kinds == 0 || s.trick_kinds > all_trick_kinds) return false;
     if (!(s.radius >= 1.0f && s.radius <= 50.0f)) return false;
-    if (s.corners.size() > max_corners || s.points.size() > max_points) return false;
+    if (s.corners.size() > max_corners || (s.mode!=Mode::race && s.points.size()>max_points) ||
+        s.points.size()>static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())) return false;
+    if (!s.gate_kinds.empty() && (s.mode!=Mode::race || s.gate_kinds.size()!=s.points.size() ||
+        !std::all_of(s.gate_kinds.begin(),s.gate_kinds.end(),[](auto k){return k==RaceGateKind::mandatory || k==RaceGateKind::guiding;}) ||
+        s.gate_kinds.front()!=RaceGateKind::mandatory || (s.race_finish && s.gate_kinds.back()!=RaceGateKind::mandatory)))return false;
     if (!s.yaws.empty() && s.yaws.size() != s.points.size()) return false;
     if (!s.widths.empty() && s.widths.size() != s.points.size()) return false;
     if (!std::all_of(s.widths.begin(), s.widths.end(), [](float w) { return w >= min_gate_half_width && w <= max_gate_half_width; })) return false;
@@ -96,7 +100,7 @@ std::string_view mode_summary(Mode m) noexcept {
     case Mode::jam: return "Land lines inside the area. Every line adds to your score; highest total wins.";
     case Mode::one_up: return "Take turns. Beat the last score or take a strike; last one standing wins.";
     case Mode::meat: return "Bail as hard as you can. Speed, drops and tumbling score; most meat wins.";
-    case Mode::race: return "Cross checkpoints in order for +2 seconds each. Reach the red finish before your clock runs out.";
+    case Mode::race: return "Cross mandatory gates in order; gray guides are optional. Reach the red finish. Countdown only in the final 30 seconds.";
     case Mode::domination: return "Take spots with your best line there. Every second you hold one scores.";
     case Mode::graffiti: return "Grind it, manual it, gap it: what you skate takes your colour. A bigger line steals it. Most tags wins.";
     case Mode::tag: return "One player is it: get close to tag someone else. No tag-backs. Least time spent it wins.";
@@ -195,6 +199,18 @@ std::string missing(const Settings &s) {
 }
 
 float gate_half_width(const Settings &s, std::size_t gate) noexcept { return gate < s.widths.size() ? s.widths[gate] : s.radius; }
+bool guiding_gate(const Settings& s,std::size_t gate) noexcept {
+    return gate<s.gate_kinds.size() && s.gate_kinds[gate]==RaceGateKind::guiding;
+}
+std::size_t next_race_gate(const Settings& s,std::size_t from) noexcept {
+    while(from<s.points.size() && guiding_gate(s,from))++from;
+    return from;
+}
+std::size_t mandatory_gates(const Settings& s,std::size_t before) noexcept {
+    const auto end=std::min(before,s.points.size()-(s.race_finish && !s.points.empty()?1:0));
+    std::size_t count{};for(std::size_t i=1;i<end;++i)if(!guiding_gate(s,i))++count;
+    return count;
+}
 bool has_area(const Settings &s) noexcept { return s.area_radius > 0.0f ? !s.corners.empty() : s.corners.size() >= 3; }
 bool inside(const Settings &s, const Vec3 &p) noexcept {
     if (s.area_radius > 0.0f && !s.corners.empty()) return horizontal_distance(p, s.corners[0]) <= s.area_radius;
@@ -370,17 +386,19 @@ std::vector<std::uint8_t> encode(const Message &m) {
         w.integer(s.strikes, 1);
         w.real(s.radius);
         w.real(s.area_radius);
-        w.integer(s.yaws.size(), 1);
+        w.integer(s.yaws.size(), 4);
         for (const auto yaw : s.yaws) w.real(yaw);
-        w.integer(s.widths.size(), 1);
+        w.integer(s.widths.size(), 4);
         for (const auto width : s.widths) w.real(width);
         w.integer(s.has_spawn ? 1 : 0, 1);
         w.integer(s.race_finish ? 1 : 0, 1);
         if (s.has_spawn) w.vec(s.spawn);
         w.integer(s.corners.size(), 1);
         for (const auto &p : s.corners) w.vec(p);
-        w.integer(s.points.size(), 1);
+        w.integer(s.points.size(), 4);
         for (const auto &p : s.points) w.vec(p);
+        w.integer(s.gate_kinds.size(),4);
+        for(const auto kind:s.gate_kinds)w.integer(static_cast<std::uint8_t>(kind),1);
         w.integer(s.trick_kinds, 1);
         break;
     }
@@ -465,11 +483,11 @@ std::optional<Message> decode(std::span<const std::uint8_t> bytes) noexcept {
             s.strikes = static_cast<std::uint8_t>(r.integer(1));
             s.radius = r.real();
             s.area_radius = r.real();
-            const auto yaws = r.integer(1);
-            if (yaws > max_points) return std::nullopt;
+            const auto yaws = r.integer(4);
+            if (!r.ok || yaws>(bytes.size()-r.at)/4) return std::nullopt;
             for (std::uint64_t i = 0; i < yaws && r.ok; ++i) s.yaws.push_back(r.real());
-            const auto widths = r.integer(1);
-            if (widths > max_points) return std::nullopt;
+            const auto widths = r.integer(4);
+            if (!r.ok || widths>(bytes.size()-r.at)/4) return std::nullopt;
             for (std::uint64_t i = 0; i < widths && r.ok; ++i) s.widths.push_back(r.real());
             s.has_spawn = r.integer(1) != 0;
             s.race_finish = r.integer(1) != 0;
@@ -477,9 +495,12 @@ std::optional<Message> decode(std::span<const std::uint8_t> bytes) noexcept {
             const auto corners = r.integer(1);
             if (corners > max_corners) return std::nullopt;
             for (std::uint64_t i = 0; i < corners && r.ok; ++i) s.corners.push_back(r.vec());
-            const auto points = r.integer(1);
-            if (points > max_points) return std::nullopt;
+            const auto points = r.integer(4);
+            if (!r.ok || points>(bytes.size()-r.at)/12) return std::nullopt;
             for (std::uint64_t i = 0; i < points && r.ok; ++i) s.points.push_back(r.vec());
+            const auto kinds=r.integer(4);
+            if(!r.ok || kinds>bytes.size()-r.at)return std::nullopt;
+            for(std::uint64_t i=0;i<kinds && r.ok;++i)s.gate_kinds.push_back(static_cast<RaceGateKind>(r.integer(1)));
             s.trick_kinds = static_cast<std::uint8_t>(r.integer(1));
             if (!r.ok || !valid_settings(s)) return std::nullopt;
             break;
@@ -641,7 +662,7 @@ void Referee::begin_play(std::uint64_t now_ms) {
     // Point zero is the native start flag, already accepted during setup.
     // The first visible gate is point one; crossing the flag is never required.
     if (settings_.mode == Mode::race)
-        for (auto& player : players_) player.score = 1;
+        for (auto& player : players_) player.score = static_cast<std::int32_t>(next_race_gate(settings_,1));
     call("GO!");
     if (settings_.mode == Mode::one_up && !players_.empty())
         call(name_of(players_[0].id) + " is up: set a score");
@@ -863,7 +884,10 @@ void Referee::event(std::uint64_t player, Event event, std::int32_t value, const
         else try_infections(now_ms);
         return;
     }
-    if (event == Event::position) return;
+    if (event == Event::position) {
+        if(settings_.mode==Mode::race && finite(at)) {p->at=at;p->at_time=now_ms;}
+        return;
+    }
     if (settings_.mode != Mode::race && !inside(settings_, at)) return; // out of the area: nothing counts
     switch (settings_.mode) {
     case Mode::tag:
@@ -905,18 +929,18 @@ void Referee::event(std::uint64_t player, Event event, std::int32_t value, const
     }
     case Mode::race: {
         if (p->finished) return;
-        const auto deadline=phase_at_+settings_.duration_s*1000ull+
-            static_cast<std::uint64_t>(std::max(0,p->score-1))*race_gate_bonus_ms;
+        const auto deadline=phase_at_+settings_.duration_s*1000ull;
         if (now_ms>=deadline) {p->out=true;return;}
-        if (event != Event::checkpoint || value != p->score) return;
+        if (event != Event::checkpoint || value != p->score || !finite(at)) return;
         if (settings_.points.empty() || static_cast<std::size_t>(value) >= settings_.points.size()) return;
+        if(std::abs(at[1]-settings_.points[static_cast<std::size_t>(value)][1])>10.f*gate_half_width(settings_,static_cast<std::size_t>(value))/6.f)return;
         // Within the gate's own width (where the crossing was reported), with some slack for lag.
         if (horizontal_distance(at, settings_.points[static_cast<std::size_t>(value)]) >
             gate_half_width(settings_, static_cast<std::size_t>(value)) * 1.3f + 3.0f)
             return;
-        ++p->score;
+        p->score=static_cast<std::int32_t>(next_race_gate(settings_,static_cast<std::size_t>(value)+1));
         if (value>0 && static_cast<std::size_t>(value)+1<settings_.points.size())
-            call(std::format("{}: checkpoint {} +2 seconds",name_of(player),value));
+            call(std::format("{}: mandatory gate {}/{}",name_of(player),mandatory_gates(settings_,p->score),mandatory_gates(settings_,settings_.points.size())));
         if (static_cast<std::size_t>(p->score) == settings_.points.size()) {
             p->finished = true;
             p->aux = static_cast<std::int32_t>(std::min<std::uint64_t>(now_ms - phase_at_, 0x7fffffff));
@@ -989,9 +1013,7 @@ bool Referee::tick(std::uint64_t now_ms) {
         if (settings_.mode==Mode::race) {
             bool expired{};
             for(auto& p:players_)if(!p.out && !p.finished) {
-                const auto budget=settings_.duration_s*1000ull+
-                    static_cast<std::uint64_t>(std::max(0,p.score-1))*race_gate_bonus_ms;
-                if(elapsed>=budget) {p.out=true;expired=true;call(name_of(p.id)+" ran out of time");}
+                if(elapsed>=settings_.duration_s*1000ull) {p.out=true;expired=true;call(name_of(p.id)+" DNF: missed the finish deadline");}
             }
             if(expired && !std::all_of(players_.begin(),players_.end(),[](const Player& p){return p.finished || p.out;}))return true;
         }
@@ -1096,9 +1118,7 @@ Message Referee::state(std::uint64_t now_ms) const {
         const auto &p = players_[i];
         m.standings.push_back({p.id, p.score, p.aux, p.out, m.turn == p.id});
         if(settings_.mode==Mode::race && phase_==Phase::playing && !p.out && !p.finished) {
-            const auto budget=settings_.duration_s*1000ull+
-                static_cast<std::uint64_t>(std::max(0,p.score-1))*race_gate_bonus_ms;
-            m.standings.back().remaining_ms=left(budget);
+            m.standings.back().remaining_ms=left(settings_.duration_s*1000ull);
         }
         // Infection: aux 1 and `up` for the infected (who wear the reaper), score the tenths survived.
         if (settings_.mode == Mode::infection) {
@@ -1112,13 +1132,23 @@ Message Referee::state(std::uint64_t now_ms) const {
     if (settings_.mode == Mode::hide && phase_ == Phase::playing)
         m.target = static_cast<std::int32_t>(now_ms < hide_end() ? hide_end() - now_ms : 0);
     const auto mode = settings_.mode;
-    std::stable_sort(m.standings.begin(), m.standings.end(), [mode, this](const Standing &a, const Standing &b) {
+    std::stable_sort(m.standings.begin(), m.standings.end(), [mode, this, now_ms](const Standing &a, const Standing &b) {
         if (mode == Mode::race) {
             const auto *pa = find(a.player), *pb = find(b.player);
             const bool fa = pa && pa->finished, fb = pb && pb->finished;
             if (fa != fb) return fa;
             if (fa) return a.aux < b.aux;
-            return a.score > b.score;
+            if(a.out!=b.out)return !a.out;
+            if(a.score!=b.score)return a.score>b.score;
+            // Racers with the same required gate are ordered by distance to it.
+            const auto next=static_cast<std::size_t>(std::max(0,a.score));
+            if(next<settings_.points.size()) {
+                const bool fresh_a=pa && pa->at_time && now_ms>=pa->at_time && now_ms-pa->at_time<=position_fresh_ms;
+                const bool fresh_b=pb && pb->at_time && now_ms>=pb->at_time && now_ms-pb->at_time<=position_fresh_ms;
+                if(fresh_a!=fresh_b)return fresh_a;
+                if(fresh_a && fresh_b)return horizontal_distance(pa->at,settings_.points[next])<horizontal_distance(pb->at,settings_.points[next]);
+            }
+            return false;
         }
         if (mode == Mode::tag) { // least time spent it first
             if (a.out != b.out) return !a.out;

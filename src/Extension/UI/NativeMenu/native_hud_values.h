@@ -19,6 +19,7 @@ inline unsigned native_slider_choice(float normalized,unsigned minimum,unsigned 
     return minimum+std::min(index,steps)*step;
 }
 inline float native_slider_position(unsigned choice,unsigned minimum,unsigned maximum) {
+    if(maximum<=minimum)return 0.f;
     return float(std::clamp(choice,minimum,maximum)-minimum)/float(maximum-minimum);
 }
 } // namespace dingosdk::multiplayer::menu_data

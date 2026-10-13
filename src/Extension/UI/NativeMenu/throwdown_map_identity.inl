@@ -212,8 +212,8 @@ void throwdown_map_identity(const Context& c) {
         const auto players=v.state?std::max<std::size_t>(1,v.state->standings.size()):1;
         brand_map_stat(c,c.element(rows,0),"Players",std::to_string(players)+"/"+std::to_string(v.capacity));
         const bool race=v.settings.mode==modes::Mode::race;
-        const auto checkpoints=v.settings.points.size()-(v.settings.race_finish && !v.settings.points.empty()?1:0);
-        brand_map_stat(c,c.element(rows,1),race?"Checkpoints":"Duration",race?std::to_string(checkpoints):std::to_string(v.settings.duration_s)+"s");
-        brand_map_stat(c,c.element(rows,2),race?"Race Timer":"Turn Timer",std::to_string(race?v.settings.duration_s:v.settings.turn_s)+"s");
+        const auto checkpoints=modes::mandatory_gates(v.settings,v.settings.points.size());
+        brand_map_stat(c,c.element(rows,1),race?"Mandatory gates":"Duration",race?std::to_string(checkpoints):std::to_string(v.settings.duration_s)+"s");
+        brand_map_stat(c,c.element(rows,2),race?"Finish deadline":"Turn Timer",race?std::to_string(v.settings.duration_s)+"s (last 30s visible)":std::to_string(v.settings.turn_s)+"s");
     }
 }

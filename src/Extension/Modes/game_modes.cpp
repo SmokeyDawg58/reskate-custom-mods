@@ -1,6 +1,9 @@
 #include "game_modes.h"
 #include "bone_cam.h"
 #include "mode_rules.h"
+#include "mode_transport.h"
+#include "Engine/Game/Multiplayer/session_competition.h"
+#include "Extension/Skater/physics_tuning.h"
 #include "race_route.h"
 #include "placement_camera.h"
 #include "race_world.h"
@@ -88,8 +91,12 @@ struct Game {
     // Deathrace: the checkpoints this player was last told about, and the side of the next gate
     // they were on (to notice them going past it outside the posts).
     int heard_score{}, missed_warned{-1};
+    std::uint64_t recovery_until{},recovery_queued{};
+    bool recovery_pending{};
+    RaceGatePose recovery_pose{};
     float along{};
     bool have_along{};
+    bool miss_pending{};
     Vec3 previous_gate_position{};
     // The next gate was crossed between its posts (at `crossed_at`, on its line): reported until
     // the referee counts it, since a message can be lost.
@@ -161,6 +168,17 @@ struct State {
     float draft_width = 6.0f; // Deathrace: the half width of the gate being placed (metres)
     unsigned race_object=1; // editor: 1 checkpoint, 2 finish; start belongs to native flag picker
     bool cycle_left{},cycle_right{},race_resume_editor{};
+    bool route_snap=true,snap_previous{};
+    unsigned snap_angle=1;
+    RaceClearHold clear_hold;
+    RaceEditorPresses editor_presses;
+    bool editor_exit_confirm{};
+    RaceCourseMemory courses;
+    std::string course_map;
+    std::mutex recovery_mutex;
+    std::optional<Vec3> recovery_velocity;
+    std::uint64_t recovery_velocity_until{};
+    float snapped_yaw{};
     std::mutex race_start_mutex;
     struct RaceStart {std::uint64_t world{};std::uint32_t game{};Vec3 at{};float yaw{};};
     std::optional<RaceStart> race_start;
@@ -265,7 +283,8 @@ std::uint32_t player_colour(const Message *state, std::uint64_t id) {
 }
 void send(State &s, const Message &m) {
     if (!s.session) return;
-    try { s.outbox.push_back(encode(m)); } catch (...) {}
+    try {for(auto& packet:transport_messages(m))s.outbox.push_back(std::move(packet));}
+    catch(const std::exception& e) {logging::log(logging::Level::error,logging::Channel::runtime,"Game-mode transfer failed: {}",e.what());}
 }
 Message header(const Game &g, Message::Kind kind) {
     Message m;
@@ -288,7 +307,14 @@ bool seeker_blind(const State &s) {
     return me && me->up && !me->out;
 }
 void notice(State &s, std::string text) { s.notices.push_back(std::move(text)); }
+void save_race_course(State& s) {
+    if(s.game && s.game->settings.mode==Mode::race)s.courses.save(s.course_map,s.game->settings);
+}
 void end_game(State &s, std::string why) {
+    save_race_course(s);
+    s.editor_exit_confirm=false;s.clear_hold={};s.editor_presses={};
+    {std::lock_guard lock(s.recovery_mutex);s.recovery_velocity.reset();}
+    set_competition_stock_physics(false);
     if (!why.empty()) {
         logging::log(logging::Level::info,logging::Channel::ui,"Custom Throwdown ended: {}",why);
         notice(s, std::move(why));
@@ -394,7 +420,7 @@ Message setup_state(const State &s, const Game &g) {
 std::uint32_t default_duration(Mode mode) {
     switch (mode) {
     case Mode::meat: return 180;
-    case Mode::race: return 60;
+    case Mode::race: return race_deadline_ms/1000;
     case Mode::tag: return 240;
     case Mode::infection: return 300;
     case Mode::hide: return 360;
@@ -932,7 +958,7 @@ void track_game(State &s, std::uint64_t now) {
     auto &g = *s.game;
     const auto *me = standing(g, self_id(s));
     if (!me || me->out) return;
-    if (tag_like(g.settings.mode)) {
+    if (tag_like(g.settings.mode) || g.settings.mode==Mode::race) {
         // Where we are, to the leader and everyone (about 7 times a second), and the sounds of
         // being tagged and of tagging.
         s.positions[self_id(s)] = {s.position, now};
@@ -980,33 +1006,45 @@ void track_game(State &s, std::uint64_t now) {
         const auto count = g.settings.points.size();
         // The referee counted a gate: the chime (the finish has its own).
         if (me->score > g.heard_score) {
+            const auto previous=g.heard_score;
             g.heard_score = me->score;
-            g.gate_crossed = false;
-            if (me->score > 1) {
+            g.gate_crossed = false;g.miss_pending=false;g.have_along=false;
+            if (mandatory_gates(g.settings,me->score)>mandatory_gates(g.settings,std::max(0,previous)) || static_cast<std::size_t>(me->score)>=count) {
                 const bool finished = static_cast<std::size_t>(me->score) >= count;
                 play(finished ? Cue::finish : Cue::checkpoint);
-                // Gate 0 is the start; checkpoints are 1 .. count-2; the finish is last.
-                if (!finished && me->score >= 2)
-                    popup(s, me->score + 1 == static_cast<int>(count) ? std::string("Checkpoint! Now the finish")
-                                                                      : std::format("Checkpoint {}/{}", me->score - 1, count - 2));
+                if (!finished) {
+                    const auto passed=mandatory_gates(g.settings,me->score),total=mandatory_gates(g.settings,count);
+                    popup(s,passed==total?"All mandatory gates cleared! Head to the red finish":std::format("Mandatory gates {}/{}",passed,total));
+                }
             }
         }
     }
     if (g.settings.mode == Mode::race && me->score >= 0 && static_cast<std::size_t>(me->score) < g.settings.points.size()) {
         const auto index = static_cast<std::size_t>(me->score);
+        if(g.recovery_pending) {
+            g.have_along=false;g.gate_crossed=false;g.miss_pending=false;
+            if(!g.recovery_queued) {
+                g.recovery_pose=race_recovery_pose(g.settings,index);
+                if(teleport_to(g.recovery_pose.at,g.recovery_pose.yaw))g.recovery_queued=now;
+            } else if(!local_skater_teleport_pending() &&
+                std::hypot(s.position[0]-g.recovery_pose.at[0],s.position[2]-g.recovery_pose.at[2])<3.f) {
+                const auto angle=g.recovery_pose.yaw*3.14159265f/180.f;
+                {std::lock_guard lock(s.recovery_mutex);s.recovery_velocity=Vec3{std::sin(angle)*6.f,0.f,std::cos(angle)*6.f};s.recovery_velocity_until=now+1000;}
+                g.recovery_pending=false;g.recovery_queued=0;g.recovery_until=now+3000;
+            } else if(now-g.recovery_queued>5500)g.recovery_queued=0;
+            return;
+        }
         const auto &next = g.settings.points[index];
         const float dx = s.position[0] - next[0], dz = s.position[2] - next[2];
-        const float half = gate_half_width(g.settings, index);
         // A gate counts when the skater crosses its line, forwards, between its posts: not on
         // getting near it. Its facing is its own (or along the route).
         const float yaw = gate_heading(g.settings, index) * 3.14159265f / 180.0f;
         const float fx = std::sin(yaw), fz = std::cos(yaw);
-        const float along = dx * fx + dz * fz, across = std::abs(dx * fz - dz * fx);
-        const bool level = std::abs(s.position[1] - next[1]) <= 10.0f;
+        const float along = dx * fx + dz * fz;
         // Sweep the actual movement segment through the gate plane. Fast
         // skating and frame gaps must not skip a crossing between two samples.
         const auto crossing=g.have_along?race_gate_crossing(g.settings,index,g.previous_gate_position,s.position):RaceGateCrossing{};
-        const bool crossed=crossing.crossed;
+        // Crossing is evaluated at the swept intersection, including wide detours.
         if (crossing.inside && !g.gate_crossed) {
             g.gate_crossed = true;
             g.crossed_at = crossing.at;
@@ -1019,20 +1057,21 @@ void track_game(State &s, std::uint64_t now) {
         }
         // Missed: across the gate's line but outside its posts, or already through a later gate.
         // (Not while a crossing waits for the referee: the skater rides on to the next gate meanwhile.)
-        bool missed = index > 0 && crossed && across > half && across < half + 20.0f && level;
+        bool missed = index > 0 && g.have_along && !g.gate_crossed && race_miss_recovery_ready(g.settings,index,g.previous_gate_position,s.position,g.miss_pending);
         g.along = along;
-        g.previous_gate_position = s.position;
-        g.have_along = true;
         for (std::size_t later = index + 1; later < g.settings.points.size() && !missed && !g.gate_crossed; ++later) {
-            const auto &p = g.settings.points[later];
-            if (std::hypot(s.position[0] - p[0], s.position[2] - p[2]) <= gate_half_width(g.settings, later) * 0.5f &&
-                std::abs(s.position[1] - p[1]) <= 10.0f)
+            if(guiding_gate(g.settings,later))continue;
+            if (g.have_along && along>=std::clamp(gate_half_width(g.settings,index)*.15f,1.5f,4.f) &&
+                race_gate_along(g.settings,later,s.position)>race_gate_along(g.settings,later,g.previous_gate_position) &&
+                race_gate_crossing(g.settings,later,g.previous_gate_position,s.position).inside)
                 missed = true;
         }
-        if (missed && g.missed_warned != me->score) {
-            g.missed_warned = me->score;
+        g.previous_gate_position = s.position;
+        g.have_along = true;
+        if (missed && (g.missed_warned != me->score || now>g.recovery_until)) {
+            g.missed_warned = me->score;g.recovery_pending=true;g.recovery_queued=0;g.recovery_until=now+8000;
             play(Cue::missed);
-            popup(s, std::format("Missed {}! Go back", gate_name(index, g.settings.points.size())));
+            popup(s, std::format("Go back to mandatory gate {}!",mandatory_gates(g.settings,index)+1));
         }
     }
     if (!has_area(g.settings)) return;
@@ -1060,7 +1099,7 @@ void settings_changed(Game &g) {
     auto &s = g.settings;
     if (s.mode != Mode::race) {
         s.yaws.clear();
-        s.widths.clear();
+        s.widths.clear();s.gate_kinds.clear();
         return;
     }
     for (std::size_t i = s.yaws.size(); i < s.points.size(); ++i) s.yaws.push_back(gate_heading(s, i));
@@ -1068,6 +1107,8 @@ void settings_changed(Game &g) {
     // Every gate has a width too: one placed without keeps the game's checkpoint radius.
     while (s.widths.size() < s.points.size()) s.widths.push_back(std::clamp(s.radius, min_gate_half_width, max_gate_half_width));
     s.widths.resize(s.points.size());
+    s.gate_kinds.resize(s.points.size(),RaceGateKind::mandatory);
+    save_race_course(state());
 }
 bool game_window_focused() {
     DWORD process{};
@@ -1195,8 +1236,16 @@ void run_placing(State &s, std::uint64_t now) {
     s.keys_previous = keys;
     // Presses meant for ReSkate's menu, the chat or another window do nothing here.
     const bool focus = !overlay::interface_open() && game_window_focused();
-    if (!focus) return;
-    if ((pressed & 0x2000) || struck[3]) { // B / Escape: retain the draft and release input.
+    if (!focus) {s.clear_hold.update(false,false,now);s.editor_presses.previous=15;return;}
+    const bool close=(pressed&0x2000) || struck[3];
+    if(g.settings.mode==Mode::race && s.editor_exit_confirm) {
+        if(close){s.editor_exit_confirm=false;return;}
+        if(!(pressed&pad_a) && !struck[0])return;
+        s.editor_exit_confirm=false;
+    } else if(close && g.settings.mode==Mode::race) {
+        s.editor_exit_confirm=true;s.clear_hold={};return;
+    } else if(!close)goto editor_continue;
+    { // Confirmed B / Escape: retain the draft and release input.
         s.placing=State::Placing::none;s.cursor_ok=false;
         s.placement_flight.store(false,std::memory_order_release);
         overlay::pause_game_input(false);
@@ -1207,8 +1256,9 @@ void run_placing(State &s, std::uint64_t now) {
         notice(s,"Placement closed. Your draft is kept; open Throwdowns to continue.");
         return;
     }
+    editor_continue:
     const bool race_editor=s.placing==State::Placing::points && g.settings.mode==Mode::race;
-    const bool back = (pressed & (race_editor?0x4000:pad_left)) || struck[1]; // X: undo
+    const bool back = (pressed & (race_editor?0x4000:pad_left)) || (!race_editor && struck[1]); // X: undo; Backspace holds Clear All
     bool confirm = (pressed & (race_editor?pad_a:(pad_right|pad_a))) || struck[0];
     bool done = (pressed & (race_editor?0x10:pad_down)) || struck[2]; // Start: save
     if (!s.cursor_ok && confirm) {
@@ -1238,29 +1288,45 @@ void run_placing(State &s, std::uint64_t now) {
     const auto limit = corners ? max_corners : max_points;
     const bool route = !corners && g.settings.mode == Mode::race;
     if (route) {
-        const bool left = (buttons & pad_left) || held(VK_PRIOR), right = (buttons & pad_right) || held(VK_NEXT);
-        if (left != right) s.yaw_offset += (left ? -120.0f : 120.0f) * seconds;
-        // The wheel turns the gate; with Ctrl held (or [ and ]) it widens or narrows it instead.
-        const bool ctrl = held(VK_CONTROL);
-        if (ctrl) s.draft_width *= std::pow(1.15f, notches);
-        else s.yaw_offset += notches * 15.0f; // each wheel notch: 15 degrees
-        const bool narrow = (buttons & pad_down) || held(VK_OEM_4), widen = (buttons & pad_up) || held(VK_OEM_6);
-        if (narrow != widen) s.draft_width *= std::pow(widen ? 1.8f : 1.0f / 1.8f, seconds);
-        s.draft_width = std::clamp(s.draft_width, min_gate_half_width, max_gate_half_width);
+        if(s.clear_hold.update((buttons&0x20) || held(VK_BACK),focus,now)) {
+            s.courses.clear(s.course_map);clear_race_gates(g.settings,g.race_finish_placed);
+            settings_changed(g);s.race_object=1;popup(s,"All gates and finish cleared.");
+            return;
+        }
+        constexpr std::array<float,5> snap_angles{5.f,15.f,30.f,45.f,90.f};
+        if(pressed&0x40)s.snap_angle=(s.snap_angle+4u)%5u;
+        if(pressed&0x80)s.snap_angle=(s.snap_angle+1u)%5u;
+        const unsigned held_editor=((buttons&pad_left) || held(VK_PRIOR)?1u:0u) |
+            ((buttons&pad_right) || held(VK_NEXT)?2u:0u) |
+            ((buttons&pad_down) || held(VK_OEM_4)?4u:0u) |
+            ((buttons&pad_up) || held(VK_OEM_6)?8u:0u);
+        const auto step=s.editor_presses.update(held_editor);
+        const int turn=int(bool(step&2))-int(bool(step&1));
+        const int resize=int(bool(step&8))-int(bool(step&4));
+        const bool ctrl=held(VK_CONTROL);
+        const int wheel_steps=static_cast<int>(notches);
+        const int rotate=turn+(ctrl?0:wheel_steps);
+        if(rotate)s.yaw_offset=rotate_race_gate(s.cursor_heading+s.yaw_offset,rotate,s.route_snap,snap_angles[s.snap_angle])-s.cursor_heading;
+        s.draft_width=size_race_gate(s.draft_width,resize+(ctrl?wheel_steps:0));
         const bool lt=(buttons&0x10000) || held('Z'),rt=(buttons&0x20000) || held('X');
         if(lt && !s.cycle_left)s.race_object=static_cast<unsigned>(cycle_race_object(static_cast<RaceObject>(s.race_object),true));
         if(rt && !s.cycle_right)s.race_object=static_cast<unsigned>(cycle_race_object(static_cast<RaceObject>(s.race_object),false));
         s.cycle_left=lt;s.cycle_right=rt;
+        const bool snap=(buttons&0x8000) || held('G');
+        if(snap && !s.snap_previous)s.route_snap=!s.route_snap;
+        s.snap_previous=snap;
+        const auto pose=snap_race_gate(g.settings,s.cursor,s.cursor_heading+s.yaw_offset,s.route_snap,snap_angles[s.snap_angle]);
+        s.cursor=pose.at;s.snapped_yaw=pose.yaw;
         const auto place=[&](RaceObject object) {
-            if(!edit_race_route(g.settings,g.race_finish_placed,object,s.cursor,s.cursor_heading+s.yaw_offset,s.draft_width))return false;
+            if(!edit_race_route(g.settings,g.race_finish_placed,object,s.cursor,s.snapped_yaw,s.draft_width))return false;
             s.yaw_offset=0;settings_changed(g);return true;
         };
-        if(confirm && s.race_object==1) {
+        if(confirm && (s.race_object==1 || s.race_object==3)) {
             if(list.empty())popup(s,"Place the starting flag first.");
-            else if(place(RaceObject::checkpoint))popup(s,"Checkpoint placed: +2 seconds on crossing.");
-            else popup(s,"Maximum checkpoints placed.");
+            else if(place(static_cast<RaceObject>(s.race_object)))popup(s,s.race_object==3?"Gray guiding gate placed (optional).":"Mandatory gate placed.");
+            else popup(s,"Gate could not be placed.");
         } else if(confirm && s.race_object==2) {
-            if(list.size()-(g.race_finish_placed?1:0)<2)popup(s,"Place a start and at least one checkpoint first.");
+            if(!mandatory_gates(g.settings,list.size()))popup(s,"Place a start and at least one mandatory gate first.");
             else {
                 if(place(RaceObject::finish))popup(s,"Finish placed. Press Start to save the route.");
                 else popup(s,"Finish could not be placed.");
@@ -1298,6 +1364,7 @@ void run_placing(State &s, std::uint64_t now) {
 // state arrives first; a solo game counts for nothing. A new leader is called out in chat.
 void record_result(State &s, std::uint64_t leader, std::uint32_t game, Mode mode, const Message &m) {
     if (m.phase != Phase::results || m.standings.size() < 2 || !s.lobby_counted.insert({leader, game}).second) return;
+    if (mode == Mode::race && m.standings.front().out) return;
     for (std::size_t i = 0; i < m.standings.size(); ++i) {
         auto &e = s.lobby[m.standings[i].player];
         e.name = name_of(s, m.standings[i].player);
@@ -1309,7 +1376,7 @@ void record_result(State &s, std::uint64_t leader, std::uint32_t game, Mode mode
         } else {
             e.streak = 0;
         }
-        if (i < 3) {
+        if (i < 3 && (mode != Mode::race || !m.standings[i].out)) {
             ++e.podiums;
             e.points += 3 - static_cast<int>(i);
         }
@@ -1531,10 +1598,18 @@ void build_hud(State &s, std::uint64_t now) {
             break;
         case Phase::countdown:
             h.clock = std::to_string((st->remaining_ms + 999) / 1000);
-            h.status = std::string(mode_summary(mode));
+            h.status = mode==Mode::race?"GET READY":std::string(mode_summary(mode));
             break;
         case Phase::playing:
-            h.clock = clock_text(mode==Mode::race && me ? me->remaining_ms : st->remaining_ms);
+            if(mode!=Mode::race || (me && !me->out && static_cast<std::size_t>(me->score)<g.settings.points.size() && race_clock_visible(me->remaining_ms)))
+                h.clock = clock_text(mode==Mode::race && me ? me->remaining_ms : st->remaining_ms);
+            if(mode==Mode::race && me) {
+                const auto passed=mandatory_gates(g.settings,std::max(0,me->score)),total=mandatory_gates(g.settings,g.settings.points.size());
+                h.status=std::format("MANDATORY {}/{}  /  {} LEFT",passed,total,total-passed);
+                if(me->out)h.status="DNF";
+                else if(static_cast<std::size_t>(me->score)>=g.settings.points.size())h.status="FINISHED";
+                else if(g.missed_warned==me->score && (g.recovery_pending || now<g.recovery_until))h.status=std::format("GO BACK: MANDATORY {}  /  {} LEFT",passed+1,total-passed);
+            }
             if (mode == Mode::one_up) {
                 const auto target = st->target > 0 ? "beat " + grouped(st->target) : std::string("set a score");
                 h.status = st->turn == self ? "YOUR TURN: " + target : name_of(s, st->turn) + " is up: " + target;
@@ -1566,7 +1641,7 @@ void build_hud(State &s, std::uint64_t now) {
                 if (st->target > 0 && me->up && !me->out) h.blind = std::to_string(counting);
             } else if (!me) {
                 h.status = "Watching.";
-            } else {
+            } else if(mode!=Mode::race) {
                 h.status = std::string(mode_summary(mode));
             }
             break;
@@ -1644,7 +1719,7 @@ void build_hud(State &s, std::uint64_t now) {
                 case Mode::race:
                     row.value = static_cast<std::size_t>(p.score) >= g.settings.points.size() && p.aux
                                     ? std::format("FINISH  {:.1f}s", p.aux / 1000.0)
-                                    : p.out ? "DNF" : std::format("{}/{}  {}s",std::max(0,p.score-1),g.settings.points.size()>1?g.settings.points.size()-1:0,(p.remaining_ms+999)/1000);
+                                    : p.out ? "DNF" : std::format("{}/{}",mandatory_gates(g.settings,std::max(0,p.score)),mandatory_gates(g.settings,g.settings.points.size()));
                     break;
                 case Mode::domination: row.value = grouped(p.score) + " pts"; break;
                 case Mode::graffiti: row.value = std::format("{} zone{}", p.score, p.score == 1 ? "" : "s"); break;
@@ -1664,13 +1739,14 @@ void build_hud(State &s, std::uint64_t now) {
         // The end: who won, big in the middle of everyone's screen, and once in the chat.
         if (phase == Phase::results && st && !st->standings.empty() && !h.rows.empty()) {
             h.results = true;
-            h.winner = h.rows.front().name;
+            h.winner = mode == Mode::race && st->standings.front().out ? "" : h.rows.front().name;
             h.winner_value = h.rows.front().value;
             h.winner_color = h.rows.front().color;
             h.closing_ms = st->remaining_ms;
             if (!s.game->announced) {
                 s.game->announced = true;
-                notice(s, std::format("{} won {} with {}", h.winner, mode_name(mode), h.winner_value));
+                notice(s, h.winner.empty() ? "Deathrace ended: no racers finished."
+                    : std::format("{} won {} with {}", h.winner, mode_name(mode), h.winner_value));
             }
         }        h.corners = g.settings.corners;
         h.points = g.settings.points;
@@ -1711,10 +1787,10 @@ void build_hud(State &s, std::uint64_t now) {
                 break;
             case State::Placing::points:
                 if (mode == Mode::race) {
-                    h.hint = std::format("{}  /  Size {:.0f}%",s.race_object==2?"Finish":"Checkpoint +2s",s.draft_width/6.f*100);
-                    h.prompts = {{0,"LT/RT or Z/X","Checkpoint / Finish"},{'R',"A / Click / Enter","Place gate"},{0,"D-pad Left/Right / PgUp/PgDn","Rotate"},{0,"D-pad Up/Down / [ ]","Size"},{0,"Start / F","Save route"},{0,"X / Backspace","Undo"}};
-                    h.line = std::format("{} checkpoints; {}; gate {:.0f} m wide",g.settings.points.size()>0?g.settings.points.size()-1-(g.race_finish_placed?1:0):0,
-                        g.race_finish_placed?"finish placed":"finish needed",s.draft_width*2);
+                    h.hint = std::format("{}  /  Size {:.0f}%",s.race_object==2?"Red finish":s.race_object==3?"Gray guiding gate":"Mandatory gate",s.draft_width/6.f*100);
+                    h.prompts = {{0,"LT/RT or Z/X","Mandatory / Finish / Guide"},{'R',"A / Click / Enter","Place gate"},{0,"D-pad Left/Right / PgUp/PgDn","Rotate"},{0,"D-pad Up/Down / [ ]","Size"},{0,"Start / F","Save route"},{0,"X / Backspace","Undo"}};
+                    h.line = std::format("{} mandatory; {} guiding; {}; gate {:.0f} m wide",mandatory_gates(g.settings,g.settings.points.size()),
+                        std::count(g.settings.gate_kinds.begin(),g.settings.gate_kinds.end(),RaceGateKind::guiding),g.race_finish_placed?"finish placed":"finish needed",s.draft_width*2);
                     break;
                 }
                 h.points.push_back(s.cursor);
@@ -1870,10 +1946,21 @@ void build_hud(State &s, std::uint64_t now) {
         }
         native.route_finish=g.settings.race_finish;
         native.route_object=s.race_object;native.cursor=s.cursor;native.cursor_valid=s.cursor_ok;
-        native.cursor_yaw=s.cursor_heading+s.yaw_offset;native.cursor_width=s.draft_width;
+        native.cursor_yaw=s.placing==State::Placing::points && g.settings.mode==Mode::race?s.snapped_yaw:s.cursor_heading+s.yaw_offset;native.cursor_width=s.draft_width;
+        native.route_snap=s.route_snap;
+        native.snap_degrees=std::array{5.f,15.f,30.f,45.f,90.f}[s.snap_angle];
+        native.clear_progress=s.clear_hold.progress;native.exit_confirm=s.editor_exit_confirm;
+        native.recovering=g.recovery_pending;
+
+        if(native.state && native.state->phase==Phase::playing)for(const auto& player:native.state->standings)
+            if(player.player==native.local && !player.out && static_cast<std::size_t>(player.score)<g.settings.points.size() && g.missed_warned==player.score && !g.gate_crossed && (g.recovery_pending || now<g.recovery_until))
+                native.missed_gate=static_cast<unsigned>(mandatory_gates(g.settings,player.score)+1);
     }
     native.names.emplace_back(self_id(s),name_of(s,self_id(s)));
     for(const auto& [id,name]:s.names)if(id!=self_id(s))native.names.emplace_back(id,name);
+    const auto local_racer=native.state?std::find_if(native.state->standings.begin(),native.state->standings.end(),[&](const auto& row){return row.player==native.local;}):std::vector<Standing>::const_iterator{};
+    set_competition_stock_physics(native.active && native.settings.mode==Mode::race && native.state &&
+        (native.state->phase==Phase::countdown || native.state->phase==Phase::playing) && local_racer!=native.state->standings.end());
     s.input_locked.store(native.state && native.state->phase==Phase::countdown,std::memory_order_release);
     s.markers_restricted.store(native.state && (native.state->phase==Phase::countdown || native.state->phase==Phase::playing),std::memory_order_release);
     std::lock_guard lock(s.hud_mutex);
@@ -1922,6 +2009,11 @@ std::vector<std::vector<std::uint8_t>> tick(const SessionInput &input) {
     }
     s.local = input.local;
     s.world = input.world;
+    if(input.in_world) {
+        const auto map=local_profile_object_persistence().map;
+        if(!map.empty())s.course_map=map;
+        else if(s.course_map.empty())s.course_map=std::to_string(input.world);
+    }
     s.local_name = input.local_name;
     s.present.clear();
     for (const auto &peer : input.peers) {
@@ -2020,7 +2112,9 @@ std::vector<std::vector<std::uint8_t>> tick(const SessionInput &input) {
 bool receive(std::uint64_t sender, std::span<const std::uint8_t> bytes) {
     if (!is_mode_message(bytes)) return false;
     auto &s = state();
-    const auto decoded = decode(bytes);
+    static ModeTransfers transfers;
+    const auto decoded = mode_fragment(bytes)?transfers.receive(sender,bytes,now_ms()):decode(bytes);
+    if(mode_fragment(bytes) && !decoded)return true;
     if (!decoded) {
         // Another version's message (a hello, every few seconds, at the least): say whose, and which of
         // the two has to restart to update.
@@ -2241,12 +2335,16 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
         if (s.game && !s.game->leading && s.game->state && s.game->state->phase != Phase::results)
             return "error: " + name_of(s, s.game->leader) + "'s game is on. `mode leave` first.";
         if (s.game && s.game->leading) send(s, header(*s.game, Message::Kind::end));
+        // Retire the completed match's native flag/input ownership before a
+        // saved course is reopened. The course is copied by end_game first.
+        end_game(s,{});
         Game g;
         g.leader = self_id(s);
         g.id = static_cast<std::uint32_t>((now * 2654435761ULL) ^ (now >> 16)) | 1u;
         g.leading = true;
         g.settings.mode = *mode;
         g.settings.duration_s = default_duration(*mode);
+        if(*mode==Mode::race)physics_tuning::prepare();
         if (tag_like(*mode)) g.settings.radius = default_tag_reach; // how close tags (or infects)
         if (*mode == Mode::skate) { // S.K.A.T.E.: five letters, time to line a trick up
             g.settings.strikes = 5;
@@ -2255,6 +2353,10 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
         // Where it was set up: its banner's spot for the others until an area or route is placed.
         g.settings.spawn = s.position;
         g.settings.has_spawn = true;
+        if(*mode==Mode::race)if(auto saved=s.courses.restore(s.course_map)) {
+            g.settings=std::move(*saved);g.race_finish_placed=g.settings.race_finish;
+        }
+        s.editor_exit_confirm=false;s.clear_hold={};
         g.heard = now;
         s.game = std::move(g);
         s.active.store(true,std::memory_order_release);
@@ -2313,7 +2415,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
         s.placing=State::Placing::none;s.cursor_ok=false;
         s.placement_flight.store(false,std::memory_order_release);
         overlay::pause_game_input(false);
-        return race?"Deathrace: choose Players and Timer, then Confirm to place the route.":
+        return race?"Deathrace: choose Players, then Confirm to place mandatory gates, gray guides and one red finish. Choose the finish deadline in setup.":
             std::format("{}: choose settings, Confirm to place the starting flag, then hold Start in the waiting HUD.",mode_name(g.settings.mode));
     }
     const auto changed = [&](std::string text) {
@@ -2360,7 +2462,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
             if (g.settings.mode == Mode::race) { // a route is skated again from its start
                 if(!multiplayer::one_up::begin_race_flag_placement(s.world,g.id,g.capacity))
                     return "error: native flag placement is still busy.";
-                g.settings.points.clear();
+                g.settings.points.clear();g.settings.gate_kinds.clear();
                 g.settings.yaws.clear();
                 g.settings.widths.clear();
                 s.yaw_offset = 0;
@@ -2419,6 +2521,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
         return changed(std::format("{} set to {}.", label, *value));
     };
     if (v == "players") return set_number(1, 6, [&](float x) { g.capacity = static_cast<unsigned>(std::round(x)); }, "Players");
+    if (v == "time" && g.settings.mode==Mode::race) return "Deathrace deadline is fixed at 120 seconds; the clock appears for the last 30.";
     if (v == "time") return set_number(30, 3600, [&](float x) { g.settings.duration_s = static_cast<std::uint32_t>(x); }, "Time (s)");
     if (v == "turn") return set_number(10, 120, [&](float x) { g.settings.turn_s = static_cast<std::uint32_t>(x); }, "Turn time (s)");
     if (v == "strikes") return set_number(1, 5, [&](float x) { g.settings.strikes = static_cast<std::uint8_t>(x); }, "Strikes");
@@ -2452,6 +2555,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
            (multiplayer::one_up::race_flag_registration_owned() && !multiplayer::one_up::native_flag_mode_waiting())))
             return "error: finish placing the start flag, checkpoints and one red finish first.";
         if(g.settings.mode==Mode::race)if(const auto error=race_world::start_error(s.world,g.id);!error.empty())return "error: "+error;
+        if(g.settings.mode==Mode::race && !physics_tuning::game_tuning())return "error: stock physics are still loading; wait a moment before starting.";
         if (const auto why = missing(g.settings); !why.empty()) return "error: " + why;
         if (s.skater && g.settings.mode!=Mode::race && !g.native_flag_placed) {
             g.settings.spawn = s.position;
@@ -2495,6 +2599,11 @@ bool request_native_quit(std::uint64_t world,std::uint32_t game) noexcept {
     } catch(...) {return false;}
 }
 bool active() noexcept { return state().active.load(std::memory_order_acquire); }
+std::optional<Vec3> take_race_recovery_velocity() noexcept {
+    auto& s=state();std::lock_guard lock(s.recovery_mutex);
+    if(now_ms()>s.recovery_velocity_until || !s.active.load()) {s.recovery_velocity.reset();return {};}
+    return std::exchange(s.recovery_velocity,{});
+}
 bool internal_teleport() noexcept { return mode_teleport; }
 bool countdown_locks_input() noexcept { return state().input_locked.load(std::memory_order_acquire); }
 bool placement_camera_requested() noexcept { return state().placement_flight.load(std::memory_order_acquire); }

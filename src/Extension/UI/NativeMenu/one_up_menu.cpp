@@ -82,7 +82,7 @@ struct MapBranding {
     std::uint32_t card_mmid{};
 };
 struct ModeMarker { Value notice, anchor, item; };
-struct RaceHudPlayer { Value list, rank, name, timer, background; unsigned place=~0U; };
+struct RaceHudPlayer { Value list, rank, name, timer, background; unsigned place=~0U; bool crown=false; };
 struct NativeSetupRows {
     Value list;
     std::vector<Ref> records;
@@ -102,12 +102,20 @@ struct ModeHud {
     Value blind_anchor, blind_item, results, results_title, results_notice, results_rows, results_anchor, results_item;
     std::map<std::uint64_t,ResultPlayer> result_players;
     Value race_rows,race_anchor,race_item;
-    std::array<Value,12> placement_prompts;
-    Value placement_list,placement_anchor,placement_item,placement_size;
+    Value race_position,race_position_anchor,race_position_item,race_warning,race_warning_anchor,race_warning_item;
+    bool race_warning_visible{};
+    bool clock_visible{};
+    std::array<Value,16> placement_prompts;
+    Value placement_list,placement_anchor,placement_item,placement_size,placement_snap;
+    Value editor_panel_anchor,editor_panel_item,exit_panel_anchor,exit_panel_item,exit_text,exit_list,exit_anchor,exit_item;
+    bool exit_visible{};
+    Value race_header_anchor,race_header_item;
+    std::array<Value,11> editor_row_anchors,editor_row_items;
+    std::array<Value,2> exit_actions,exit_captions;
     std::map<std::uint64_t,RaceHudPlayer> race_players;
     Value badge, heading, badge_anchor, badge_item, crown, crown_space;
-    std::array<Value,4> placement_pairs;
-    std::array<Value,8> placement_lines,placement_captions;
+    std::array<Value,5> placement_pairs;
+    std::array<Value,11> placement_lines,placement_captions;
     std::vector<Handle> race_player_order;
     std::array<ModeMarker,32> markers;
     std::vector<Value> world_items;
@@ -131,6 +139,7 @@ struct State {
     // Borrowed native marker fields, restored when this match releases them.
     std::map<Handle,std::pair<Value,bool>> marker_originals;
     Address manager{}, base{}, anchor_asset{}, primary_input{};
+    std::uint64_t asset_world{};
     Value page, cards, card, category, description, details_list, original_body, original_back;
     Value picker_grid, picker_anchor, oneup_logo;
     std::array<Value,3> picker_stock, picker_stock_logos;
@@ -140,7 +149,8 @@ struct State {
     Value official_badge, official_race_badge;
     Value waiting_label, waiting_countdown, waiting_badge;
     Value hud_root, hud_stack, hud_notice, hud_anchor, hud_item, hud_timer, hud_timer_anchor, hud_timer_item;
-    Value hud_content, hud_title, hud_target, hud_current, hud_clock, hud_clock_anchor, hud_clock_item, hud_board, hud_rows;
+    Value hud_content, hud_title, hud_title_anchor, hud_title_item, hud_badge, hud_badge_anchor, hud_badge_item;
+    Value hud_target, hud_current, hud_clock, hud_clock_anchor, hud_clock_item, hud_board, hud_rows;
     Value hud_intro, hud_intro_badge, hud_intro_anchor, hud_intro_item;
     Value hud_results, hud_results_title, hud_results_notice, hud_results_rows, hud_results_anchor, hud_results_item;
     std::map<std::uint64_t,ResultPlayer> result_players;
@@ -338,7 +348,7 @@ Address asset(const Context& c, const char* name) {
         // loaded child domains through the native lookup, bounded to the UI
         // domains observed on this build and linked to our current anchors.
         const auto find=game::native_data().find_asset;
-        if(find)for(unsigned candidate=2;candidate<32;++candidate) {
+        if(find)for(unsigned candidate=2;candidate<0xbbf;++candidate) {
             auto domain=static_cast<std::uint16_t>(candidate);
             std::set<std::uint16_t> visited;
             bool related=false;
@@ -623,6 +633,7 @@ constexpr std::int32_t hud_score_id=0x31555071, hud_countdown_id=0x31555072, hud
 constexpr std::int32_t hud_results_id=0x31555074;
 constexpr std::int32_t hud_clock_id=0x31555075;
 constexpr std::int32_t hud_panel_id=0x31555076;
+constexpr std::int32_t hud_title_id=0x31555077, hud_badge_id=0x31555078;
 constexpr std::int32_t hud_strike_id=0x31555800;
 void clear_hud_state() {
     auto& s=state();s.hud_ready.store(false);s.hud_ended_at=0;s.hud_go_until=0;s.hud_countdown_token={};
@@ -630,6 +641,7 @@ void clear_hud_state() {
     s.hud_timer={};s.hud_timer_anchor={};s.hud_timer_item={};
     s.hud_intro={};s.hud_intro_badge={};s.hud_intro_anchor={};s.hud_intro_item={};
     s.hud_content={};s.hud_title={};s.hud_target={};s.hud_current={};s.hud_clock={};s.hud_clock_anchor={};s.hud_clock_item={};
+    s.hud_title_anchor={};s.hud_title_item={};s.hud_badge={};s.hud_badge_anchor={};s.hud_badge_item={};
     s.hud_board={};s.hud_rows={};s.hud_players.clear();s.hud_player_ids.clear();
     s.hud_results={};s.hud_results_title={};s.hud_results_notice={};s.hud_results_rows={};
     s.hud_results_anchor={};s.hud_results_item={};s.result_players.clear();s.eliminated_at.clear();s.results_match=0;s.results_turn=0;
@@ -648,9 +660,9 @@ void publish_hud_items(const Context& c,bool score,bool countdown,bool intro=fal
     std::vector<std::byte> next;
     for(unsigned i=0;i<count;++i) {
         std::int32_t id{};std::memcpy(&id,old.data()+i*stride+offset,4);
-        if(id!=hud_score_id && id!=hud_countdown_id && id!=hud_intro_id && id!=hud_results_id && id!=hud_clock_id && id!=hud_panel_id && !(id>=hud_strike_id && id<hud_strike_id+6))next.insert(next.end(),old.begin()+i*stride,old.begin()+(i+1)*stride);
+        if(id!=hud_score_id && id!=hud_countdown_id && id!=hud_intro_id && id!=hud_results_id && id!=hud_clock_id && id!=hud_panel_id && id!=hud_title_id && id!=hud_badge_id && !(id>=hud_strike_id && id<hud_strike_id+6))next.insert(next.end(),old.begin()+i*stride,old.begin()+(i+1)*stride);
     }
-    for(const auto item:{score?s.hud_item:Value{},score?s.hud_clock_item:Value{},countdown?s.hud_timer_item:Value{},intro?s.hud_intro_item:Value{},results?s.hud_results_item:Value{},
+    for(const auto item:{score?s.hud_item:Value{},score?s.hud_clock_item:Value{},score?s.hud_title_item:Value{},score?s.hud_badge_item:Value{},countdown?s.hud_timer_item:Value{},intro?s.hud_intro_item:Value{},results?s.hud_results_item:Value{},
         s.match_panel.prompt_visible && !s.in_menu && !s.match_panel.quitting?s.match_panel.prompt_item:Value{}})if(item.handle) {
         const auto start=next.size();next.resize(start+stride);
         require(memory::peek_bytes(c.address(item),next.data()+start,stride),"Native HUD item unavailable.");
@@ -1588,8 +1600,8 @@ void official_setup(const Context& c) {
             }
             const auto range=c.field(slider,0x170bebf7), value=c.field(slider,0x5a547e87);
             const auto step=c.field(slider,0xb47e6cec);
-            const float minimum=players?1.f:race_game && !hiding?30.f:10.f,
-                        maximum=players?6.f:race_game && !hiding?3600.f:120.f, increment=players?1.f:hiding?5.f:10.f;
+            const float minimum=players?1.f:deathrace?30.f:race_game && !hiding?30.f:10.f,
+                        maximum=players?6.f:deathrace?3600.f:race_game && !hiding?3600.f:120.f, increment=players?1.f:deathrace?30.f:hiding?5.f:10.f;
             if(read<std::array<float,2>>(c.address(range))!=std::array<float,2>{minimum,maximum})
                 c.set(range,std::array<float,2>{minimum,maximum});
             if(read<float>(c.address(step))!=increment)c.set(step,increment);
@@ -1603,7 +1615,7 @@ void official_setup(const Context& c) {
             if(race_game) {
                 auto& chosen=players?s.mode_capacity:hiding?s.mode_hide_seconds:s.mode_seconds;
                 if(chosen!=selected) {chosen=selected;modes::command(players?"players":hiding?"turn":"time",{std::to_string(selected)});}
-                if(!players)plain_label(c,label,hiding?"Hide Timer":hide_timer?"Duration":"Timer");
+                if(!players)plain_label(c,label,deathrace?"Finish deadline":hiding?"Hide Timer":hide_timer?"Duration":"Timer");
             } else if(players)s.max_players=selected;else s.seconds=selected;
         }
         one_up::set_native_setup_options(race_game?30:s.seconds,race_game?s.mode_capacity:s.max_players);
@@ -2045,122 +2057,137 @@ void native_score_hud(const Context& c) {
     const bool show=v.state.match && v.state.phase!=one_up::Phase::lobby &&
         (!ended || now-s.hud_ended_at<5000);
     if(!show) {publish_hud_items(c,false,s.hud_countdown_visible,s.hud_intro_visible);s.hud_ready.store(false);return;}
-    const bool rebuild=!s.hud_initialized || !hud_list_has_items(c,s.hud_content,3) || s.hud_player_ids.size()!=v.state.players.size();
-    if(rebuild) {
-        // These are the same authored records Spot Battle publishes, with
-        // private mutable copies. No native style or default is overwritten.
-        if(!s.hud_title.handle) {
-            s.hud_title=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
-            label_styles(c,s.hud_title,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-        }
-        if(!s.hud_notice.handle)s.hud_notice=record_model(c,"Activities_HudElementData_ContentResource/Activity_HUD_TargetScore_ContentCombination");
-        if(!s.hud_target.handle)s.hud_target=clone_widget_model(c,c.field(s.hud_notice,0xa98391bd));
-        if(!s.hud_current.handle)s.hud_current=clone_widget_model(c,c.field(s.hud_notice,0x759c54dd));
-        label_styles(c,c.field(s.hud_target,0x58c9d354),"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-        label_styles(c,c.field(s.hud_current,0x94703efc),"TextStylesList/H52-XBold_Black","TextStylesList/H52-XBold_Black");
-        if(!s.hud_clock.handle)s.hud_clock=record_model(c,"Activities_HudElementData_ContentResource/A_ActivityCountdown");
-        if(!s.hud_rows.handle)s.hud_rows=make(c,linear_list);
-        // Retain the native typeface, crown, torn counter background and clock.
-        hud_list(c,s.hud_content,{
-            {asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget"),{0,s.hud_title.handle}},
-            {asset(c,"UI/Foundations/Components/Modals/ContentPresenterCombination_Widget"),{0,s.hud_notice.handle}},
-            {asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),{0,s.hud_rows.handle}}},false,60.f,10.f,64.f*static_cast<float>(v.state.players.size()),520.f);
-        s.hud_initialized=true;
-    }
-    mount_hud(c,s.hud_content,asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),s.hud_anchor,s.hud_item,hud_score_id,false);
-    const auto height=140.f+64.f*static_cast<float>(v.state.players.size());
-    const auto place=[&](Value anchor,float width,float h,float x,float y,float pivot_x,float pivot_y) {
+    const auto label_widget=asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget");
+    const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
+    const auto notice_widget=asset(c,"UI/Foundations/Components/Notices/BasicNotice_Widget");
+    constexpr float board_width=872.f,row_height=76.f,row_pitch=84.f;
+    constexpr float score_height=224.f;
+    const float height=score_height+row_pitch*static_cast<float>(v.state.players.size());
+    const auto place=[&](Value anchor,float width,float h,float x,float y,float pivot_x,float pivot_y,float scale=1.f) {
         c.set(c.field(anchor,0x1cff7243),std::array<float,2>{width,h});
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
             const bool vertical=axis==0x185a5736U;const auto layout=c.field(anchor,axis);
             c.set(c.field(layout,0x99bbed5a),vertical?y:x);c.set(c.field(layout,0x49943bed),vertical?y:x);
             c.set(c.field(layout,0x40bfbff4),0.f);c.set(c.field(layout,0x1d233266),0.f);
             c.set(c.field(layout,0xfec5e0b1),vertical?pivot_y:pivot_x);
-            c.set(c.field(layout,0xd01f4a21),.85f);
+            c.set(c.field(layout,0xd01f4a21),scale);
         }
     };
-    place(s.hud_anchor,520.f,height,.95f,.82f,1.f,1.f);
+    const bool rebuild=!s.hud_initialized || !hud_list_has_items(c,s.hud_content,3) || s.hud_player_ids.size()!=v.state.players.size();
+    if(rebuild) {
+        if(!s.hud_title.handle) {
+            s.hud_title=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
+            label_styles(c,s.hud_title,"TextStylesList/D94-Caps-Bold_White","TextStylesList/D94-Caps-Bold_White");
+            s.hud_badge=make(c,texture_schema);
+            c.set(c.field(s.hud_badge,0xf524c836),96.f);c.set(c.field(s.hud_badge,0x6fbd254e),96.f);
+            c.set(c.field(s.hud_badge,0xd1997d0c),false);
+            c.set(c.field(s.hud_badge,0xcd4a53c0),record_ref(c,"InteractivityColorStylesList/InteractiveColors.Core.AllWhite"));
+            s.hud_board=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
+            label_styles(c,s.hud_board,"TextStylesList/SP38-SemiB_White","TextStylesList/SP38-SemiB_White");
+        }
+        // Each counter owns a measured native torn strip. The donor's crown /
+        // small-purple-counter combination has independent offsets and cannot
+        // share a leaderboard row's bounds.
+        for(auto* counter:{&s.hud_target,&s.hud_current})if(!counter->handle) {
+            *counter=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+            c.set(c.field(*counter,0x13be0d51),std::array<float,2>{board_width,72.f});
+            const auto label=c.field(*counter,0x94703efc);
+            label_styles(c,label,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
+            c.set(c.field(label,0x3d8639d0),2);c.set(c.field(label,0x87ad624c),2);
+            c.set(c.field(label,0xc13ba637),false);
+        }
+        if(!s.hud_notice.handle)s.hud_notice=make(c,linear_list);
+        hud_list(c,s.hud_notice,{{notice_widget,{0,s.hud_target.handle}},{notice_widget,{0,s.hud_current.handle}}},false,72.f,8.f,0.f,board_width);
+        if(!s.hud_clock.handle)s.hud_clock=record_model(c,"Activities_HudElementData_ContentResource/A_ActivityCountdown");
+        if(!s.hud_rows.handle)s.hud_rows=make(c,linear_list);
+        hud_list(c,s.hud_content,{{label_widget,{0,s.hud_board.handle}},{list_widget,{0,s.hud_notice.handle}},
+            {list_widget,{0,s.hud_rows.handle}}},false,48.f,12.f,row_pitch*static_cast<float>(v.state.players.size()),board_width);
+        const auto counter_anchor=read<Handle>(c.address(c.element(c.field(s.hud_content,0xf2c90867),1)));
+        c.set(c.field({counter_anchor,c.type_of(counter_anchor)},0x1cff7243),std::array<float,2>{board_width,152.f});
+        s.hud_initialized=true;
+    }
+    mount_hud(c,s.hud_content,list_widget,s.hud_anchor,s.hud_item,hud_score_id,false);
+    place(s.hud_anchor,board_width,height,.95f,.5f,1.f,.5f,.85f);
+    mount_hud(c,s.hud_title,label_widget,s.hud_title_anchor,s.hud_title_item,hud_title_id,false);
+    place(s.hud_title_anchor,480.f,96.f,.04f,.14f,0.f,0.f);
+    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.path(s.hud_title_anchor,{0xde7d30c7,key}),110.f);
+    publish_texture(c,std::array{c.field(s.hud_badge,0x6e469d2a)},"UI/ReSkate/OneUp/img_OneUp_Blue_1024");
+    mount_hud(c,s.hud_badge,asset(c,"UI/ReSkate/Throwdowns/HUDLogo_Widget"),s.hud_badge_anchor,s.hud_badge_item,hud_badge_id,false);
+    place(s.hud_badge_anchor,96.f,96.f,.04f,.14f,0.f,0.f);
     mount_hud(c,s.hud_clock,asset(c,"UI/Foundations/Components/Countdown/Countdown_Widget"),s.hud_clock_anchor,s.hud_clock_item,hud_clock_id,false);
-    place(s.hud_clock_anchor,150.f,64.f,.5f,.93f,.5f,1.f);
+    place(s.hud_clock_anchor,150.f,64.f,.5f,.93f,.5f,1.f,.85f);
     const auto points=[](double n){return std::to_string(static_cast<std::uint32_t>(std::max(0.0,n)));};
-    plain_label(c,s.hud_title,ended?(v.state.winner?v.name(v.state.winner)+" WINS!":"1-UP COMPLETE"):
-        "1-UP  /  "+v.name(v.state.active));
-    plain_label(c,c.field(s.hud_target,0x58c9d354),points(v.state.target));
-    plain_label(c,c.field(s.hud_current,0x94703efc),points(v.state.best));
-    const auto timer=s.hud_clock;
-    c.set(c.field(timer,0x703c4d93),false);
-    c.set(c.field(timer,0x167131bb),!ended);c.set(c.field(timer,0x6186003c),!ended);
-    c.set(c.field(timer,0xc11082ee),true);
-    native_timer_seconds(c,timer,0x4cc5ec89,v.state.config.turn_ms);
-    native_timer_seconds(c,timer,0x0ec4a8c0,v.state.phase==one_up::Phase::playing?v.remaining:0);
+    plain_label(c,s.hud_title,"1-UP");
+    plain_label(c,s.hud_board,ended?(v.state.winner?v.name(v.state.winner)+" WINS!":"MATCH COMPLETE"):v.name(v.state.active)+"'S TURN");
+    plain_label(c,c.field(s.hud_target,0x94703efc),"TARGET   "+points(v.state.target));
+    plain_label(c,c.field(s.hud_current,0x94703efc),"SCORE   "+points(v.state.best));
+    c.set(c.field(s.hud_clock,0x703c4d93),false);
+    c.set(c.field(s.hud_clock,0x167131bb),!ended);c.set(c.field(s.hud_clock,0x6186003c),!ended);
+    c.set(c.field(s.hud_clock,0xc11082ee),true);
+    native_timer_seconds(c,s.hud_clock,0x4cc5ec89,v.state.config.turn_ms);
+    native_timer_seconds(c,s.hud_clock,0x0ec4a8c0,v.state.phase==one_up::Phase::playing?v.remaining:0);
     std::vector<std::uint64_t> ids;
     std::vector<Widget> rows;
     for(const auto& player:v.state.players) {
-        auto [entry,fresh]=s.hud_players.try_emplace(player.id);
-        auto& hud=entry->second;
+        auto& hud=s.hud_players.try_emplace(player.id).first->second;
         if(!hud.row.handle) {
             hud.row=make(c,linear_list);
-            hud.name=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
-            label_styles(c,hud.name,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-            c.set(c.field(hud.name,0x87ad624c),2); // Native Label.VerticalAlignment: center.
-            c.set(c.field(hud.name,0xc13ba637),false); // FitHeightToContent must not override the row height.
-            std::vector<Widget> letters;
+            hud.background=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+            c.set(c.field(hud.background,0x13be0d51),std::array<float,2>{620.f,row_height});
+            hud.name=c.field(hud.background,0x94703efc);
+            c.set(c.field(hud.name,0x87ad624c),2);c.set(c.field(hud.name,0x3d8639d0),2);
+            c.set(c.field(hud.name,0xc13ba637),false);c.set(c.field(hud.name,0xfc53d427),false);
             unsigned index{};
             for(const auto* letter:{"1","U","P"}) {
                 auto& stamp=hud.letters[index++];
                 stamp=record_model(c,"Activities_HudElementData_ContentResource/Activity_HUD_CurrentScore_Notice");
-                c.set(c.field(stamp,0x13be0d51),std::array<float,2>{56.f,56.f});
-                const auto label=c.field(stamp,0x94703efc);
-                plain_label(c,label,letter);
+                c.set(c.field(stamp,0x13be0d51),std::array<float,2>{row_height,row_height});
+                const auto label=c.field(stamp,0x94703efc);plain_label(c,label,letter);
                 label_styles(c,label,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-                c.set(c.field(label,0x87ad624c),2);
-                c.set(c.field(label,0x3d8639d0),2);
+                c.set(c.field(label,0x87ad624c),2);c.set(c.field(label,0x3d8639d0),2);
                 c.set(c.field(label,0xc13ba637),false);
-                letters.push_back({asset(c,"UI/Foundations/Components/Notices/SmallNotice_Widget"),{0,stamp.handle}});
             }
-            letters.insert(letters.begin(),{asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget"),{0,hud.name.handle}});
-            hud_list(c,hud.row,letters,true,56.f,6.f,0.f,520.f,300.f,true);
-            hud.background=make(c,content_tile_schema);
-            c.set(c.field(hud.background,widget),Widget{asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),{0,hud.row.handle}});
-            c.set(c.field(hud.background,0xa04998ca),false);
-            c.set(c.field(hud.background,0xbc750e6a),false);
-            c.set(c.path(hud.background,{0x0fb0d794,0x8cc042ef}),record_ref(c,"ButtonStyleList/TileButton.RoughPartial.Default"));
+
         }
         if(!hud_list_has_items(c,hud.row,4)) {
-            std::vector<Widget> letters;
-            letters.push_back({asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget"),{0,hud.name.handle}});
-            for(const auto& stamp:hud.letters)
-                letters.push_back({asset(c,"UI/Foundations/Components/Notices/SmallNotice_Widget"),{0,stamp.handle}});
-            hud_list(c,hud.row,letters,true,56.f,6.f,0.f,520.f,300.f,true);
+            std::vector<Widget> cells{{notice_widget,{0,hud.background.handle}}};
+            for(const auto& stamp:hud.letters)cells.push_back({asset(c,"UI/Foundations/Components/Notices/SmallNotice_Widget"),{0,stamp.handle}});
+            hud_list(c,hud.row,cells,true,row_height,8.f,0.f,board_width,620.f);
+            for(unsigned col=0;col<4;++col) {
+                const auto ref=read<Handle>(c.address(c.element(c.field(hud.row,0xf2c90867),col)));
+                const Value anchor{ref,c.type_of(ref)};
+                c.set(c.field(anchor,0x1cff7243),std::array<float,2>{col==0?620.f:row_height,row_height});
+                for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.path(anchor,{0x185a5736,key}),0.f);
+            }
         }
-        plain_label(c,hud.name,v.name(player.id));
-        hud.out=!player.eligible();
+        plain_label(c,hud.name,v.name(player.id));hud.out=!player.eligible();
         label_styles(c,hud.name,hud.out?"TextStylesList/H52-XBold_Grey500":"TextStylesList/H52-XBold_White",
             hud.out?"TextStylesList/H52-XBold_Grey500":"TextStylesList/H52-XBold_White");
         if(hud.out) {
-            // Use the game's own randomized Rime scribble across the complete
-            // row, including the player's name and all three penalty stamps.
             mount_hud(c,{},asset(c,"UI/ReSkate/OneUp/EliminatedLine_Widget"),hud.strike_anchor,hud.strike_item,
                 hud_strike_id+static_cast<int>(ids.size()),false);
-            place(hud.strike_anchor,520.f,56.f,.95f,.82f,1.f,1.f);
+            place(hud.strike_anchor,board_width,row_height,.95f,.5f,1.f,0.f,.85f);
             const auto layout=c.field(hud.strike_anchor,0x185a5736);
-            const auto offset=.85f*(-height+140.f+static_cast<float>(ids.size())*64.f+56.f);
+            const auto offset=.85f*(-height*.5f+score_height+static_cast<float>(ids.size())*row_pitch);
             c.set(c.field(layout,0x40bfbff4),offset);c.set(c.field(layout,0x1d233266),offset);
         }
         for(unsigned letter=0;letter<3;++letter) {
             const auto style=record_ref(c,earned_one_up_letter(player.penalties,letter)?
                 "NoticeStylesList/SmallNotice_ControlSelection_Focus":"NoticeStylesList/SmallNotice_ControlSelection_Default");
-            c.set(c.field(hud.letters[letter],0x8cc042ef),style);
-            c.set(c.field(hud.letters[letter],0xa1e84eb1),style);
+            c.set(c.field(hud.letters[letter],0x8cc042ef),style);c.set(c.field(hud.letters[letter],0xa1e84eb1),style);
         }
-        ids.push_back(player.id);
-        rows.push_back({asset(c,"UI/Foundations/Components/Buttons/ContentPresenterTile/ContentPresenterTile"),{0,hud.background.handle}});
+        ids.push_back(player.id);rows.push_back({list_widget,{0,hud.row.handle}});
     }
     if(ids!=s.hud_player_ids || !hud_list_has_items(c,s.hud_rows,static_cast<unsigned>(rows.size()))) {
-        hud_list(c,s.hud_rows,rows,false,56.f,8.f,0.f,520.f);s.hud_player_ids=std::move(ids);
+        hud_list(c,s.hud_rows,rows,false,row_height,8.f,0.f,board_width);s.hud_player_ids=std::move(ids);
+        for(unsigned row=0;row<rows.size();++row) {
+            const auto ref=read<Handle>(c.address(c.element(c.field(s.hud_rows,0xf2c90867),row)));
+            const Value anchor{ref,c.type_of(ref)};
+            c.set(c.field(anchor,0x6efc1a61),true);c.set(c.field(anchor,0xbe5683d9),false);
+        }
     }
     publish_hud_items(c,true,s.hud_countdown_visible,s.hud_intro_visible);
-    if(!s.hud_ready.exchange(true))logging::log(logging::Level::info,logging::Channel::ui,"1-Up: native target/current counters, clock and 1-U-P penalty stamps mounted.");
+    if(!s.hud_ready.exchange(true))logging::write(logging::Level::info,logging::Channel::ui,"1-Up: logo, brush heading, target/score strips, centered standings and clock mounted.");
 }
 void native_results_hud(const Context& c) {
     auto& s=state();const auto v=one_up::view();
@@ -2256,8 +2283,14 @@ void gameplay_hud(const Context& c,std::uint64_t now) {
     }
     try {native_score_hud(c);}
     catch(const std::exception& e) {
-        s.hud_ready.store(false);
-        try {publish_hud_items(c,false,s.hud_countdown_visible,s.hud_intro_visible);}catch(...) {}
+        // A transient missing native presenter must not erase the last valid
+        // gameplay frame. The next tick retries mounting; normal lobby/end
+        // handling and world teardown still remove every owned HUD item.
+        const auto match=one_up::view();
+        if(!match.state.match || match.state.phase==one_up::Phase::lobby) {
+            s.hud_ready.store(false);
+            try {publish_hud_items(c,false,s.hud_countdown_visible,s.hud_intro_visible);}catch(...) {}
+        }
         static std::uint64_t report{};
         if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"1-Up native gameplay HUD: {}",e.what());}
     }
@@ -2374,6 +2407,12 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
         const Context c(base,manager); game::ModelWriteLock lock(manager);
         if(s.manager && s.manager!=manager) { s.owned.manager_replaced(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear(); s.displayed.clear(); s.generations.clear(); s.details=false; }
         s.manager=manager; s.base=base;
+        const auto world=modes::native_view().world;
+        if(world && s.asset_world && world!=s.asset_world) {
+            release(c);s.generations.clear();s.anchor_asset=0;s.primary_input=0;
+            logging::write(logging::Level::info,logging::Channel::ui,"Throwdowns: rebuilding native picker and HUD assets for the new world.");
+        }
+        if(world)s.asset_world=world;
         retire_solo_pending_queue(c);
         one_up::tick_flag_placement(c);
         // A native page can retire before its Quit/Start delegate is pumped.

@@ -12,6 +12,9 @@ bool start_client_noclip_velocity(std::uintptr_t base) noexcept;
 // Trainer: at the local skater's next physics update, multiply its upward velocity by
 // `factor` if it is off the board and rising (a hippy jump that has just started). One request
 // at a time; it expires after 150 ms.
+// One small rolling velocity after a competition-owned checkpoint recovery.
+// Uses the verified local physics owner and never enables trainer boosts.
+bool queue_race_recovery_velocity(std::uintptr_t client,std::uintptr_t entity,const std::array<float,3>& velocity) noexcept;
 bool queue_jump_scale(std::uintptr_t client, std::uintptr_t entity, float factor) noexcept;
 // What the last request did: 0 pending or none, 2 scaled, -1 the skater was not rising yet,
 // -2 nothing to scale (on the board, or a state that keeps no velocity), -3 it failed.
