@@ -19,7 +19,7 @@ To play: close ReSkate yourself, back up your existing DLL and launcher, and cop
 - Custom Throwdown grid and mode registry, including native placement flags, challenge colors, map details and distant logos.
 - 1-UP referee, scoring, penalties, multiplayer messages, lobby Start/Leave ownership, corrected spawn facing and aligned native HUD with wider name panels.
 - Deathrace with unlimited route gates, one finish, ordered mandatory gates, optional gray guides, editable finish deadline, final-30-second countdown and DNF.
-- Saved Deathrace courses per map in memory for the current game session; confirmed editor exit and hold Back/View to Clear All.
+- Saved Deathrace courses per map in memory for the current game session. Reopening always enters the gate editor after placing the start flag; edit, hold Back/View to Clear All, or save unchanged. Editor exit asks for confirmation.
 - Native Deathrace logo, translucent black/red outlined editor/race/results panels and real controller glyphs.
 - Five-percent sizing per press, complete rotation steps, adjustable position/angle snapping, scaled crossing triggers and missed-gate recovery with a bounded rolling start.
 - Competition stock physics and trainer restrictions, plus related camera/runtime integration and regression tests.

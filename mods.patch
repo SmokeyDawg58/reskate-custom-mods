@@ -775,10 +775,10 @@ index 3564fb3..ca260b9 100644
      } catch (...) {
 diff --git a/Extension/Modes/Test/mode_rules_tests.cpp b/Extension/Modes/Test/mode_rules_tests.cpp
 new file mode 100644
-index 0000000..10445fb
+index 0000000..3175dfb
 --- /dev/null
 +++ b/Extension/Modes/Test/mode_rules_tests.cpp
-@@ -0,0 +1,794 @@
+@@ -0,0 +1,804 @@
 +// The game modes' rules and wire format without the game: referees are driven by hand with
 +// the events players would send.
 +#include "Extension/Modes/mode_rules.h"
@@ -1005,8 +1005,8 @@ index 0000000..10445fb
 +    check(edit_race_route(s,finish,RaceObject::checkpoint,{40,0,0},90,6) && s.points[2]==Vec3{40,0,0} && s.points.back()==replacement,"later normal gate inserts before the finish");
 +    check(edit_race_route(s,finish,RaceObject::start,{1,0,0},0,6) && s.points.size()==4 && s.spawn==Vec3{1,0,0},"moving start preserves the gates and finish");
 +    const auto saved=s;
-+    check(accept_race_flag(s,finish,{2,1,3},45,4)==RaceFlagTransition::wait_for_start,
-+        "saved-route native Confirm places a flag and waits for host Start");
++    check(accept_race_flag(s,finish,{2,1,3},45,4)==RaceFlagTransition::edit_route,
++        "saved-route native Confirm reopens the builder before host Start");
 +    check(s.points.size()==saved.points.size() && s.points[0]==Vec3{2,1,3} && s.spawn==Vec3{2,1,3} &&
 +        s.yaws[0]==45 && s.widths[0]==4 && s.race_finish && finish &&
 +        std::equal(s.points.begin()+1,s.points.end(),saved.points.begin()+1) &&
@@ -1507,6 +1507,16 @@ index 0000000..10445fb
 +    check(edit_race_route(route,finish,RaceObject::finish,{0,0,40},0,6),"memory finish");
 +    RaceCourseMemory memory;memory.save("map-a",route);
 +    auto restored=memory.restore("map-a");check(restored && restored->points==route.points && restored->widths==route.widths && restored->gate_kinds==route.gate_kinds && race_route_ready(*restored,true),"finish/cancel retains complete course");
++    auto reopened=*restored;bool reopened_finish=reopened.race_finish;
++    check(accept_race_flag(reopened,reopened_finish,{2,0,0},90,6)==RaceFlagTransition::edit_route && race_route_ready(reopened,reopened_finish),
++        "reopening a remembered complete course always allows editing and unchanged save");
++    clear_race_gates(reopened,reopened_finish);
++    check(reopened.points.size()==1 && !race_route_ready(reopened,reopened_finish),"clear in reopened builder retains start and removes old finish");
++    check(edit_race_route(reopened,reopened_finish,RaceObject::checkpoint,{20,0,0},90,6) &&
++        edit_race_route(reopened,reopened_finish,RaceObject::finish,{40,0,0},90,6) && race_route_ready(reopened,reopened_finish),
++        "remembered course can be replaced with new gates and one finish");
++    memory.save("map-a",reopened);check(memory.restore("map-a")->points==reopened.points,"edited replacement updates course memory");
++    memory.save("map-a",*restored);
 +    check(!memory.restore("map-b"),"courses cannot leak to another map");
 +    route.points.clear();check(memory.restore("map-a")->points.size()==4,"match cleanup cannot mutate saved course");
 +    const auto pose=race_recovery_pose(*restored,3);check(pose.at==Vec3{0,0,21.5f},"recovery skips optional guides and continues from last mandatory");
@@ -2630,10 +2640,10 @@ index 0000000..6b15047
 +} // namespace dingosdk::console
 diff --git a/Extension/Modes/game_modes.cpp b/Extension/Modes/game_modes.cpp
 new file mode 100644
-index 0000000..981d019
+index 0000000..326bfa8
 --- /dev/null
 +++ b/Extension/Modes/game_modes.cpp
-@@ -0,0 +1,2653 @@
+@@ -0,0 +1,2650 @@
 +#include "game_modes.h"
 +#include "bone_cam.h"
 +#include "mode_rules.h"
@@ -4672,7 +4682,7 @@ index 0000000..981d019
 +            if(transition!=RaceFlagTransition::rejected) {
 +                g.native_lobby=g.native_flag_placed=true;g.native_flag_yaw=start->yaw;
 +                settings_changed(g);s.race_object=1;
-+                s.placing=transition==RaceFlagTransition::edit_route || s.race_resume_editor?State::Placing::points:State::Placing::none;
++                s.placing=State::Placing::points;
 +                s.race_resume_editor=false;
 +                s.pad_previous=~0u;
 +                s.keys_previous={true,true,true,true};s.cycle_left=s.cycle_right=true;
@@ -5098,15 +5108,12 @@ index 0000000..981d019
 +            if (g.settings.mode == Mode::race) { // a route is skated again from its start
 +                if(!multiplayer::one_up::begin_race_flag_placement(s.world,g.id,g.capacity))
 +                    return "error: native flag placement is still busy.";
-+                g.settings.points.clear();g.settings.gate_kinds.clear();
-+                g.settings.yaws.clear();
-+                g.settings.widths.clear();
++                // Re-enter the builder with the existing course. Only its
++                // deliberate hold-to-clear action removes all saved gates.
 +                s.yaw_offset = 0;
 +                s.draft_width = std::clamp(g.settings.radius, min_gate_half_width, max_gate_half_width);
-+                g.race_finish_placed=false;s.placing=State::Placing::none;
-+                g.settings.race_finish=false;
-+                settings_changed(g);
-+                return "Place the native starting flag, then LT/RT selects checkpoints or the red finish.";
++                s.placing=State::Placing::none;
++                return "Place the native starting flag to edit the saved course. Hold Back/View to clear all gates, or press Start to save it unchanged.";
 +            }
 +            s.placing = State::Placing::points;
 +            return std::format("Close the menu and skate to each {}: D-pad Right (Enter) adds one, D-pad Down (End) finishes.", point_name(g));
@@ -7170,7 +7177,7 @@ index 0000000..4dcc111
 +}
 diff --git a/Extension/Modes/race_route.h b/Extension/Modes/race_route.h
 new file mode 100644
-index 0000000..97fafa1
+index 0000000..b3d845c
 --- /dev/null
 +++ b/Extension/Modes/race_route.h
 @@ -0,0 +1,188 @@
@@ -7353,13 +7360,13 @@ index 0000000..97fafa1
 +        (settings.gate_kinds.empty() || settings.gate_kinds.size()==settings.points.size()) &&
 +        !guiding_gate(settings,0) && !guiding_gate(settings,settings.points.size()-1) && mandatory_gates(settings,settings.points.size()-1)>0;
 +}
-+enum class RaceFlagTransition { rejected, edit_route, wait_for_start };
++enum class RaceFlagTransition { rejected, edit_route };
 +// A saved course keeps every gate and its single finish when its native start
-+// flag is placed again. A first flag opens the builder; neither starts a race.
++// flag is placed again. Always open the builder so its owner can edit or clear
++// the restored course, or save it unchanged before choosing Start.
 +inline RaceFlagTransition accept_race_flag(Settings& settings, bool& finish, const Vec3& at, float yaw, float width) {
-+    const bool saved=race_route_ready(settings,finish);
 +    if(!edit_race_route(settings,finish,RaceObject::start,at,yaw,width))return RaceFlagTransition::rejected;
-+    return saved?RaceFlagTransition::wait_for_start:RaceFlagTransition::edit_route;
++    return RaceFlagTransition::edit_route;
 +}
 +}
 diff --git a/Extension/Modes/race_source_contract.h b/Extension/Modes/race_source_contract.h
@@ -22753,10 +22760,10 @@ index 34634f2..1adfd30 100644
      Extension/UI/Overlay/chat_rich.cpp
 diff --git a/contrib/throwdown-flags/README.md b/contrib/throwdown-flags/README.md
 new file mode 100644
-index 0000000..b007bb3
+index 0000000..dcdccb4
 --- /dev/null
 +++ b/contrib/throwdown-flags/README.md
-@@ -0,0 +1,409 @@
+@@ -0,0 +1,413 @@
 +# Custom Throwdown physical flags
 +
 +Built and installed on 2026-10-11 for Skate executable SHA256
@@ -23145,6 +23152,10 @@ index 0000000..b007bb3
 +Reopening a mode now retires the old game, flag/input ownership and recovery
 +before restoring its course. The native HUD detaches when the game ID changes;
 +results reuse their anchor graph instead of allocating more roots every tick.
++Placing the start flag always opens the gate editor, including for a complete
++restored course. The owner can change gates, hold Back/View to clear and rebuild,
++or press Start to save the course unchanged before starting the race. The
++console's Place Route path also preserves existing gates until explicitly cleared.
 +These changes address lifecycle hazards found during the reopening crash
 +investigation; no new dump established its exact cause. Repeat in-game reopening
 +still requires manual verification.

@@ -386,6 +386,10 @@ the local/referee crossing tests.
 Reopening a mode now retires the old game, flag/input ownership and recovery
 before restoring its course. The native HUD detaches when the game ID changes;
 results reuse their anchor graph instead of allocating more roots every tick.
+Placing the start flag always opens the gate editor, including for a complete
+restored course. The owner can change gates, hold Back/View to clear and rebuild,
+or press Start to save the course unchanged before starting the race. The
+console's Place Route path also preserves existing gates until explicitly cleared.
 These changes address lifecycle hazards found during the reopening crash
 investigation; no new dump established its exact cause. Repeat in-game reopening
 still requires manual verification.

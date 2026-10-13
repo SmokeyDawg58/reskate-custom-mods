@@ -224,8 +224,8 @@ void race_builder_flow() {
     check(edit_race_route(s,finish,RaceObject::checkpoint,{40,0,0},90,6) && s.points[2]==Vec3{40,0,0} && s.points.back()==replacement,"later normal gate inserts before the finish");
     check(edit_race_route(s,finish,RaceObject::start,{1,0,0},0,6) && s.points.size()==4 && s.spawn==Vec3{1,0,0},"moving start preserves the gates and finish");
     const auto saved=s;
-    check(accept_race_flag(s,finish,{2,1,3},45,4)==RaceFlagTransition::wait_for_start,
-        "saved-route native Confirm places a flag and waits for host Start");
+    check(accept_race_flag(s,finish,{2,1,3},45,4)==RaceFlagTransition::edit_route,
+        "saved-route native Confirm reopens the builder before host Start");
     check(s.points.size()==saved.points.size() && s.points[0]==Vec3{2,1,3} && s.spawn==Vec3{2,1,3} &&
         s.yaws[0]==45 && s.widths[0]==4 && s.race_finish && finish &&
         std::equal(s.points.begin()+1,s.points.end(),saved.points.begin()+1) &&
@@ -726,6 +726,16 @@ void race_saved_course_and_recovery() {
     check(edit_race_route(route,finish,RaceObject::finish,{0,0,40},0,6),"memory finish");
     RaceCourseMemory memory;memory.save("map-a",route);
     auto restored=memory.restore("map-a");check(restored && restored->points==route.points && restored->widths==route.widths && restored->gate_kinds==route.gate_kinds && race_route_ready(*restored,true),"finish/cancel retains complete course");
+    auto reopened=*restored;bool reopened_finish=reopened.race_finish;
+    check(accept_race_flag(reopened,reopened_finish,{2,0,0},90,6)==RaceFlagTransition::edit_route && race_route_ready(reopened,reopened_finish),
+        "reopening a remembered complete course always allows editing and unchanged save");
+    clear_race_gates(reopened,reopened_finish);
+    check(reopened.points.size()==1 && !race_route_ready(reopened,reopened_finish),"clear in reopened builder retains start and removes old finish");
+    check(edit_race_route(reopened,reopened_finish,RaceObject::checkpoint,{20,0,0},90,6) &&
+        edit_race_route(reopened,reopened_finish,RaceObject::finish,{40,0,0},90,6) && race_route_ready(reopened,reopened_finish),
+        "remembered course can be replaced with new gates and one finish");
+    memory.save("map-a",reopened);check(memory.restore("map-a")->points==reopened.points,"edited replacement updates course memory");
+    memory.save("map-a",*restored);
     check(!memory.restore("map-b"),"courses cannot leak to another map");
     route.points.clear();check(memory.restore("map-a")->points.size()==4,"match cleanup cannot mutate saved course");
     const auto pose=race_recovery_pose(*restored,3);check(pose.at==Vec3{0,0,21.5f},"recovery skips optional guides and continues from last mandatory");

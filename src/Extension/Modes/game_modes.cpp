@@ -2036,7 +2036,7 @@ std::vector<std::vector<std::uint8_t>> tick(const SessionInput &input) {
             if(transition!=RaceFlagTransition::rejected) {
                 g.native_lobby=g.native_flag_placed=true;g.native_flag_yaw=start->yaw;
                 settings_changed(g);s.race_object=1;
-                s.placing=transition==RaceFlagTransition::edit_route || s.race_resume_editor?State::Placing::points:State::Placing::none;
+                s.placing=State::Placing::points;
                 s.race_resume_editor=false;
                 s.pad_previous=~0u;
                 s.keys_previous={true,true,true,true};s.cycle_left=s.cycle_right=true;
@@ -2462,15 +2462,12 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
             if (g.settings.mode == Mode::race) { // a route is skated again from its start
                 if(!multiplayer::one_up::begin_race_flag_placement(s.world,g.id,g.capacity))
                     return "error: native flag placement is still busy.";
-                g.settings.points.clear();g.settings.gate_kinds.clear();
-                g.settings.yaws.clear();
-                g.settings.widths.clear();
+                // Re-enter the builder with the existing course. Only its
+                // deliberate hold-to-clear action removes all saved gates.
                 s.yaw_offset = 0;
                 s.draft_width = std::clamp(g.settings.radius, min_gate_half_width, max_gate_half_width);
-                g.race_finish_placed=false;s.placing=State::Placing::none;
-                g.settings.race_finish=false;
-                settings_changed(g);
-                return "Place the native starting flag, then LT/RT selects checkpoints or the red finish.";
+                s.placing=State::Placing::none;
+                return "Place the native starting flag to edit the saved course. Hold Back/View to clear all gates, or press Start to save it unchanged.";
             }
             s.placing = State::Placing::points;
             return std::format("Close the menu and skate to each {}: D-pad Right (Enter) adds one, D-pad Down (End) finishes.", point_name(g));

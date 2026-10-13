@@ -177,12 +177,12 @@ inline bool race_route_ready(const Settings& settings, bool finish) noexcept {
         (settings.gate_kinds.empty() || settings.gate_kinds.size()==settings.points.size()) &&
         !guiding_gate(settings,0) && !guiding_gate(settings,settings.points.size()-1) && mandatory_gates(settings,settings.points.size()-1)>0;
 }
-enum class RaceFlagTransition { rejected, edit_route, wait_for_start };
+enum class RaceFlagTransition { rejected, edit_route };
 // A saved course keeps every gate and its single finish when its native start
-// flag is placed again. A first flag opens the builder; neither starts a race.
+// flag is placed again. Always open the builder so its owner can edit or clear
+// the restored course, or save it unchanged before choosing Start.
 inline RaceFlagTransition accept_race_flag(Settings& settings, bool& finish, const Vec3& at, float yaw, float width) {
-    const bool saved=race_route_ready(settings,finish);
     if(!edit_race_route(settings,finish,RaceObject::start,at,yaw,width))return RaceFlagTransition::rejected;
-    return saved?RaceFlagTransition::wait_for_start:RaceFlagTransition::edit_route;
+    return RaceFlagTransition::edit_route;
 }
 }

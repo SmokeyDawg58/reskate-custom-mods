@@ -6,7 +6,7 @@
   "release_tag": "v2.0.6-custom-20261012-deathrace-controls",
   "tests_passed": 77,
   "wire_version": 12,
-  "release_dll_sha256": "50bc8aae483b79ca7ec1df941c4dd4363a674e4f829daa496e47a0ffaac9a791",
+  "release_dll_sha256": "bfa10d7e2cddb2716bf7073a26422d5958cc121dd4e1bf930daad064b3bc56d7",
   "native_assets_sha256": "2c891bb17c1f6bebfc51feb2b8e3467bb371d1d06325e40ee5d8332b91b960af",
   "native_assets_bytes": 298898203,
   "files": [
@@ -127,8 +127,8 @@
     },
     {
       "path": "Extension/Modes/Test/mode_rules_tests.cpp",
-      "sha256": "f84106257917d86c973193fa8875b2cf71002a1d96a760bfd181fd2da63fcb9c",
-      "bytes": 46866
+      "sha256": "9637525a2ff968a4a930efdb84a92f298bf78ebdbe686fd1103e26700f6e6d54",
+      "bytes": 47835
     },
     {
       "path": "Extension/Modes/Test/race_asset_contract_tests.cpp",
@@ -162,8 +162,8 @@
     },
     {
       "path": "Extension/Modes/game_modes.cpp",
-      "sha256": "1493e6811bf2765d0a2d73698eb554c9c46dce55b90679f19c6fc1cfd4787b82",
-      "bytes": 148038
+      "sha256": "a31196c3829abcd5afc4cbe36a9aed5f143b631cd57e2be2522dbe15b042e708",
+      "bytes": 147881
     },
     {
       "path": "Extension/Modes/game_modes.h",
@@ -207,8 +207,8 @@
     },
     {
       "path": "Extension/Modes/race_route.h",
-      "sha256": "f5286799a9f2d37484a15ca2af93965ad18f43c976f8a4cf862b6e77d9409260",
-      "bytes": 11826
+      "sha256": "71daf1ebf225191e6d153c99d9fcef7cdb7694b104551943d33e7694000d583b",
+      "bytes": 11781
     },
     {
       "path": "Extension/Modes/race_source_contract.h",
@@ -772,8 +772,8 @@
     },
     {
       "path": "contrib/throwdown-flags/README.md",
-      "sha256": "555d777e1865631ab58b10c43359ba35901ee62fbfc27e82256c8d97a30bc4e2",
-      "bytes": 25172
+      "sha256": "2b682915732dd1b27598e79a095d8e19d628ca98526ee91039d39362514a5c57",
+      "bytes": 25489
     },
     {
       "path": "contrib/throwdown-flags/build_oneup_native_bundle.py",
