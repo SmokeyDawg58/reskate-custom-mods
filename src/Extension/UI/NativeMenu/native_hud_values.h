@@ -2,8 +2,20 @@
 #include <cstdint>
 #include <algorithm>
 #include <cmath>
+#include <string_view>
 
 namespace dingosdk::multiplayer::menu_data {
+// Approximate brush-font advance, including padding; round to an authored
+// native frame. UTF-8 continuation bytes do not inflate a gamertag's width.
+inline unsigned native_hud_name_width(std::string_view name) {
+    unsigned advance=32;
+    for(const unsigned char ch:name) {
+        if((ch&0xc0)==0x80)continue;
+        advance+=(ch=='I' || ch=='i' || ch=='l' || ch==' ' || ch=='.')?12:
+            (ch=='W' || ch=='M' || ch=='w' || ch=='m' || ch>=0x80)?36:26;
+    }
+    return std::clamp((advance+31u)/32u*32u,224u,640u);
+}
 // CountdownViewModel stores whole seconds as Uint64. The match clock stores
 // milliseconds. Round up so 2.9 seconds displays 3, and GO occurs only at zero.
 constexpr std::uint64_t native_hud_seconds(std::uint64_t milliseconds) {

@@ -211,7 +211,7 @@ ModRead read_mod(const Mod& mod, const RelativeFiles& files, const CasStore& sto
             addition.file = document.fileGuid;
             for (const auto& reference : document.imports) addition.names.push_back(reference.fileGuid);
             addedIn[candidates[index].first].insert(addition.file);
-            // Deathrace instantiates these six private native ObjectBlueprints
+            // Deathrace instantiates these nine private native ObjectBlueprints
             // directly from the DLL. No typed UI import can retain them. A map
             // replaces this core bundle, so retain these exact runtime roots
             // from our embedded core package as well as imported additions.
@@ -411,13 +411,15 @@ AssetOverrides collect_asset_overrides(const std::vector<const Mod*>& mods,
             report.notes.push_back(mod->name + ": " + std::to_string(clash.first) +
                 " added asset(s) share a name with ones " + other + " adds, e.g. " + clash.second +
                 "; other mods' copies of the bundle get " + other + "'s");
-        // The new TOC chunks this mod's carried EBX name (as raw GUID bytes, the way an
-        // EBX stores a ChunkId), so they can follow those assets into other superbundles.
+        // The new TOC chunks this mod's carried EBX or companion RES name, as raw
+        // GUID bytes. Texture pixel ChunkIds live in RES headers, not their EBX.
+        // Scan only retained dependencies so unrelated chunks do not follow them.
         if (!newChunks.empty()) {
             std::vector<std::vector<std::byte>> carried;
             for (const auto& [bundle, list] : out.added)
                 for (const auto& addition : list)
-                    if (addition.mod == mod->name && addition.asset.kind == fb::AssetKind::ebx) try {
+                    if (addition.mod == mod->name && (addition.asset.kind == fb::AssetKind::ebx ||
+                                                     addition.asset.kind == fb::AssetKind::resource)) try {
                         carried.push_back(fb::decode_cas(addition.encoded, {gameRoot}));
                     } catch (const std::exception&) {}
             // Each carried asset is gone through once, for all the chunks together: looking for

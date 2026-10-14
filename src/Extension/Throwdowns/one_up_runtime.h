@@ -30,6 +30,7 @@ void create_at_spawn(const SpawnRequest& request);
 void queue(std::string_view command);
 void receive(PlayerId sender, std::span<const std::uint8_t> bytes);
 std::vector<std::vector<std::uint8_t>> tick(std::uintptr_t base, const ThrowdownRelayInput&);
+void report_bail(Time when) noexcept;
 bool waits_offboard() noexcept;
 bool countdown_locks_input() noexcept;
 // Participating in a running match, including waiting/eliminated skaters.

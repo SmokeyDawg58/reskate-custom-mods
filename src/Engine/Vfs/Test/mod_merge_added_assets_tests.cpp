@@ -17,9 +17,11 @@
 #include "Engine/Vfs/mod_catalog.h"
 #include "Engine/Vfs/native_db.h"
 #include "Engine/Vfs/race_core_assets.h"
+#include "Engine/Vfs/game_archives.h"
 
 #include <Windows.h>
 
+#include <algorithm>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -159,6 +161,7 @@ fb::Sha1 sha(const std::string& name, unsigned version) {
 
 struct Ebx { std::string name; unsigned version; Bytes payload; };
 struct Resource { std::string name; Bytes payload; std::uint32_t type{0xb2c465f6}; };
+struct Chunk { fb::Guid id; Bytes payload; };
 
 fb::BinaryBundle manifest_of(const std::vector<Ebx>& assets, const std::vector<Resource>& resources) {
     fb::BinaryBundle manifest;
@@ -227,7 +230,8 @@ struct Fixture {
 
     // A mod with its own copy of a bundle: the manifest first (raw), then every payload.
     void add(const std::string& name, bool levels, const std::string& toc, const std::vector<std::string>& superbundles,
-             const std::vector<Ebx>& assets, const std::vector<Resource>& resources = {}, const char* bundle = bundle_name) {
+             const std::vector<Ebx>& assets, const std::vector<Resource>& resources = {}, const char* bundle = bundle_name,
+             const std::vector<Chunk>& chunks = {}) {
         const auto listing = fb::write_binary_bundle(manifest_of(assets, resources));
         Bytes archive(listing);
         std::vector<fb::BundleFileInfo> files{{{true, package, 1}, 0, static_cast<std::uint32_t>(listing.size())}};
@@ -239,9 +243,16 @@ struct Fixture {
         for (const auto& asset : assets) store(asset.payload);
         for (const auto& resource : resources) store(resource.payload);
         const std::vector<fb::TocBundle> bundles{{bundle, fb::write_bundle_region(files), 1}};
+        std::vector<fb::TocChunk> toc_chunks;
+        for (const auto& chunk : chunks) {
+            const auto bytes = encoded(chunk.payload);
+            toc_chunks.push_back({chunk.id, {true, package, 1}, static_cast<std::uint32_t>(archive.size()),
+                                  static_cast<std::uint32_t>(bytes.size())});
+            archive.insert(archive.end(), bytes.begin(), bytes.end());
+        }
         const auto directory = catalog.root / name;
         write(directory / "layout.toc", layout_toc(superbundles));
-        write(directory / "Win32" / fs::path(toc), fb::write_patch_toc(bundles));
+        write(directory / "Win32" / fs::path(toc), fb::write_patch_toc(bundles, toc_chunks));
         write(directory / "Win32" / "pkg" / "cas_01.cas", archive);
         mods::Mod mod;
         mod.name = name;
@@ -426,7 +437,7 @@ void carried_into_another_bundle_with_the_list(bool music_first) {
 }
 
 // Runtime-created native checkpoint roots are deliberately absent from the UI
-// import graph. A custom map's core replacement must receive these exact six
+// import graph. A custom map's core replacement must receive all nine
 // roots and their isolated native material depot; unrelated additions still do
 // not carry. Exercise the real writer, collect and merge pipeline end to end.
 void deathrace_runtime_roots_survive_core_replacement(bool map_first,bool correct_owner,bool correct_bundle) {
@@ -448,13 +459,107 @@ void deathrace_runtime_roots_survive_core_replacement(bool map_first,bool correc
     const auto report = mods::merge_mods(fixture.catalog);
     expect(report.issue.empty() && report.built,"Deathrace native roots: merge builds\n"+describe(report));
     const auto files = fixture.merged_files(map_toc,bundle);
-    const auto expected = 3 + (correct_owner && correct_bundle ? 7 : 0);
+    const auto expected = 3 + (correct_owner && correct_bundle ? static_cast<int>(mods::detail::race_core_roots.size())+1 : 0);
     expect(files == expected,"Deathrace native roots: map gets only scoped roots/material ("+
         std::to_string(files)+" files vs "+std::to_string(expected)+")\n"+describe(report));
+}
+
+// A mod replaced while the game runs (a map at another version): the merge reads its new files
+// where it puts them now, not where the old ones lay.
+void replaced_while_the_game_runs() {
+    Fixture fixture("live-replaced");
+    fixture.add("music", false, shared_toc, {}, music_assets(), music_resources());
+    auto report = mods::merge_mods(fixture.catalog);
+    expect(report.built && report.issue.empty(), "replaced: the launch's merge\n" + describe(report));
+    const auto noted = [&](std::string_view text) {
+        return std::any_of(report.notes.begin(), report.notes.end(), [&](const std::string& note) { return note.find(text) != std::string::npos; });
+    };
+    // Untouched, it stays where the launch put it.
+    report = mods::merge_mods(fixture.catalog, {}, {.live = true});
+    expect(report.built && report.issue.empty() && !noted("placed again"), "replaced: an unchanged mod was placed again\n" + describe(report));
+    // The same folder with other files in it.
+    const auto before = fixture.merged_files(shared_toc);
+    fs::remove_all(fixture.catalog.mods.back().directory);
+    fixture.catalog.mods.clear();
+    auto more = music_assets();
+    more.push_back({"test/another", 0, ebx_document(guid(77), {})});
+    fixture.add("music", false, shared_toc, {}, more, music_resources());
+    report = mods::merge_mods(fixture.catalog, {}, {.live = true});
+    expect(report.built && report.issue.empty(), "replaced: the merge with the new files\n" + describe(report));
+    expect(noted("placed again") && noted("added while the game runs"), "replaced: a changed mod kept the old one's place\n" + describe(report));
+    expect(fixture.merged_files(shared_toc) == before + 1, "replaced: the new file is not in the merged copy (" +
+           std::to_string(fixture.merged_files(shared_toc)) + ", " + std::to_string(before) + " before)");
+    // And it is not placed a third time.
+    report = mods::merge_mods(fixture.catalog, {}, {.live = true});
+    expect(report.built && report.issue.empty() && !noted("placed again"), "replaced: placed again without a change\n" + describe(report));
+}
+// Private badge EBX imports its texture asset; only the texture RES header names
+// the pixel chunk. Both map copies must carry the complete chain, in either mod
+// order and after a live remerge. Unrelated texture pixels must stay out.
+void texture_resource_pixels_survive_map_changes(bool map_first) {
+    Fixture fixture(map_first ? "texture-map-first" : "texture-badges-first");
+    auto assets = game_copy();
+    assets.front() = {"test/playlist", 1, ebx_document(guid(1), {guid(80)})};
+    assets.push_back({"test/badge", 0, ebx_document(guid(80), {guid(81)})});
+    assets.push_back({"test/texture", 0, ebx_document(guid(81), {})});
+    assets.push_back({"test/unrelated_texture", 0, ebx_document(guid(82), {})});
+    const auto texture_header = [](const fb::Guid& pixel_id) {
+        Bytes header(0x28, std::byte{0});
+        put_guid(header, pixel_id);
+        header.resize(180, std::byte{0});
+        return header;
+    };
+    const auto wanted = guid(90), unrelated = guid(91);
+    const Bytes pixels{std::byte{0x10}, std::byte{0x20}, std::byte{0x30}, std::byte{0x40}};
+    const std::vector<Resource> resources{
+        {"test/texture", texture_header(wanted), 0x5c4954a6},
+        {"test/unrelated_texture", texture_header(unrelated), 0x5c4954a6}};
+    const std::vector<Chunk> chunks{{wanted, pixels}, {unrelated, {std::byte{0x99}}}};
+    const auto add_badges = [&] {
+        fixture.add("badges", false, shared_toc, {}, assets, resources, bundle_name, chunks);
+    };
+    constexpr char second_map_toc[] = "levels/test/map2.toc";
+    const auto add_maps = [&] {
+        fixture.add("map", true, map_toc, {map_superbundle}, game_copy());
+        fixture.add("map2", true, second_map_toc, {"Win32/levels/test/map2"}, game_copy());
+    };
+    if (map_first) { add_maps(); add_badges(); } else { add_badges(); add_maps(); }
+    const auto verify = [&](const char* phase) {
+        const auto output = fixture.catalog.root / mods::generated_folder;
+        auto layout = vfs::read_layout(output / "layout.toc");
+        vfs::GameArchives archives(output, layout.root);
+        for (const auto* relative : {map_toc, second_map_toc}) {
+            const std::string context = std::string(phase) + ": " + relative;
+            const auto toc = fb::read_toc(read(output / "Win32" / relative));
+            fb::verify_toc(toc);
+            const auto found = std::find_if(toc.chunks.begin(), toc.chunks.end(), [&](const auto& chunk) {
+                return chunk.guid == wanted;
+            });
+            expect(found != toc.chunks.end(), context + ": texture RES pixel chunk follows badge into map");
+            if (found != toc.chunks.end())
+                expect(fb::decode_cas(archives.read(output, found->location, found->offset, found->size)) == pixels,
+                       context + ": pixel bytes survive archive relocation");
+            expect(std::none_of(toc.chunks.begin(), toc.chunks.end(), [&](const auto& chunk) {
+                return chunk.guid == unrelated;
+            }), context + ": unrelated texture pixels stay out");
+            expect(fixture.merged_files(relative) == 6, context + ": badge and texture EBX/RES chain is complete");
+        }
+    };
+    auto report = mods::merge_mods(fixture.catalog);
+    expect(report.built && report.issue.empty(), "badge texture: initial merge builds\n" + describe(report));
+    verify("initial merge");
+    // Force a real live rebuild without changing the badge or map assets.
+    fixture.add("tweak", false, shared_toc, {}, game_copy());
+    report = mods::merge_mods(fixture.catalog, {}, {.live = true});
+    expect(report.built && report.issue.empty(), "badge texture: live merge builds\n" + describe(report));
+    verify("live merge");
 }
 } // namespace
 
 int main() try {
+    texture_resource_pixels_survive_map_changes(true);
+    texture_resource_pixels_survive_map_changes(false);
+    replaced_while_the_game_runs();
     const auto baseline = map_only();
     expect(baseline > 0, "map only: the map's copy exists (" + std::to_string(baseline) + ")");
     carried_into_the_maps_copy(true, baseline);

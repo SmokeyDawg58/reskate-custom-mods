@@ -1,14 +1,16 @@
 {
   "upstream": "https://github.com/Dingo-Shenanigans/ReSkate",
-  "upstream_commit": "314d31fe7bf73866b4ae9b6a8195de50ced26312",
-  "version": "2.0.6",
-  "variant": "custom-deathrace-controls-20261012",
-  "release_tag": "v2.0.6-custom-20261012-deathrace-controls",
+  "upstream_commit": "0f8af627105c1079ef25f36ad83b159ae9d1df1f",
+  "version": "2.0.7",
+  "variant": "custom-hud-recovery-20261013",
+  "release_tag": "v2.0.7-custom-20261013-hud-recovery",
   "tests_passed": 77,
-  "wire_version": 12,
-  "release_dll_sha256": "bfa10d7e2cddb2716bf7073a26422d5958cc121dd4e1bf930daad064b3bc56d7",
-  "native_assets_sha256": "2c891bb17c1f6bebfc51feb2b8e3467bb371d1d06325e40ee5d8332b91b960af",
-  "native_assets_bytes": 298898203,
+  "multiplayer_protocol_version": 50,
+  "one_up_wire_version": 5,
+  "release_dll_sha256": "c37844c1a226666a80097d6a36289ddc91fd98997d905e6290b618be302fcdb3",
+  "release_launcher_sha256": "3d8a7fc9ad9229a1646e616a75361d1e74041380288b10fb7ca9a59db4c4777f",
+  "native_assets_sha256": "0340647be0275cf8286a2001b85e6a92dce195818a5fb0d4bd158dacc0cb8803",
+  "native_assets_bytes": 322805934,
   "files": [
     {
       "path": "CMakeLists.txt",
@@ -57,18 +59,18 @@
     },
     {
       "path": "Engine/Vfs/Test/mod_merge_added_assets_tests.cpp",
-      "sha256": "86746439efbaa580fdf629d30d292775ca1d592c8751a381e8073e00ec89e9a6",
-      "bytes": 27365
+      "sha256": "333ec7b59781fc463a73b884b6c57873dcc148aaae1efd51fa3edea8c55ee8a3",
+      "bytes": 33978
     },
     {
       "path": "Engine/Vfs/mod_catalog.cpp",
-      "sha256": "d154e1310bd98b2c72f94591bc1d7d99b33de29e7b4652f20a8f4c6352bc9eb0",
-      "bytes": 26455
+      "sha256": "5514acedbbca12cc917c794cf6e6cc3db68c6ee31bb01e5976453c87461d4522",
+      "bytes": 29966
     },
     {
       "path": "Engine/Vfs/mod_merge_overrides.cpp",
-      "sha256": "a06ace466019b98dde298e568f85add21b5a320ac2733b907f472bdfa6e03170",
-      "bytes": 26454
+      "sha256": "4366466bf492ce10ed3b6f0a3908a59d22824384e73bd8536dd2be965d85e07a",
+      "bytes": 26628
     },
     {
       "path": "Engine/Vfs/one_up_core_assets.cpp",
@@ -82,8 +84,8 @@
     },
     {
       "path": "Engine/Vfs/race_core_assets.h",
-      "sha256": "fa0b585feb2ed3610c0ebc2fce5f6bc2cacdf4ec8fb03b83906dad3bef4c0f12",
-      "bytes": 1325
+      "sha256": "c6ce2e55ba21843e1d8fc0fb428b1217c0b691e03af041ccdea0cd283779e7f1",
+      "bytes": 1511
     },
     {
       "path": "Extension/Console/commands.cpp",
@@ -127,8 +129,8 @@
     },
     {
       "path": "Extension/Modes/Test/mode_rules_tests.cpp",
-      "sha256": "9637525a2ff968a4a930efdb84a92f298bf78ebdbe686fd1103e26700f6e6d54",
-      "bytes": 47835
+      "sha256": "62f7a9a8e523ea121ad29258837a9a8931ad7faa1f1f06a09c05170d515c82e1",
+      "bytes": 49654
     },
     {
       "path": "Extension/Modes/Test/race_asset_contract_tests.cpp",
@@ -162,8 +164,8 @@
     },
     {
       "path": "Extension/Modes/game_modes.cpp",
-      "sha256": "a31196c3829abcd5afc4cbe36a9aed5f143b631cd57e2be2522dbe15b042e708",
-      "bytes": 147881
+      "sha256": "e2810a0251bce107a9ca2cf9ee1c6f1f8cf632718bd6cfeea7faf612177e3a7e",
+      "bytes": 148295
     },
     {
       "path": "Extension/Modes/game_modes.h",
@@ -172,8 +174,8 @@
     },
     {
       "path": "Extension/Modes/mode_rules.cpp",
-      "sha256": "bf164b46e6eec3afb394d7a5dfccb6ec6a4474d4dc1765d2fef1cbd6278e84fe",
-      "bytes": 56324
+      "sha256": "4545140dff91072b5e8b4fdcc817244b4f8483c952d7b8af41bbc97e6c42050d",
+      "bytes": 56742
     },
     {
       "path": "Extension/Modes/mode_rules.h",
@@ -207,8 +209,8 @@
     },
     {
       "path": "Extension/Modes/race_route.h",
-      "sha256": "71daf1ebf225191e6d153c99d9fcef7cdb7694b104551943d33e7694000d583b",
-      "bytes": 11781
+      "sha256": "dd2d3057f1e0cc6e6c77720ce984c8a3ba6f7bd834955e12ad69a59b57e084c3",
+      "bytes": 12233
     },
     {
       "path": "Extension/Modes/race_source_contract.h",
@@ -262,13 +264,13 @@
     },
     {
       "path": "Extension/Multiplayer/Session/session.cpp",
-      "sha256": "863cb62cd53f597df7f7a11881b4427b16828e10e3f9f521ca13c4b8b8b866ec",
-      "bytes": 56326
+      "sha256": "5a0b4b59ac3fe90100144e14d8664787bb5551396f89c4374dea2f91bc62becb",
+      "bytes": 56758
     },
     {
       "path": "Extension/Multiplayer/Session/session_commands.cpp",
-      "sha256": "2db7ae7a560ad4af73decc2ba447fa2fee93c9b72ee53b63c7e69ecdb297e67c",
-      "bytes": 64413
+      "sha256": "8040872c2da1f0d956f6e7da4d3d31fdc533abad525c7ff3fafaf632745aae03",
+      "bytes": 64680
     },
     {
       "path": "Extension/Multiplayer/Session/session_send.cpp",
@@ -287,8 +289,8 @@
     },
     {
       "path": "Extension/Multiplayer/Test/protocol_tests.cpp",
-      "sha256": "b6f644a1b65fa424600bb7d33d5c289c17ba3656bc3178018b53b4ca8f150aba",
-      "bytes": 69782
+      "sha256": "c529118f53552b5f4fe8ad220c020ecc8e6ae3155dadc3398429f8ba74b0eff1",
+      "bytes": 71843
     },
     {
       "path": "Extension/Multiplayer/Test/voice_chat_tests.cpp",
@@ -307,8 +309,8 @@
     },
     {
       "path": "Extension/Objects/ParkEditor/park_editor_runtime.cpp",
-      "sha256": "f2d65672dd435f87354b043813dd1342a8c24da72579e1a67a7bac7063c3f458",
-      "bytes": 33133
+      "sha256": "0585435bf584ed1675b0c614f109778212c715cb33f1ca3769e686de1564abce",
+      "bytes": 34707
     },
     {
       "path": "Extension/Objects/ParkEditor/park_editor_runtime.h",
@@ -397,8 +399,8 @@
     },
     {
       "path": "Extension/Throwdowns/Test/one_up_placement_tests.cpp",
-      "sha256": "96e3fe481f4183a8e3d1a1ae10c7262dc0f140c63500c82be58115bdca23b743",
-      "bytes": 36821
+      "sha256": "37444fe98b5e73d2f514a9189169292543e8d7db981bf02198b5b39536dc26f8",
+      "bytes": 38784
     },
     {
       "path": "Extension/Throwdowns/Test/one_up_runtime_tests.cpp",
@@ -407,8 +409,8 @@
     },
     {
       "path": "Extension/Throwdowns/Test/one_up_tests.cpp",
-      "sha256": "ae74b63bb22ae3abf6e080b67ca3ced6d77b26f99693bac84e84b645f5a870c5",
-      "bytes": 10750
+      "sha256": "b3c47af2b88e3fde1fa2834797c31d076a0c3481a0ae6260d22fedcc28727e3c",
+      "bytes": 12110
     },
     {
       "path": "Extension/Throwdowns/challenge_registry.cpp",
@@ -457,13 +459,13 @@
     },
     {
       "path": "Extension/Throwdowns/one_up_match.cpp",
-      "sha256": "f374aa879169f69ca0a680c3e5b2f3a8ac0b7b81fe9f0dd16765c6e5803aa569",
-      "bytes": 9234
+      "sha256": "f7796fc0369a268890db507c1f913c492b377a19ea0f35129c9336d83270937b",
+      "bytes": 9812
     },
     {
       "path": "Extension/Throwdowns/one_up_match.h",
-      "sha256": "07c336a4f07b555d8cabb1eb77090f90b886a43a16a1b23d4ba534d104bc9241",
-      "bytes": 3264
+      "sha256": "59f987103425a82837786cfafb861fcd38374ef9c3cf4fa31f68487adc44d6c4",
+      "bytes": 3364
     },
     {
       "path": "Extension/Throwdowns/one_up_native.cpp",
@@ -477,23 +479,23 @@
     },
     {
       "path": "Extension/Throwdowns/one_up_placement.cpp",
-      "sha256": "353f95800e9d35da0206e87785a9c5befd39410473564dbc2670360668bff1e2",
-      "bytes": 23741
+      "sha256": "618909c9e3144296656de2cb988654255f7dfe7959ff9003256cdbcdb769eeeb",
+      "bytes": 24849
     },
     {
       "path": "Extension/Throwdowns/one_up_placement.h",
-      "sha256": "fcb62a02df3bd22d16f7ee8f608bf97a25a750fe862f43b60584e4b4e7e59803",
-      "bytes": 3372
+      "sha256": "a0f55fb69e68f654b1c09932485043e872c0bfc6c85b0df25beb4a8ab417478b",
+      "bytes": 3643
     },
     {
       "path": "Extension/Throwdowns/one_up_runtime.cpp",
-      "sha256": "381478d7aaffc6872fc35ca89cd929bb419778bc15f0e782a9f0c2e8055d4a05",
-      "bytes": 23716
+      "sha256": "579a343418b42a87998bc04f3fc34cc1927f562795c6d42d3d9ee0f87c18311d",
+      "bytes": 24558
     },
     {
       "path": "Extension/Throwdowns/one_up_runtime.h",
-      "sha256": "026e0ee54c01f9549cf7f26c7f6d091fb11734a0f12916acf2f120554a8b075f",
-      "bytes": 1453
+      "sha256": "4c7a13d19cc058b6840d50dd9438892e3ffad5778541613e4ac62df821bd782b",
+      "bytes": 1491
     },
     {
       "path": "Extension/Throwdowns/one_up_skating_score.h",
@@ -507,18 +509,18 @@
     },
     {
       "path": "Extension/Throwdowns/one_up_wire.cpp",
-      "sha256": "61cce7cf01097866e395f83c857c5d38c5592bf1c5808e8ec0967e6a2df85f2e",
-      "bytes": 6402
+      "sha256": "0e2f852a2dd4532ce39ddffc20aeb34805decc7a75c0ec4ee7e64a32e6dfb9e4",
+      "bytes": 6549
     },
     {
       "path": "Extension/Throwdowns/one_up_wire.h",
-      "sha256": "3577c0e8228821812c6141911b0632531fcbc459faa143a93f072eeb09b3bb3d",
-      "bytes": 1353
+      "sha256": "2419af547148c831295ab945ecb652d6a185846295a9eb0a0110a83584fc56e5",
+      "bytes": 1359
     },
     {
       "path": "Extension/Throwdowns/throwdown_lab.cpp",
-      "sha256": "27df6b9218cb5f26d59112958d04bc42ccd98860d13cff47d3f24726209ff33d",
-      "bytes": 154773
+      "sha256": "00af2828242341929a3da2b264e017aafe615728aaa1c1854ba5453df8d35cb7",
+      "bytes": 155227
     },
     {
       "path": "Extension/Throwdowns/throwdown_lab.h",
@@ -547,8 +549,8 @@
     },
     {
       "path": "Extension/UI/NativeMenu/Test/native_menu_lifetime_tests.cpp",
-      "sha256": "1a2007d0a69f474dec726f337dfc766c5556261997265c9251574c1909ad9719",
-      "bytes": 60902
+      "sha256": "5b7536b6de3d23b4dd00cbf470cd6bb3c11acb0631344383cbbe78d21949f2c2",
+      "bytes": 69263
     },
     {
       "path": "Extension/UI/NativeMenu/native_array_publication.h",
@@ -567,8 +569,8 @@
     },
     {
       "path": "Extension/UI/NativeMenu/native_hud_values.h",
-      "sha256": "45afb4861698ab644b73c9dd48b654e879d6ded2864bf051a2fceb55805154a5",
-      "bytes": 1135
+      "sha256": "8e1d7122ef4c18f343ecf4697d9381442b37ac2709b0f69c93b04f2e150f1cf6",
+      "bytes": 1687
     },
     {
       "path": "Extension/UI/NativeMenu/native_menu.cpp",
@@ -587,13 +589,13 @@
     },
     {
       "path": "Extension/UI/NativeMenu/native_menu_lifetime.h",
-      "sha256": "62bb9bd6a60d235bda38e7a8637275d1e14fa931973fbf7d35f013875043e349",
-      "bytes": 6154
+      "sha256": "e3dad49db7e4baa6cddfd92a07663d01f29267a048116289daca12311e9d490a",
+      "bytes": 7265
     },
     {
       "path": "Extension/UI/NativeMenu/native_menu_ownership.h",
-      "sha256": "1bc6c272d2c710dd9e64fa1c3e5249b0328697738a0045e15781fe15ac2fd195",
-      "bytes": 4012
+      "sha256": "ad5d0d62d1dd1b90dad7d0c174712d4a387e336771a9ed80db1ee6f7a13bf993",
+      "bytes": 7609
     },
     {
       "path": "Extension/UI/NativeMenu/native_setup_roles.h",
@@ -602,13 +604,13 @@
     },
     {
       "path": "Extension/UI/NativeMenu/one_up_match_panel.inl",
-      "sha256": "d56b60edcf0471ce3dd28d433d5e844bedcd48971a381f0ea5f9cd66f0311f8c",
-      "bytes": 37341
+      "sha256": "9cd7e132a3e045bb96eaa0ae764ad3c810991aaab499495dc74dcddfad56c0d3",
+      "bytes": 38355
     },
     {
       "path": "Extension/UI/NativeMenu/one_up_menu.cpp",
-      "sha256": "18cd8b450b18b6609a7247795917e9ac72d650e7d5bdf7aab48561fc6cf01fb5",
-      "bytes": 176409
+      "sha256": "8c5721e1c3ac066a4277b5f6af2ea4c6988e3baff58affcf7306ea4b5df16d0e",
+      "bytes": 179700
     },
     {
       "path": "Extension/UI/NativeMenu/one_up_menu.h",
@@ -617,13 +619,13 @@
     },
     {
       "path": "Extension/UI/NativeMenu/throwdown_map_identity.inl",
-      "sha256": "b59f35e02b6ba743747a22b4e99beb7f846bea4b0ad3537c3d3b5ef88ddc0cd9",
-      "bytes": 13250
+      "sha256": "28837f4191ce4e207fb2635831b218b9cd33473c1db876cf7b08f1e6868f41ac",
+      "bytes": 13249
     },
     {
       "path": "Extension/UI/NativeMenu/throwdown_modes_ui.inl",
-      "sha256": "82fb51aed9a3508c3270db89a93b10655a5b7f027f5c75c9caa7c8db9a39ab72",
-      "bytes": 65124
+      "sha256": "6e3e6844804968bd7fbd0351349b1333f2a93c82e2253d490b0d22b5a387f2d4",
+      "bytes": 67922
     },
     {
       "path": "Extension/UI/Overlay/input_capture.cpp",
@@ -647,8 +649,8 @@
     },
     {
       "path": "Extension/UI/Overlay/overlay_internal.h",
-      "sha256": "331e6687ca73d77ee682eed9b00c9f8f395ab9d1a19a9c31d25183e5a1a974a2",
-      "bytes": 13658
+      "sha256": "53839a9631a32ba3ab848924ca46aaf0fd9098d39ca86ede64a6e9e80d8ab51a",
+      "bytes": 13891
     },
     {
       "path": "Extension/UI/Overlay/overlay_render.cpp",
@@ -662,8 +664,8 @@
     },
     {
       "path": "Extension/UI/Overlay/skate_menu.cpp",
-      "sha256": "9dc096f67ba034ebeae16c9a65c510786d1c025d75cfedf9448e6741af1f2cf3",
-      "bytes": 25350
+      "sha256": "6079765b20d64e78be3f7fdb7a97a44ffc7e74cfe4dae2dcb581e2242b7f2acc",
+      "bytes": 25368
     },
     {
       "path": "Extension/UI/Overlay/skate_menu.h",
@@ -697,13 +699,13 @@
     },
     {
       "path": "Runtime/client_tick.cpp",
-      "sha256": "a16a920d1c24c14dea5fd0836fc190cd2c625017ec52c48a7f0c102bf704ac59",
-      "bytes": 83490
+      "sha256": "5232554163bc4ecbe1dd6e52fa9cff443b6b6fec42eb6e76a6a340390eb82917",
+      "bytes": 84970
     },
     {
       "path": "Runtime/runtime_init.cpp",
-      "sha256": "a10aee2f753976e23c2d07321e66093f2a9ecf73f5d24771e63be28ab3a62831",
-      "bytes": 30395
+      "sha256": "d69cadbbb8d08f1c5d3873b396f945ad1c5b02c2caf32fdb0d4e97abce668402",
+      "bytes": 30864
     },
     {
       "path": "SOLO-PENDING-QUEUE-VALIDATION.txt",
@@ -752,7 +754,7 @@
     },
     {
       "path": "assets/one_up/native_assets.sha256",
-      "sha256": "17dc87e910afb04206f3cede2141d8012f782d3a08d3aea7a934e05a1cf3b7da",
+      "sha256": "f517c9df7ef90aaa656b1ec6d186a3af599673cba15bc81f93b55967cc357dd8",
       "bytes": 65
     },
     {
@@ -762,8 +764,8 @@
     },
     {
       "path": "cmake/Runtime.cmake",
-      "sha256": "96415aa77258d96bc61e031360ce760302dfcf7d0377f932e4d0f24fcb4501e6",
-      "bytes": 13838
+      "sha256": "14bf6d9ab1fb4cb0be36d4e9be01c63500c714c20b531fdef3646b768881542c",
+      "bytes": 14044
     },
     {
       "path": "cmake/UI.cmake",
@@ -787,8 +789,8 @@
     },
     {
       "path": "contrib/throwdown-flags/deathrace_hud_assets.inl",
-      "sha256": "87a546625bcc9cbeec571c4f69ed15472d6ab6d4c5934fad07a0722eebce91c2",
-      "bytes": 11830
+      "sha256": "ed2749af0a0c0d4d9b02574d898905972ce27edc9897c370379d9563310cd799",
+      "bytes": 27713
     },
     {
       "path": "contrib/throwdown-flags/deathrace_visual_assets.inl",
@@ -812,18 +814,27 @@
     },
     {
       "path": "contrib/throwdown-flags/throwdown_menu_residency.inl",
-      "sha256": "4d4093953a4bb9886739cf1d56a1183960cf7ee2b92f2740be7c0085f261dc46",
-      "bytes": 5103
+      "sha256": "12efc269a1674706ea0827fe7792135591e406b55f45f3344bdb405bbf4558a7",
+      "bytes": 6951
     }
   ],
-  "excluded": [],
+  "excluded": [
+    "assets/one_up/native_assets.bin",
+    "assets/one_up/native_assets.bundle",
+    "assets/throwdowns/placeholder-badges.png"
+  ],
+  "manual_verification": [
+    "Owner confirmed all custom picker logos remain visible after changing maps twice.",
+    "Owner confirmed gate placement works after map changes and backing out of starting-flag placement removes preview gates.",
+    "Owner confirmed recovered editor HUD stays visible after map changes and the Size glyph/caption layout looks correct."
+  ],
   "manual_verification_pending": [
-    "Finish Deathrace and reopen the saved course repeatedly without a crash",
-    "Change maps and reopen Throwdowns; verify the full custom grid persists",
-    "Inspect black/red editor, race, results and confirmation panels and their complete coverage",
-    "Tap/hold gate sizing, step rotation at larger angles and inspect stronger position snapping",
-    "Pass enlarged mandatory gates, then miss one and verify delayed recovery and 6 m/s rolling speed",
-    "Verify native input and multiplayer standings with multiple players"
+    "Start/Menu still opens the normal pause menu instead of reliably opening the Throwdown panel; repeated Quit remains unverified.",
+    "Owner reported a crash switching repeatedly between maps with two saved Deathrace routes; investigation pending.",
+    "Deathrace results title/column spacing and long DNF time clipping need the requested follow-up layout changes.",
+    "Smooth three-digit millisecond clocks, larger medal-colored position, titled leaderboard and dynamic columns are requested follow-up work.",
+    "Some HUDs flash when first shown; further investigation pending.",
+    "Multiplayer timing, challenge panel routing and repeated-map stress tests require further in-game validation."
   ],
   "publication_policy": "Only push when the owner explicitly asks; include matching DLL, launcher, native archive, checksums and release manifest every time."
 }

@@ -24,6 +24,7 @@ struct Runtime {
     std::mutex mutex;
     View published;
     std::vector<std::string> commands;
+    std::vector<std::pair<Token,Time>> bails;
     std::optional<SpawnRequest> spawn_request;
     std::vector<std::pair<PlayerId, Message>> inbox;
     std::vector<std::vector<std::uint8_t>> outgoing;
@@ -85,6 +86,7 @@ void apply_input(Runtime& r, PlayerId sender, const Message& m, Time now) {
         case Action::ready: if (!item.flag || (at && distance(*at, r.spot) <= 2)) match.ready(sender, item.flag); break;
         case Action::leave: match.leave(sender, now); break;
         case Action::trick_score: match.trick_scored(token,item.line,item.score,item.elapsed,now); break;
+        case Action::bail: match.bailed(token,item.elapsed,now); break;
         case Action::snapshot: break;
         }
     }
@@ -319,6 +321,13 @@ std::vector<std::vector<std::uint8_t>> tick(std::uintptr_t base, const Throwdown
         m.turn = event.token.turn; m.line = event.line; m.elapsed = event.elapsed; m.score = event.score; m.flag = event.landed;
         send_input(r, m, now);
     }
+    std::vector<std::pair<Token,Time>> bails;
+    {std::lock_guard lock(r.mutex);bails=std::exchange(r.bails,{});}
+    for(const auto& [bail,at]:bails)if(on_turn && bail==armed && at>=r.turn_at) {
+        Message m;m.action=Action::bail;m.turn=bail.turn;m.line=1;
+        m.elapsed=static_cast<std::uint32_t>(std::min<Time>(at-r.turn_at,r.selected.config.turn_ms));
+        send_input(r,m,now);
+    }
     if (r.hosted) {
         r.selected = r.hosted->state();
         if (now >= r.next_send) {
@@ -346,6 +355,12 @@ std::vector<std::vector<std::uint8_t>> tick(std::uintptr_t base, const Throwdown
             phase_names[static_cast<unsigned>(r.selected.phase)],r.selected.target,r.selected.best,r.selected.notice);
     }
     publish(r, now); return std::exchange(r.outgoing, {});
+}
+void report_bail(Time when) noexcept {
+    auto& r=runtime();std::lock_guard lock(r.mutex);
+    const auto& view=r.published;
+    if(view.participant && view.local==view.state.active && view.state.phase==Phase::playing && r.bails.size()<8)
+        r.bails.push_back({{view.state.match,view.state.turn,view.local},when});
 }
 bool waits_offboard() noexcept { return runtime().waiting.load(); }
 bool countdown_locks_input() noexcept { return runtime().countdown_input.load(); }

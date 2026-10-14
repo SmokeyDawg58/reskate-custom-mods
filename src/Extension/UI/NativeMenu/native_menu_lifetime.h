@@ -57,6 +57,28 @@ inline std::optional<unsigned> active_activity_stack_item(int stack_index, unsig
     return static_cast<unsigned>(stack_index);
 }
 
+// Capture the actual normalized Start/Menu button before UI publication is
+// throttled. Opening another phone page is not evidence of a Start press.
+// Never reopen on a held key, a closing press, or a new match entered held.
+class MatchPanelStartInput {
+    bool down_{}, menu_open_{}, available_{}, initialized_{};
+public:
+    bool sample(std::uint32_t buttons, bool escape, bool available, bool menu_open) noexcept {
+        const bool down=(buttons & 0x0010u)!=0 || escape;
+        const bool request=initialized_ && available_ && available && !menu_open_ && down && !down_;
+        down_=down;menu_open_=menu_open;available_=available;initialized_=true;
+        return request;
+    }
+};
+
+// A picker page can retire on the very Start press that opens the phone.
+// Input belongs to the current match; only real world/manager teardown resets
+// its latch and request. The request is still checked against the exact match.
+inline void reset_match_panel_input(MatchPanelStartInput& latch,std::string& request,bool preserve_match_input) {
+    if(preserve_match_input)return;
+    latch={};request.clear();
+}
+
 // Model creation returns an independently owned root. Dropping the C++ handle
 // does not destroy it. Track partial builds and old pause-menu generations too.
 template<class Model> class OwnedMenuModels {

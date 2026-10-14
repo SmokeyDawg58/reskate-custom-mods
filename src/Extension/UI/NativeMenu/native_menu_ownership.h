@@ -7,6 +7,7 @@
 #include <span>
 #include <stdexcept>
 #include <type_traits>
+#include <algorithm>
 #include <utility>
 #include <vector>
 
@@ -47,6 +48,66 @@ template<class Presenter> std::optional<std::vector<std::byte>> remount_presente
     std::vector<std::byte> next(live.begin(),live.end());
     for(std::size_t i=0;i<next.size();i+=stride)
         std::memcpy(next.data()+i+offset,saved.data()+i+offset,sizeof(Presenter));
+    return next;
+}
+
+// Rebuilding the HUD array must not restart existing items' native fade/slide
+// tracks. Reuse the live item by id AND complete presenter identity, including
+// when a confirmation or countdown adds/removes another item beside it.
+struct HudVisibilityField { std::size_t offset{}, size{}; };
+struct HudVisibilityContract {
+    std::size_t active_offset{};
+    std::span<const std::int32_t> owned_ids;
+    std::span<const HudVisibilityField> restore_on_show;
+};
+template<class Presenter> std::optional<std::vector<std::byte>> reconcile_hud_items(
+        std::span<const std::byte> live,std::span<const std::byte> desired,
+        std::size_t stride,std::size_t id_offset,std::size_t presenter_offset,
+        const HudVisibilityContract* visibility=nullptr) {
+    static_assert(std::is_trivially_copyable_v<Presenter>);
+    if(!stride || id_offset>stride || sizeof(std::int32_t)>stride-id_offset ||
+       presenter_offset>stride || sizeof(Presenter)>stride-presenter_offset || live.size()%stride || desired.size()%stride)
+        throw std::invalid_argument("Native HUD item layout differs.");
+    if(visibility) {
+        if(visibility->active_offset>=stride)throw std::invalid_argument("Native HUD active field differs.");
+        for(const auto& field:visibility->restore_on_show)
+            if(field.offset>stride || field.size>stride-field.offset)
+                throw std::invalid_argument("Native HUD visibility field differs.");
+    }
+    const auto needs_show=[&](const std::byte* current,const std::byte* expected) {
+        if(!visibility || current[visibility->active_offset]!=std::byte{} || expected[visibility->active_offset]==std::byte{})return false;
+        std::int32_t id{};std::memcpy(&id,expected+id_offset,sizeof(id));
+        return std::find(visibility->owned_ids.begin(),visibility->owned_ids.end(),id)!=visibility->owned_ids.end();
+    };
+    const auto same=[&](const std::byte* a,const std::byte* b) {
+        std::int32_t ai{},bi{};Presenter ap{},bp{};
+        std::memcpy(&ai,a+id_offset,sizeof(ai));std::memcpy(&bi,b+id_offset,sizeof(bi));
+        std::memcpy(&ap,a+presenter_offset,sizeof(ap));std::memcpy(&bp,b+presenter_offset,sizeof(bp));
+        return ai==bi && ap.blueprint==bp.blueprint && ap.data.record==bp.data.record && ap.data.handle==bp.data.handle;
+    };
+    bool unchanged=live.size()==desired.size();
+    if(unchanged)for(std::size_t at=0;at<live.size();at+=stride)
+        if(!same(live.data()+at,desired.data()+at) || needs_show(live.data()+at,desired.data()+at)) {unchanged=false;break;}
+    if(unchanged)return std::nullopt;
+    std::vector<std::byte> next(desired.begin(),desired.end());
+    for(std::size_t at=0;at<next.size();at+=stride) {
+        std::optional<std::size_t> found;bool exact{},ambiguous{};
+        for(std::size_t old=0;old<live.size();old+=stride) {
+            if(std::memcmp(next.data()+at,live.data()+old,stride)==0) {exact=true;break;}
+            if(same(next.data()+at,live.data()+old)) {
+                if(found)ambiguous=true;else found=old;
+            }
+        }
+        if(!exact && !ambiguous && found) {
+            const bool show=needs_show(live.data()+*found,desired.data()+at);
+            std::memcpy(next.data()+at,live.data()+*found,stride);
+            if(show) {
+                next[at+visibility->active_offset]=desired[at+visibility->active_offset];
+                for(const auto& field:visibility->restore_on_show)
+                    std::memcpy(next.data()+at+field.offset,desired.data()+at+field.offset,field.size);
+            }
+        }
+    }
     return next;
 }
 

@@ -7,13 +7,16 @@
 namespace dingosdk::mods::detail {
 inline constexpr std::string_view race_core_mod = "ReSkate Core 1-Up";
 inline constexpr std::string_view race_core_bundle = "win32/levels/game/bam_levelroot/bam_coregameassets";
-inline constexpr std::array<std::string_view,6> race_core_roots{
+inline constexpr std::array<std::string_view,9> race_core_roots{
     "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
     "world/reskate/deathrace/sm_fx_gp_checkpoint_a_al_gate",
     "world/reskate/deathrace/sm_fx_gp_lightningbolt_a_gate",
     "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
     "world/reskate/deathrace/sm_fx_gp_checkpoint_a_al_finish",
-    "world/reskate/deathrace/sm_fx_gp_lightningbolt_a_finish"};
+    "world/reskate/deathrace/sm_fx_gp_lightningbolt_a_finish",
+    "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+    "world/reskate/deathrace/sm_fx_gp_checkpoint_a_al_guide",
+    "world/reskate/deathrace/sm_fx_gp_lightningbolt_a_guide"};
 inline bool race_core_root(std::string_view mod,std::string_view bundle,std::string_view name) {
     return mod == race_core_mod && bundle == race_core_bundle &&
         std::find(race_core_roots.begin(),race_core_roots.end(),name) != race_core_roots.end();

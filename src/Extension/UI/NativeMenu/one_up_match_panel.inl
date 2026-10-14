@@ -164,9 +164,9 @@ Value active_match_panel_layer_item(const Context& c,Value layer) {
     return read<bool>(c.address(c.field(item,0x369babfe)))?item:Value{};
 }
 bool owns_selected_match_panel(const Context& c) {
-    const auto& lease=match_panel_lease(c);
-    if(!lease.details.requested || !lease.details.page || !lease.details.layer || !lease.selection.handle ||
-       c.type_of(lease.selection.handle)!=lease.selection.type || read<std::int32_t>(c.address(lease.selection))!=1)return false;
+    const auto& lease=match_panel_lease(c);const auto& p=state().match_panel;
+    if(!lease.details.requested || !lease.details.page || !lease.details.layer || !p.mounted_slot.handle ||
+       c.type_of(p.mounted_slot.handle)!=p.mounted_slot.type)return false;
     const auto layer=native_record_model(c,asset(c,"UI_Layer_Data/Layer_Menu"),0xd71ee0a1);
     if(layer.handle!=lease.details.layer)return false;
     const auto item=active_match_panel_layer_item(c,layer);
@@ -237,13 +237,9 @@ void restore_match_panel(const Context& c) {
     auto& lease=match_panel_lease(c);lease.details.retire();lease.selection={};
     auto& p=state().match_panel;p.requested_until=0;p.request_after=0;
 }
-bool pending_match_panel_request(const Context& c,std::uint64_t now) {
+bool pending_match_panel_request(const Context&,std::uint64_t now) {
     const auto& p=state().match_panel;
-    if(!p.requested_until || now>=p.requested_until)return false;
-    if(p.request_after)return true; // Start's native pause graph has not run yet.
-    const auto& lease=match_panel_lease(c);
-    return lease.selection.handle && c.type_of(lease.selection.handle)==lease.selection.type &&
-        read<std::int32_t>(c.address(lease.selection))==1;
+    return p.requested_until && now<p.requested_until && (state().in_menu || p.request_after);
 }
 Value panel_stack_item(const Context& c,Value stack,Widget display,int id) {
     const auto item=make(c,stack_item);
@@ -282,7 +278,7 @@ bool mount_match_panel_prompt(const Context& c) {
     if(!lease.shortcut_content.handle) {
         lease.shortcut_content=make(c,{0xd71ee0a1,80},parent.type);
         panel_stack_content(c,lease.shortcut_content,
-            {asset(c,"UI/Foundations/Components/Buttons/LabelButton/HighlightableLabelButton_Widget"),{0,lease.highlight.handle}},hud_panel_id+4);
+            {asset(c,"UI/Foundations/Components/Buttons/LabelButton/LabelButton_Widget"),{0,p.prompt.handle}},hud_panel_id+4);
         c.set(c.field(lease.shortcut_content,0x18f8355b),-1);
         c.set(c.field(lease.shortcut_content,0x1fbbb5da),true);
         c.set(c.field(lease.shortcut_content,0x3b14d43c),true);
@@ -295,7 +291,7 @@ bool mount_match_panel_prompt(const Context& c) {
         p.prompt_anchor,p.prompt_item,hud_panel_id,false);
     c.set(c.field(p.prompt_anchor,0x1cff7243),std::array<float,2>{440.f,80.f});
     for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
-        const float at=axis==0xde7d30c7?.95f:.18f;
+        const float at=axis==0xde7d30c7?.95f:.12f;
         for(const auto field:{0x99bbed5aU,0x49943bedU})c.set(c.path(p.prompt_anchor,{axis,field}),at);
         for(const auto field:{0x40bfbff4U,0x1d233266U})c.set(c.path(p.prompt_anchor,{axis,field}),0.f);
         c.set(c.path(p.prompt_anchor,{axis,0xfec5e0b1}),axis==0xde7d30c7?1.f:0.f);
@@ -321,7 +317,7 @@ void match_panel_input(const Context& c,Value button_value,Address input_asset,b
     const auto is_prompt=c.field(interactable,0x38f7355f);
     if(read<bool>(c.address(is_prompt))!=prompt)c.set(is_prompt,prompt);
     const auto clickable=c.field(interactable,0x4b3146e9);
-    if(!read<bool>(c.address(clickable)))c.set(clickable,true);
+    if(read<bool>(c.address(clickable))==prompt)c.set(clickable,!prompt);
 }
 void match_panel_action(const Context& c,Value button_value,const char* caption,const MatchPanelView& view,bool quit) {
     plain_label(c,c.field(button_value,0x58c9d354),caption);
@@ -341,6 +337,16 @@ void update_match_panel_quit(const Context& c,Value page_value,Value quit,const 
     require(count==1 && stride==page_action_schema.size,"Native Throwdown Panel Quit shortcut differs.");
     const auto mounted=c.path(c.element(actions,0),{0xa704272a,0xc52416ef,0xa704272a,0xa2b71c93});
     const auto source=match_panel_input_action(c,quit);
+    const auto page_action=c.element(actions,0);
+    const auto bar=c.field(page_action,0xb6e9bfa0); // Native generated ButtonBarLabelButton context handle.
+    if(size(bar.type)==sizeof(Handle)) {
+        const auto handle=read<Handle>(c.address(bar));
+        if(handle && game::native_data().models.value(c.manager,handle,0,1)) {
+            const Value hint{handle,c.type_of(handle)};
+            if(hint.type==c.type(button))plain_label(c,c.field(hint,0x58c9d354),"QUIT");
+        }
+    }
+
     if(read<Address>(c.address(c.field(mounted,0x9c76b86c)))!=read<Address>(c.address(c.field(source,0x9c76b86c))))
         c.copy(mounted,c.address(source));
 }
@@ -358,6 +364,10 @@ void build_match_panel(const Context& c,const MatchPanelView& view) {
     graph.walk(p.header,0);
     plain_label(c,c.field(p.header,0x44688629),"Throwdown");
     plain_label(c,c.field(p.header,0x00f3b15e),"1-UP");
+    label_styles(c,c.field(p.header,0x44688629),"TextStylesList/B52-SemiB_Bright","TextStylesList/B52-SemiB_Bright");
+    label_styles(c,c.field(p.header,0x00f3b15e),"TextStylesList/D180-Caps_White","TextStylesList/H72-XBold_White");
+    c.set(c.path(p.header,{0x00f3b15e,0xfc53d427}),false);
+    c.set(c.field(p.header,0x2840ecf6),Widget{});
     p.badge=make(c,texture_schema);
     c.set(c.field(p.badge,0xf524c836),256.f);c.set(c.field(p.badge,0x6fbd254e),256.f);
     c.set(c.field(p.header,content),Widget{asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget"),{0,p.badge.handle}});
@@ -365,21 +375,29 @@ void build_match_panel(const Context& c,const MatchPanelView& view) {
     p.notice=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
     plain_label(c,c.field(p.notice,0x94703efc),"Beat the previous turn total. Three penalties and you're out!");
     c.set(c.field(p.notice,0x13be0d51),std::array<float,2>{1120.f,200.f});
-    c.set(c.field(p.panel,0x4fd7853d),Widget{asset(c,"UI/Foundations/Components/Notices/BasicNotice_Widget"),{0,p.notice.handle}});
-    std::vector<Widget> settings;
+    label_styles(c,c.field(p.notice,0x94703efc),"TextStylesList/B52-SemiB_Bright","TextStylesList/B52-SemiB_Bright");
+    c.set(c.field(p.panel,0x4fd7853d),Widget{});
+    std::vector<Widget> settings{{asset(c,"UI/Foundations/Components/Notices/BasicNotice_Widget"),{0,p.notice.handle}}};
     for(unsigned i=0;i<p.setting_rows.size();++i) {
         p.setting_rows[i]=make(c,setting_schema);
         c.set(c.field(p.setting_rows[i],0xc9bf367d),record_ref(c,"SettingWrapperStylesList/Horizontal.WithDivider"));
+        c.set(c.field(p.setting_rows[i],0xf3d74cdd),0);
         const auto caption=c.field(p.setting_rows[i],0x58c9d354);
+        c.copy(caption,c.address(state().source_label));
         plain_label(c,caption,i?"Turn Timer":"Players");
         label_styles(c,caption,"TextStylesList/B52-SemiB_Black","TextStylesList/B52-SemiB_Black");
         p.setting_values[i]=make(c,label_schema);
+        c.copy(p.setting_values[i],c.address(state().source_label));
+        c.set(c.field(p.setting_values[i],0xc13ba637),false);
+        c.set(c.field(p.setting_values[i],0xfc53d427),false);
         label_styles(c,p.setting_values[i],"TextStylesList/B52-SemiB_Black","TextStylesList/B52-SemiB_Black");
         c.set(c.field(p.setting_values[i],0x3d8639d0),1);
         c.set(c.field(p.setting_rows[i],content),Widget{asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget"),{0,p.setting_values[i].handle}});
         settings.push_back({asset(c,"UI/Foundations/Components/Settings/Widgets/SettingWrapper_Widget"),{0,p.setting_rows[i].handle}});
     }
-    hud_list(c,p.settings,settings,false,152.f,16.f,0.f,1120.f);
+    hud_list(c,p.settings,settings,false,144.f,16.f,0.f,1120.f);
+    const auto rules_anchor=read<Handle>(c.address(c.element(c.field(p.settings,0xf2c90867),0)));
+    c.set(c.field({rules_anchor,c.type_of(rules_anchor)},0x1cff7243),std::array<float,2>{1120.f,200.f});
     panel_stack_content(c,c.field(p.panel,0x43967ece),
         {asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),{0,p.settings.handle}},hud_panel_id+1);
     // This authored footer is an empty list; the stock challenge rule supplies
@@ -403,6 +421,9 @@ void build_match_panel(const Context& c,const MatchPanelView& view) {
     c.set(c.field(p.quit,0x659db23e),false);
     const auto quit_input=read<Address>(c.address(c.field(match_panel_input_action(c,p.quit),0x0169c2db)));
     match_panel_input(c,p.quit,quit_input,false);
+    c.copy(c.field(p.quit,0x58c9d354),c.address(state().source_label));
+    label_styles(c,c.field(p.quit,0x58c9d354),"TextStylesList/B52-SemiB-Caps_Dark","TextStylesList/B52-SemiB_Black");
+    c.set(c.path(p.quit,{0x58c9d354,0x3d8639d0}),2);
     match_panel_action(c,p.quit,"QUIT",view,true);
     c.array(c.field(footer_list,0xf2c90867),std::vector<Handle>{});
     c.array(c.field(footer_list,rows_field),std::vector<Ref>{{0,p.quit.handle}});
@@ -412,6 +433,9 @@ void build_match_panel(const Context& c,const MatchPanelView& view) {
     const auto action_type=read<Address>(read<Address>(page_actions.type)+0x30);
     const auto quit_action=make(c,page_action_schema,action_type);
     c.copy(c.field(quit_action,0xa704272a),c.address(c.path(p.quit,{0x0fb0d794,0xa704272a})));
+    c.text(c.field(quit_action,0x6c0c58da),"Quit"); // PageAction.FilterKey is required by the button bar.
+    c.set(c.field(quit_action,0xb3da8457),true); // CanClick.
+
     std::vector<std::byte> action_bytes(page_action_schema.size);
     require(memory::peek_bytes(c.address(quit_action),action_bytes.data(),action_bytes.size()),
             "Native Throwdown Panel Quit shortcut unavailable.");
@@ -445,23 +469,36 @@ void build_match_panel(const Context& c,const MatchPanelView& view) {
 }
 void native_match_panel(const Context& c,std::uint64_t now) {
     auto& s=state();auto& p=s.match_panel;const auto view=match_panel_view();
-    const bool pause_opened=s.in_menu && !p.menu_was_open;
+    const auto identity=view.available?view.open_command+":"+view.argument:std::string{};
+    if(view.available && p.match_key!=identity) {
+        // Restore the native phone slot before retiring the old match's graph.
+        // Every match gets fresh press/hold state and callbacks, even when no
+        // unavailable frame occurred between the previous Quit and this match.
+        restore_match_panel(c);detach_match_panel_prompt(c);
+        p={};p.match_key=identity;p.menu_was_open=s.in_menu;
+        match_panel_lease(c)={c.manager};
+    }
     p.menu_was_open=s.in_menu;
     if(!view.available)p.quitting=false;
     if(!view.available || p.quitting) {
         if(owns_selected_match_panel(c))request_menu_toggle(c);
         restore_match_panel(c);p.requested_until=0;return;
     }
-    // Start also enters the game's pause flow through its global input action.
-    // Custom matches have no native activity rule to register AccessPause, so
-    // their HUD shortcut alone cannot be the only source of this request.
-    // Observe that real pause transition once; the native flow still owns
-    // opening/closing the phone and refuses to replace results or celebrations.
-    if(pause_opened && !p.requested_until && request_activity_details(c)) {
+    // A generic menu-open transition includes every D-pad phone shortcut.
+    // Borrow the phone only after an actual Start/Menu (or Escape) edge for
+    // this match, captured before the UI refresh throttle.
+    bool start_requested{};
+    {
+        std::lock_guard input_lock(s.panel_input_mutex);
+        start_requested=!s.panel_start_request.empty() && s.panel_start_request==identity;
+        if(start_requested)s.panel_start_request.clear();
+    }
+    if(start_requested) {
         p.requested_until=now+4000;
-        p.request_after=0;
+        p.request_after=s.in_menu?0:now+80;
+        request_activity_details(c);
         logging::write(logging::Level::info,logging::Channel::ui,
-            "Throwdowns: native pause opened during a custom match; requesting its Details panel.");
+            "Throwdowns: Start/Menu pressed for this custom match; requesting its native Details panel.");
     }
     if(!p.prompt.handle) {
         auto& lease=match_panel_lease(c);
@@ -476,10 +513,11 @@ void native_match_panel(const Context& c,std::uint64_t now) {
         clear_value(c,c.path(p.prompt,{0x0fb0d794,0xa704272a,0xc52416ef,0x66a997b9,0x66a997b9}));
         c.set(c.field(p.prompt,0x659db23e),false);
     }
-    match_panel_action(c,p.prompt,"Throwdown Panel",view,false);
-    // The authored interactive HUDButton uses IsPrompt=false. IsPrompt=true
-    // is reserved for the noninteractive informational placement hints.
-    match_panel_input(c,p.prompt,asset(c,"Configurations/Input/UI/UI_Activities_AccessPause"),false);
+    plain_label(c,c.field(p.prompt,0x58c9d354),"Throwdown Panel");
+    match_panel_input(c,p.prompt,asset(c,"Configurations/Input/UI/UI_Activities_AccessPause"),true);
+    const auto prompt_action=match_panel_input_action(c,p.prompt);
+    clear_value(c,c.field(prompt_action,0x9c76b86c));
+    c.text(c.field(prompt_action,0xb1e14cd6),"");
     c.set(c.path(p.prompt,{0x0fb0d794,0xa704272a,0xc52416ef,0xa704272a,0x85a0b4e8}),!s.in_menu);
     // The official Start graph selects Activities_Details. The native state
     // machine then owns the phone pose, input, Layer_Menu and Back teardown.
@@ -494,7 +532,7 @@ void native_match_panel(const Context& c,std::uint64_t now) {
             // After a real button press, request the native phone transition
             // explicitly if the global pause action has not already opened it.
             const bool opening=s.in_menu || request_native_navigation(c,"ToggleMenu");
-            if(opening && request_activity_details(c))p.request_after=0;
+            if(opening)p.request_after=0;
         }
     }
     if(now<p.retry_after) {restore_match_panel(c);return;}
@@ -526,13 +564,6 @@ void native_match_panel(const Context& c,std::uint64_t now) {
     // Publish handles matching the label blueprint, rather than feeding a
     // profile/score model into the legacy scoreboard's cached bindings.
     if(!hud_list_has_items(c,p.board,static_cast<unsigned>(rows.size())))hud_list(c,p.board,rows,false,72.f,12.f,0.f,1120.f);
-    const auto selection=activity_menu_selection(c);
-    if(!selection.handle || read<std::int32_t>(c.address(selection))!=1) {
-        match_panel_wait(c,now,"Activities_Details selection");
-        if(pending_match_panel_request(c,now))restore_match_panel_mount(c);
-        else restore_match_panel(c);
-        return;
-    }
     const auto layer=native_record_model(c,asset(c,"UI_Layer_Data/Layer_Menu"),0xd71ee0a1);
     if(!layer.handle) {match_panel_wait(c,now,"the native Layer_Menu model");return;}
     const auto item=active_match_panel_layer_item(c,layer);
@@ -545,20 +576,18 @@ void native_match_panel(const Context& c,std::uint64_t now) {
     // actual instance; identify it by its validated asset type and exact name,
     // then retain that same instance for the private page and ownership check.
     auto& lease=match_panel_lease(c);
-    const auto page_blueprint=current.blueprint;
-    const bool is_page=page_blueprint &&
-        read<Address>(page_blueprint+8)==c.base+build::native_menu::widget_blueprint_type &&
-        string(read<Address>(page_blueprint+0x18),256)=="UI/Foundations/Templates/Page/Page_Widget";
-    if(!is_page) {
-        if(lease.wait_reason!="the native Page_Widget") {
-            std::string name="empty";
-            if(page_blueprint && read<Address>(page_blueprint+8)==c.base+build::native_menu::widget_blueprint_type)
-                name=string(read<Address>(page_blueprint+0x18),256);
-            logging::log(logging::Level::warning,logging::Channel::ui,
-                "Throwdowns: selected menu layer {:#x}, item {}, content {:#x} '{}', model {:#x}.",
-                layer.handle,item_id,page_blueprint,name,current.data.handle);
-        }
-        match_panel_wait(c,now,"the native Page_Widget");return;
+    const auto page_blueprint=asset(c,"UI/Foundations/Templates/Page/Page_Widget");
+    // Never replace a live popup or another owner's transition. This request
+    // must come from the real pause opening during this exact custom match.
+    if(current.data.handle!=p.page.handle && !pending_match_panel_request(c,now))return;
+    if(!current.blueprint || read<Address>(current.blueprint+8)!=c.base+build::native_menu::widget_blueprint_type) {
+        match_panel_wait(c,now,"an initialized native phone page");return;
+    }
+    const auto current_name=string(read<Address>(current.blueprint+0x18),256);
+    if(current.data.handle!=p.page.handle &&
+       current_name!="UI/Foundations/Templates/Page/Page_Widget" &&
+       current_name!="UI/Foundations/Components/Stack/StackScreen") {
+        match_panel_wait(c,now,"the phone's native Page or StackScreen");return;
     }
     if(current.data.handle==p.page.handle && p.mounted_slot.handle!=slot.handle) {
         // A native array relocation can give this same item a fresh field
@@ -566,26 +595,18 @@ void native_match_panel(const Context& c,std::uint64_t now) {
         if(lease.details.layer!=layer.handle || lease.details.item!=item_id)return;
         p.mounted_slot=slot;
     } else if(current.data.handle!=p.page.handle) {
-        // Identify the native details page through its actual Back contract.
-        // A popup or unrelated native Page_Widget is never a mount candidate.
-        const auto native_page=current.data.handle?reference(c,current.data):
-            current.data.record?native_record_model(c,current.data.record,page.hash):Value{};
-        if(!native_page.handle || native_page.type!=c.type(page)) {match_panel_wait(c,now,"the native details Page model");return;}
-        const auto native_back=c.text(c.field(back(c,native_page),0xb1e14cd6));
-        if(native_back!="ThrowdownDetailsBack" && native_back!="ActivitiesDetailsBack") {match_panel_wait(c,now,"the native details Back action");return;}
         restore_match_panel_mount(c);
         if(!p.saved_slot.handle)p.saved_slot=make(c,presenter);
         c.copy(p.saved_slot,c.address(slot));p.mounted_slot=slot;
-        // The observed activity flow supplies ActivitiesDetailsBack and a
-        // native delegate, rather than the Throwdown template's default Back.
-        // Borrow that retained page's complete action so Back uses the phone
-        // flow that actually mounted it. Do not mutate its original graph.
-        c.copy(back(c,p.page),c.address(back(c,native_page)));
-        lease.back_navigation=native_back;
+        // The phone's native ToggleMenu flow owns input/pose/close. The private
+        // footer alone owns Quit; no global ThrowdownDetailsBack interception.
+        const auto close=back(c,p.page);
+        clear_value(c,c.field(close,0x9c76b86c));c.text(c.field(close,0xb1e14cd6),"ToggleMenu");
+        lease.back_navigation="ToggleMenu";
         c.set(slot,Widget{page_blueprint,{0,p.page.handle}});
         logging::log(logging::Level::info,logging::Channel::ui,"{}: native activity details layer mounted with Quit and leaderboard.",view.title);
     }
-    lease.details.mount(p.page.handle,layer.handle,item_id);lease.selection=selection;lease.page_blueprint=page_blueprint;
+    lease.details.mount(p.page.handle,layer.handle,item_id);lease.selection={};lease.page_blueprint=page_blueprint;
     lease.wait_reason.clear();lease.wait_logged=0;
     // Publish only Content once. StackIndex, target/focus and every animation
     // track remain exactly as the activity flow authored them.

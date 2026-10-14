@@ -102,8 +102,20 @@ inline float size_race_gate(float width,int direction) noexcept {
     return std::clamp(width+direction*.3f,min_gate_half_width,max_gate_half_width);
 }
 struct RaceEditorPresses {
-    unsigned previous{};
-    unsigned update(unsigned held) noexcept {const auto pressed=held&~previous;previous=held;return pressed;}
+    unsigned previous{}, blocked{};
+    std::array<std::uint64_t,4> next{};
+    void suppress(unsigned held=15) noexcept {blocked=held;previous=0;next={};}
+    unsigned update(unsigned held,std::uint64_t now) noexcept {
+        blocked&=held;held&=~blocked;
+        unsigned pressed{};
+        for(unsigned i=0;i<4;++i) {
+            const auto bit=1u<<i;
+            if(!(held&bit)){next[i]=0;continue;}
+            if(!(previous&bit)){pressed|=bit;next[i]=now+350;}
+            else if(now>=next[i]){pressed|=bit;next[i]=now+150;}
+        }
+        previous=held;return pressed;
+    }
 };
 struct RaceGatePose { Vec3 at{}; float yaw{}; };
 inline RaceGatePose snap_race_gate(const Settings& settings,const Vec3& at,float yaw,bool enabled,float degrees=15.f) noexcept {

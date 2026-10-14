@@ -1467,7 +1467,15 @@ void initialize_throwdown_lab(Address base) noexcept {
 
 void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) noexcept {
     if(!injecting && type && payload && (hash==event_create || hash==event_add_participant) &&
-       !one_up::flag_registration_owned())native_queue_revision.fetch_add(1,std::memory_order_release);
+       !one_up::flag_registration_owned()) {
+        try {
+            const auto field=find_field(type,field_mmid);
+            const auto mmid=field && field->size==4?read<std::uint32_t>(payload+field->offset):0;
+            // A late participant event for our retired native donor is not a
+            // fresh stock challenge. Keep its waiting card suppressed.
+            if(!one_up::known_custom_flag_queue(mmid))native_queue_revision.fetch_add(1,std::memory_order_release);
+        } catch(...) { }
+    }
     auto& l = lab();
     if (!l.installed.load(std::memory_order_acquire) || injecting || !type || !payload) return;
     if (handled(hash)) { try { note_sent(hash, 0); } catch (...) {} }
@@ -1702,6 +1710,7 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
         if(one_up::flag_registration_owned()) {
             // Keep native type caching, but never advertise the temporary
             // S.K.A.T.E. picker as a separate multiplayer match.
+            one_up::observe_flag_queue(mmid);
             if(hash==event_create) one_up::observe_flag_created();
             if(hash==event_update && selected_spawn) one_up::observe_flag_position(mmid,*selected_spawn,selected_transform?&*selected_transform:nullptr);
             return;

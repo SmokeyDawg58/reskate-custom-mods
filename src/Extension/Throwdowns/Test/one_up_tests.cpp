@@ -23,6 +23,20 @@ void next(Match& m) { m.tick(m.phase_at() + 2500); m.tick(m.phase_at() + 3000); 
 }
 int main() {
     try {
+        {
+            auto bailed_match=match(true);const auto token=bailed_match.token();const auto at=bailed_match.turn_at();
+            check(bailed_match.trick_scored(token,1,125,100,at+100),"points before bail banked");
+            check(!bailed_match.bailed({token.match,token.turn+1,token.player},200,at+200),"stale bail cannot end another turn");
+            check(bailed_match.bailed(token,200,at+200) && bailed_match.state().phase==Phase::settling,"bail ends 1-UP skating immediately");
+            check(!bailed_match.bailed(token,201,at+201),"duplicate bail does nothing");
+            check(bailed_match.trick_scored(token,2,50,150,at+250),"earlier landed points delivered after bail count");
+            check(!bailed_match.trick_scored(token,3,100,250,at+300),"points after bail rejected");
+            bailed_match.tick(at+200+bailed_match.state().config.delivery_ms);
+            check(bailed_match.state().phase==Phase::feedback && bailed_match.state().judged_score==175,"bail judges banked score after delivery grace");
+            Message bail;bail.action=Action::bail;bail.match=100;bail.world=200;bail.leader=a;bail.sequence=1;bail.turn=1;bail.line=1;bail.elapsed=200;
+            check(decode(encode(bail))==bail,"bail packet round trip");
+            bail.score=50;check(!valid_message(bail),"bail cannot fabricate points");
+        }
         check(Config{}.turn_ms==20000,"new matches default to twenty-second turns");
         check(skating_sequence(1,skating_trick_category(1)) && skating_sequence(1,skating_trick_category(5)),"flips and manuals are eligible skating");
         check(!skating_sequence(1,skating_trick_category(6)),"riding, rolls and trickless air do not score");

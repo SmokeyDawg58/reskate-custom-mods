@@ -371,6 +371,11 @@ void native_hud_clock_and_penalties() {
     check(native_hud_seconds(1000) == 1 && native_hud_seconds(999) == 1 &&
           native_hud_seconds(1) == 1 && native_hud_seconds(0) == 0,
           "GO begins only after the synchronized clock reaches zero");
+    using dingosdk::multiplayer::menu_data::native_hud_name_width;
+    check(native_hud_name_width("Smokey")==224,"Short names use a compact padded native frame");
+    check(native_hud_name_width("WWWWWWWW")>native_hud_name_width("IIIIIIII"),"Name sizing accounts for wide and narrow lettering");
+    check(native_hud_name_width(std::string(80,'W'))==640,"Long gamertags stay inside a bounded HUD frame");
+    check(native_hud_name_width("éééééé")==256,"UTF-8 continuation bytes do not enlarge a name twice");
     check(native_hud_seconds(28000) == 28,
           "Match the captured native Spot Battle timer's 28-second value");
     constexpr auto maximum = std::numeric_limits<std::uint64_t>::max();
@@ -942,8 +947,116 @@ void exact_flag_bubble_owner() {
     w(0xf010,65);check(!find(),"Malformed component leaves are bounded");w(0xf010,1);
     q(0xd100,0x9900);q(0xd110,0xd100);check(!find(),"Cyclic component buckets cannot loop indefinitely");
 }
+void start_only_match_panel_input() {
+    using dingosdk::multiplayer::menu_data::MatchPanelStartInput;
+    MatchPanelStartInput input;
+    check(!input.sample(0,false,true,false),"Start input arms after initial context");
+    for(const auto dpad:{1u,2u,4u,8u}) {
+        check(!input.sample(dpad,false,true,false),"D-pad cannot request a Throwdown panel");
+        check(!input.sample(dpad,false,true,true),"A D-pad phone opening cannot request the panel");
+        check(!input.sample(0,false,true,false),"A random phone closing cannot request the panel");
+    }
+    check(input.sample(0x10,false,true,true),"Start edge survives native phone opening on the same frame");
+    for(unsigned frame=0;frame<120;++frame)
+        check(!input.sample(0x10,false,true,true),"Held Start cannot repeatedly request navigation");
+    check(!input.sample(0,false,true,true),"Release while panel is open");
+    check(!input.sample(0x10,false,true,false),"Start closing a menu cannot reopen it");
+    check(!input.sample(0,false,false,false),"Retired match clears availability");
+    check(!input.sample(0x10,false,true,false),"A new match entered with Start held cannot open");
+    check(!input.sample(0,false,true,false),"Release arms next match");
+    check(input.sample(0x10,false,true,false),"Start opens a second match after release");
+    check(!input.sample(0,false,true,false),"Release arms keyboard pause");
+    check(input.sample(0,true,true,false),"Keyboard Escape requests the same panel");
+}
+void hud_items_keep_native_animation_state() {
+    using dingosdk::multiplayer::menu_data::reconcile_hud_items;
+    struct Ref {std::uint64_t record{},handle{};};
+    struct Presenter {std::uint64_t blueprint{};Ref data{};};
+    struct Item {std::int32_t id{};float fade{},slide{};Presenter presenter{};};
+    const auto bytes=[](const std::vector<Item>& rows) {return std::as_bytes(std::span(rows));};
+    const std::vector<Item> desired{{1,1,0,{10,{0,20}}},{2,1,0,{11,{0,21}}}};
+    auto live=desired;
+    for(unsigned frame=0;frame<120;++frame) {
+        live[0].fade=frame/120.f;live[1].slide=120.f-frame;
+        check(!reconcile_hud_items<Presenter>(bytes(live),bytes(desired),sizeof(Item),offsetof(Item,id),offsetof(Item,presenter)),
+              "Animating HUD items cannot cause array republication");
+    }
+    auto modal=desired;modal.push_back({3,1,0,{12,{0,22}}});
+    const auto added=reconcile_hud_items<Presenter>(bytes(live),bytes(modal),sizeof(Item),offsetof(Item,id),offsetof(Item,presenter));
+    check(added && std::memcmp(added->data(),live.data(),sizeof(Item)*live.size())==0,
+          "Confirmation insertion preserves live fade and slide state");
+    const auto removed=reconcile_hud_items<Presenter>(*added,bytes(desired),sizeof(Item),offsetof(Item,id),offsetof(Item,presenter));
+    check(removed && std::memcmp(removed->data(),live.data(),sizeof(Item)*live.size())==0,
+          "Confirmation removal preserves existing HUD state");
+    auto replacement=desired;replacement[0].presenter.data.handle=90;
+    check(reconcile_hud_items<Presenter>(bytes(live),bytes(replacement),sizeof(Item),offsetof(Item,id),offsetof(Item,presenter)).has_value(),
+          "A changed HUD model still gets republished");
+    auto duplicates=desired;duplicates[1]=duplicates[0];duplicates[1].fade=.5f;
+    auto with_modal=duplicates;with_modal.push_back(modal.back());
+    const auto kept=reconcile_hud_items<Presenter>(bytes(duplicates),bytes(with_modal),sizeof(Item),offsetof(Item,id),offsetof(Item,presenter));
+    check(kept && std::memcmp(kept->data(),duplicates.data(),sizeof(Item)*duplicates.size())==0,
+          "Foreign identical presenters keep their distinct native animation state");
+}
+void hud_hidden_owned_items_recover() {
+    using namespace dingosdk::multiplayer::menu_data;
+    struct Ref {std::uint64_t record{},handle{};};
+    struct Presenter {std::uint64_t blueprint{};Ref data{};};
+    struct Item {std::int32_t id{};bool active{};float fade{},slide{};unsigned native_focus{};Presenter presenter{};};
+    const auto bytes=[](const std::vector<Item>& rows) {return std::as_bytes(std::span(rows));};
+    const std::vector<Item> desired{{1,true,1,1,0,{10,{0,20}}},{2,false,.25f,.5f,7,{11,{0,21}}}};
+    const std::array<std::int32_t,1> owned{1};
+    const std::array<HudVisibilityField,2> fields{{{offsetof(Item,fade),sizeof(float)},{offsetof(Item,slide),sizeof(float)}}};
+    const HudVisibilityContract contract{offsetof(Item,active),owned,fields};
+    auto live=desired;
+    // Captured failure: same id/presenter, native active=false, retained root
+    // active=true. A map/phone visibility transition must not latch it hidden.
+    for(unsigned transition=0;transition<3;++transition) {
+        live[0].active=false;live[0].fade=0;live[0].slide=0;live[0].native_focus=99;
+        const auto restored=reconcile_hud_items<Presenter>(bytes(live),bytes(desired),sizeof(Item),offsetof(Item,id),offsetof(Item,presenter),&contract);
+        check(restored.has_value(),"Hidden custom HUD is republished after every visibility transition");
+        std::memcpy(live.data(),restored->data(),restored->size());
+        check(live[0].active && live[0].fade==1 && live[0].slide==1 && live[0].native_focus==99,
+              "Only owned visibility is restored; native focus survives");
+        check(std::memcmp(&live[1],&desired[1],sizeof(Item))==0,"An inactive stock HUD item stays unchanged");
+    }
+    for(unsigned frame=0;frame<120;++frame) {
+        live[0].fade=frame/120.f;live[0].slide=120.f-frame;
+        check(!reconcile_hud_items<Presenter>(bytes(live),bytes(desired),sizeof(Item),offsetof(Item,id),offsetof(Item,presenter),&contract),
+              "Visible HUD animation still cannot restart each tick");
+    }
+    auto modal=desired;modal.push_back({3,true,1,1,0,{12,{0,22}}});
+    const auto shown=reconcile_hud_items<Presenter>(bytes(live),bytes(modal),sizeof(Item),offsetof(Item,id),offsetof(Item,presenter),&contract);
+    check(shown && std::memcmp(shown->data(),live.data(),sizeof(Item)*live.size())==0,
+          "Adding confirmation keeps existing visible animations and foreign state");
+    bool rejected{};
+    const HudVisibilityContract invalid{sizeof(Item),owned,fields};
+    try {reconcile_hud_items<Presenter>(bytes(live),bytes(desired),sizeof(Item),offsetof(Item,id),offsetof(Item,presenter),&invalid);}
+    catch(const std::invalid_argument&) {rejected=true;}
+    check(rejected,"Invalid native visibility offsets fail closed");
+}
+void start_request_survives_picker_replacement() {
+    using namespace dingosdk::multiplayer::menu_data;
+    MatchPanelStartInput input;
+    std::string request;
+    check(!input.sample(0,false,true,false),"Arm Start on current match");
+    check(input.sample(0x10,false,true,true),"Real Start requests the match panel");
+    request="mode-throwdown-panel:42";
+    reset_match_panel_input(input,request,true);
+    check(request=="mode-throwdown-panel:42","Picker retirement on Start must retain its match-specific request");
+    check(!input.sample(0x10,false,true,true),"Picker replacement cannot turn held Start into another press");
+    request.clear(); // The exact-match consumer owns dispatch.
+    input.sample(0,false,true,true);
+    check(!input.sample(0x10,false,true,false),"Closing Start still cannot reopen the panel");
+    request="mode-throwdown-panel:42";
+    reset_match_panel_input(input,request,false);
+    check(request.empty() && !input.sample(0x10,false,true,false),"Actual level teardown clears requests and blocks a held new-world Start");
+    input.sample(0,false,true,false);
+    check(input.sample(0x10,false,true,false),"A fresh Start works after the world is rebuilt");
+}
 int main() {
     try {
+        start_only_match_panel_input();hud_items_keep_native_animation_state();
+        hud_hidden_owned_items_recover();start_request_survives_picker_replacement();
         activity_details_ownership();
         private_flag_preview_invocation();
         exact_flag_bubble_owner();

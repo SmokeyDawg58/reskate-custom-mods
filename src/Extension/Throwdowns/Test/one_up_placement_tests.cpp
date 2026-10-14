@@ -16,9 +16,17 @@ static std::uint32_t mode_game_seen{};
 static dingosdk::modes::Vec3 mode_pose_seen{};
 static float mode_yaw_seen{};
 static dingosdk::modes::NativeView current_mode_view;
+static std::vector<std::pair<std::uint64_t,std::uint32_t>> cancelled_modes;
+static bool quit_outside_placement_lock=true;
 namespace dingosdk::modes {
 bool active() noexcept { return test_mode_active; }
 NativeView native_view() { return current_mode_view; }
+bool request_native_quit(std::uint64_t world,std::uint32_t game) noexcept {
+    auto& mutex=multiplayer::one_up::placement().mutex;
+    if(mutex.try_lock())mutex.unlock();else quit_outside_placement_lock=false;
+    if(!current_mode_view.active || current_mode_view.world!=world || current_mode_view.game!=game)return false;
+    cancelled_modes.emplace_back(world,game);return true;
+}
 void accept_race_start(std::uint64_t world,std::uint32_t game,const Vec3& at,float yaw) {
     ++race_handoffs;race_world_seen=world;race_game_seen=game;race_pose_seen=at;race_yaw_seen=yaw;
 }
@@ -325,6 +333,27 @@ int main() {
         check(begin_race_flag_placement(current_view.world,17,1,true)); // Immediate re-entry after Back works.
         check(native_setup_race_game()==17 && released==previous_release+1);
         abandon_flag_placement();
+        // Repeated native flag Back must end exactly its owning course, with
+        // no nested mode request under the placement mutex. Retired custom
+        // queue IDs stay identifiable until the actual level is abandoned.
+        abandon_flag_placement();cancelled_modes.clear();
+        current_view.state={};
+        current_mode_view={};current_mode_view.active=true;current_mode_view.world=current_view.world;
+        for(const std::uint32_t game:{90u,91u}) {
+            current_mode_view.game=game;
+            check(begin_race_flag_placement(current_view.world,game,1,false));
+            observe_flag_created();observe_flag_graph(0x0f131312);observe_flag_graph(0x9700be92);
+            observe_flag_queue(2000+game);check(known_custom_flag_queue(2000+game));
+            const auto before=cancelled_modes.size();
+            observe_flag_exit(true);
+            check(cancelled_modes.size()==before+1 && cancelled_modes.back()==std::pair{current_view.world,game});
+            check(quit_outside_placement_lock && placement().cancelling);
+            { std::lock_guard lock(placement().mutex);reset(placement()); }
+            observe_flag_exit(true);check(cancelled_modes.size()==before+1);
+            check(known_custom_flag_queue(2000+game));
+        }
+        check(!known_custom_flag_queue(0) && !known_custom_flag_queue(9999));
+        abandon_flag_placement();check(!known_custom_flag_queue(2090) && !known_custom_flag_queue(2091));
         test_mode_active=false;
         check(arm_native_setup(20,1) && native_setup_race_game()==0);abandon_flag_placement();
         nav=0;check(begin_race_flag_placement(current_view.world,25,1,true));tick();nav=0;

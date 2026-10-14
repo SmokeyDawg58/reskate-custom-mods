@@ -24,14 +24,15 @@ struct Reader {
 };
 }
 bool valid_message(const Message& m) noexcept {
-    if (!m.match || !m.world || !steam(m.leader) || static_cast<unsigned>(m.action) > static_cast<unsigned>(Action::trick_score)) return false;
+    if (!m.match || !m.world || !steam(m.leader) || static_cast<unsigned>(m.action) > static_cast<unsigned>(Action::bail)) return false;
     if (m.action == Action::snapshot) {
         return m.state.match == m.match && m.state.world == m.world && m.state.leader == m.leader && valid_state(m.state) &&
             std::all_of(m.state.players.begin(), m.state.players.end(), [](const Player& p) { return steam(p.id); }) &&
             m.remaining <= 120000 && valid_facing(m.facing) && std::all_of(m.spot.begin(), m.spot.end(), [](float x) { return std::isfinite(x) && std::abs(x) < 1000000; });
     }
     if (!m.sequence || m.sequence == UINT64_MAX) return false;
-    if (m.action == Action::trick_score)
+    if(m.action==Action::bail && (m.score!=0 || m.flag))return false;
+    if (m.action == Action::trick_score || m.action == Action::bail)
         return m.turn && m.line && m.elapsed <= 125000 && std::isfinite(m.score) && m.score >= 0 && m.score <= 2147483647.0;
     return true;
 }
@@ -51,7 +52,7 @@ std::vector<std::uint8_t> encode(const Message& m) {
         w.put(s.notice.size(), 1); for (unsigned char c : s.notice) w.put(c, 1);
     } else {
         w.put(m.sequence, 8); w.put(m.flag, 1);
-        if (m.action == Action::trick_score) {
+        if (m.action == Action::trick_score || m.action == Action::bail) {
             w.put(m.turn, 4); w.put(m.line, 8); w.put(m.elapsed, 4); w.real(m.score);
         }
     }
@@ -79,7 +80,7 @@ std::optional<Message> decode(std::span<const std::uint8_t> bytes) noexcept {
             for (std::uint64_t i = 0; i < count_text; ++i) { const auto c = r.get(1); if (c < 32 || c > 126) return {}; s.notice.push_back(static_cast<char>(c)); }
         } else {
             m.sequence = r.get(8); m.flag = r.flag();
-            if (m.action == Action::trick_score) {
+            if (m.action == Action::trick_score || m.action == Action::bail) {
                 m.turn = static_cast<std::uint32_t>(r.get(4)); m.line = r.get(8); m.elapsed = static_cast<std::uint32_t>(r.get(4)); m.score = r.real();
             }
         }

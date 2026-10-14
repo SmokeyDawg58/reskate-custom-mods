@@ -91,7 +91,7 @@ bool Match::leave(PlayerId id, Time now) {
 void Match::countdown(Time now) {
     state_.active = state_.players[cursor_].id;
     if (state_.turn == UINT32_MAX) { cancel("Match turn limit reached."); return; }
-    ++state_.turn; state_.best = 0; last_trick_ = 0;
+    ++state_.turn; state_.best = 0; last_trick_ = 0;score_cutoff_=state_.config.turn_ms;
     state_.phase = Phase::countdown; phase_at_ = now;
     state_.notice = state_.target > 0 ? "Beat the target! Every landed trick counts." : "Build your total before time runs out!"; changed();
 }
@@ -100,9 +100,17 @@ bool Match::accepts(Token t) const noexcept {
 }
 bool Match::trick_scored(Token t,std::uint64_t id,double points,std::uint32_t elapsed,Time received) {
     if(!accepts(t) || !id || id<=last_trick_ || !std::isfinite(points) || points<=0 ||
-       points>2147483647.0-state_.best || elapsed>=state_.config.turn_ms || received<turn_at_ ||
+       points>2147483647.0-state_.best || elapsed>=score_cutoff_ || received<turn_at_ ||
        received-turn_at_>state_.config.turn_ms+state_.config.delivery_ms)return false;
     last_trick_=id; state_.best+=points; changed(); return true;
+}
+bool Match::bailed(Token token,std::uint32_t elapsed,Time received) {
+    if(token!=this->token() || state_.phase!=Phase::playing || elapsed>=state_.config.turn_ms ||
+       received<turn_at_ || received-turn_at_>state_.config.turn_ms+state_.config.delivery_ms)return false;
+    // End skating immediately; allow only already-landed, reliably delivered
+    // points stamped before this bail. Stale tokens cannot end another turn.
+    score_cutoff_=elapsed;state_.phase=Phase::settling;phase_at_=received;
+    state_.notice="Bailed! Turn ended.";changed();return true;
 }
 void Match::resolve(Time now) {
     // This transition is called once. Inputs cannot mutate feedback/finished states.
@@ -137,7 +145,7 @@ void Match::tick(Time now) {
     if (state_.phase == Phase::settling) {
         // Delivery allowance accepts only events stamped BEFORE zero. It never
         // extends skating time or waits for a combo/multiplier to finish.
-        if(now>=turn_at_+state_.config.turn_ms+state_.config.delivery_ms) resolve(now);
+        if(now>=phase_at_+state_.config.delivery_ms) resolve(now);
     }
     if (state_.phase == Phase::feedback && now - phase_at_ >= state_.config.feedback_ms) advance(now);
 }

@@ -48,6 +48,10 @@ void flag_registration_left() noexcept;
 void tick_flag_placement(const menu_data::Context& context);
 void observe_flag_graph(std::uint32_t graph) noexcept;
 void observe_flag_created() noexcept;
+// Retain custom queue identities through their asynchronous native teardown.
+// Late joins of those queues must not revive a stock Spot Battle notification.
+void observe_flag_queue(std::uint32_t mmid) noexcept;
+bool known_custom_flag_queue(std::uint32_t mmid) noexcept;
 void observe_flag_position(std::uint32_t mmid, const std::array<float, 3>& spawn,
     const std::array<float,16>* transform=nullptr) noexcept;
 void observe_flag_exit(bool cancelling) noexcept;

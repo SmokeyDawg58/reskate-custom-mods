@@ -278,6 +278,8 @@ void race_clock_flow() {
     Referee r(s,a,3);r.add_player(a);r.add_player(b);r.start(0);r.tick(countdown_ms);
     const auto of=[&](std::uint64_t id,std::uint64_t t) {const auto m=r.state(t);return *std::find_if(m.standings.begin(),m.standings.end(),[&](const auto& p){return p.player==id;});};
     check(of(a,countdown_ms).remaining_ms==120000,"race uses its selected shared deadline");
+    check(of(a,countdown_ms).aux==0 && of(b,countdown_ms).aux==0,"elapsed race timers start at zero on GO");
+    check(of(a,countdown_ms+500).aux==500,"elapsed timer advances before the first gate");
     r.event(a,Event::checkpoint,1,{20,0,0},1,countdown_ms+1000);
     check(of(a,countdown_ms+1000).remaining_ms==119000 && of(b,countdown_ms+1000).remaining_ms==119000,"gate awards no time and racers share deadline");
     r.tick(countdown_ms+89999);check(!race_clock_visible(of(a,countdown_ms+89999).remaining_ms),"timer hidden until ninety seconds");
@@ -287,6 +289,10 @@ void race_clock_flow() {
     r.tick(countdown_ms+120000);
     check(r.phase()==Phase::results && of(b,countdown_ms+120000).out && !of(a,countdown_ms+120000).out &&
         r.state(countdown_ms+120000).standings.front().player==a,"unfinished racer DNF; finish just before deadline wins");
+    check(of(a,countdown_ms+120000).aux==119999 && of(a,countdown_ms+125000).aux==119999,"finisher elapsed time freezes through results");
+    check(of(b,countdown_ms+125000).aux==120000,"DNF elapsed time freezes at deadline");
+    const auto timed_state=r.state(countdown_ms+120000);
+    check(decode(encode(timed_state))==timed_state,"per-player elapsed times survive state transfer");
     check(!race_clock_visible(0),"no clock left after deadline");
     Referee late(s,a,4);late.add_player(a);late.start(0);late.tick(countdown_ms);
     late.event(a,Event::checkpoint,1,{20,0,0},1,countdown_ms+1);late.event(a,Event::checkpoint,2,{40,0,0},2,countdown_ms+2);
@@ -295,6 +301,12 @@ void race_clock_flow() {
     Referee early(s,a,5);early.add_player(a);early.start(0);early.tick(countdown_ms);
     for(int i=1;i<4;++i)early.event(a,Event::checkpoint,i,s.points[i],i,countdown_ms+i);
     early.tick(countdown_ms+4);check(early.phase()==Phase::results,"all finished ends race without waiting two minutes");
+    check(early.state(countdown_ms+9000).standings.front().aux==3,"results do not restart the race timer");
+    Referee leaving(s,a,6);leaving.add_player(a);leaving.add_player(b);leaving.start(0);leaving.tick(countdown_ms);
+    leaving.remove_player(b,countdown_ms+1234);
+    const auto left=leaving.state(countdown_ms+9000);
+    const auto departed=std::find_if(left.standings.begin(),left.standings.end(),[&](const auto& p){return p.player==b;});
+    check(departed!=left.standings.end() && departed->out && departed->aux==1234,"departed racer timer freezes when leaving");
 }
 void race_custom_deadlines_and_snap() {
     Settings route;route.mode=Mode::race;route.race_finish=true;
@@ -753,8 +765,14 @@ void race_saved_course_and_recovery() {
         check(std::abs(rotate_race_gate(next,-1,true,angle))<.001f,"one reverse press restores previous step");
     }
     check(std::abs(size_race_gate(6,1)-6.3f)<.001f && std::abs(size_race_gate(6,-1)-5.7f)<.001f,"size advances five percentage points per press");
-    RaceEditorPresses presses;check(presses.update(8)==8 && presses.update(8)==0,"holding size does not repeat");
-    presses.update(0);check(presses.update(8)==8,"size rearms after release");
+    RaceEditorPresses presses;
+    check(presses.update(8,100)==8 && presses.update(8,449)==0,"tap responds immediately with a deliberate hold delay");
+    check(presses.update(8,450)==8 && presses.update(8,599)==0 && presses.update(8,600)==8,"held D-pad repeats at controlled 150 ms intervals");
+    check(presses.update(8,5000)==8 && presses.update(8,5001)==0,"frame stall never produces a catch-up burst");
+    presses.update(0,5002);check(presses.update(8,5003)==8,"release rearms immediate size tap");
+    presses.suppress();check(presses.update(8,6000)==0 && presses.update(8,9000)==0,"focus loss blocks held D-pad until release");
+    presses.update(0,9001);check(presses.update(8,9002)==8,"focus reset rearms only after release");
+    presses.update(0,9003);check(presses.update(3,9004)==3,"opposing direction steps cancel symmetrically");
     alignment.points.push_back({0,0,20});alignment.yaws.push_back(0);alignment.widths.push_back(24);
     bool pending=false;
     check(!race_miss_recovery_ready(alignment,1,{23,0,18},{23,0,21},pending),"large mandatory gate counts within opening without recovery");

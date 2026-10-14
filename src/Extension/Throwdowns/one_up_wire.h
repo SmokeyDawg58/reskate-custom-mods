@@ -6,8 +6,8 @@
 #include <span>
 
 namespace dingosdk::multiplayer::one_up {
-constexpr std::uint8_t wire_version = 4;
-enum class Action : std::uint8_t { snapshot, join, ready, leave, trick_score };
+constexpr std::uint8_t wire_version = 5;
+enum class Action : std::uint8_t { snapshot, join, ready, leave, trick_score, bail };
 struct Message {
     Action action{};
     std::uint64_t match{}, world{}, leader{}, sequence{}, line{};

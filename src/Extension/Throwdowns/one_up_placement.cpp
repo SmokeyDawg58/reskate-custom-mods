@@ -10,6 +10,7 @@
 #include <cmath>
 #include <mutex>
 #include <optional>
+#include <vector>
 
 namespace dingosdk::multiplayer::one_up {
 namespace {
@@ -22,6 +23,7 @@ struct Placement {
     std::uint64_t world{}, local{}, until{}, changed{}, sent{}, reopen_until{}, reopen_at{};
     unsigned seconds{}, players{};
     std::uint32_t mmid{};
+    std::vector<std::uint32_t> custom_mmids;
     std::uint32_t race_game{};
     bool created{}, setup_seen{}, flag_seen{}, exited{}, cancelling{}, destroy_queued{}, destroyed{};
     bool handed_off{}, match_seen{};
@@ -249,6 +251,18 @@ void observe_flag_graph(std::uint32_t graph) noexcept {
         logging::write(logging::Level::info,logging::Channel::ui,"1-Up flag: entered native Spot Battle flag placement.");
     }
 }
+void observe_flag_queue(std::uint32_t mmid) noexcept {
+    auto& p=placement();std::lock_guard lock(p.mutex);
+    if(!mmid || p.step==Step::idle)return;
+    if(std::find(p.custom_mmids.begin(),p.custom_mmids.end(),mmid)==p.custom_mmids.end()) {
+        if(p.custom_mmids.size()==64)p.custom_mmids.erase(p.custom_mmids.begin());
+        p.custom_mmids.push_back(mmid);
+    }
+}
+bool known_custom_flag_queue(std::uint32_t mmid) noexcept {
+    auto& p=placement();std::lock_guard lock(p.mutex);
+    return mmid && std::find(p.custom_mmids.begin(),p.custom_mmids.end(),mmid)!=p.custom_mmids.end();
+}
 void observe_flag_created() noexcept {
     auto& p=placement(); std::lock_guard lock(p.mutex);
     if(p.step==Step::setup) p.created=true;
@@ -268,11 +282,22 @@ void observe_flag_position(std::uint32_t mmid,const std::array<float,3>& spawn,c
         std::atan2(p.facing[6],p.facing[8])*180.f/3.14159265f,mmid);
 }
 void observe_flag_exit(bool cancelling) noexcept {
-    auto& p=placement(); std::lock_guard lock(p.mutex);
-    if(p.step==Step::idle) return;
-    p.exited=true; p.cancelling=cancelling || !p.spawn;
-    p.step=p.cancelling?Step::cleanup:Step::waiting; p.changed=GetTickCount64(); p.until=p.changed+15000;
-    if(p.cancelling) p.status="Flag placement cancelled.";
+    std::uint64_t world{};std::uint32_t game{};
+    auto& p=placement();
+    {
+        std::lock_guard lock(p.mutex);
+        if(p.step==Step::idle) return;
+        p.exited=true; p.cancelling=cancelling || !p.spawn;
+        p.step=p.cancelling?Step::cleanup:Step::waiting; p.changed=GetTickCount64(); p.until=p.changed+15000;
+        if(p.cancelling) {
+            p.status="Flag placement cancelled.";
+            world=p.world;game=p.race_game;
+        }
+    }
+    // Native Back bypasses the course editor's cancel command. Queue the
+    // exact match Quit outside the placement lock, so the mode thread can
+    // retire gates without reversing its normal registration lock order.
+    if(game)modes::request_native_quit(world,game);
 }
 void observe_flag_destroyed(std::uint32_t mmid) noexcept {
     auto& p=placement(); std::lock_guard lock(p.mutex);
@@ -292,7 +317,7 @@ void abandon_flag_placement() noexcept {
         if(p.created) release_one_up_native_placeholder();
         reset(p); p.status="Flag placement ended because the map changed.";
     }
-    p.pending_setup.reset();p.pending_race_flag.reset();p.reopen_until=p.reopen_at=0;
+    p.pending_setup.reset();p.pending_race_flag.reset();p.reopen_until=p.reopen_at=0;p.custom_mmids.clear();
 }
 void tick_flag_placement(const menu_data::Context& c) {
     const auto v=view(); const auto now=GetTickCount64();

@@ -35,6 +35,7 @@ bool run_throwdown_menu_residency(int count,const char* const* args) {
         std::pair{"LogoTexture","UI/Foundations/Components/Media/Icons/TextureViewModel"},
         std::pair{"LogoContents","UI/Foundations/Components/Modals/ContentPresenterCombinationViewModel"}};
     for(const auto& [key,name]:models) {
+        if(defaults.contains(std::string("Throwdown_ModeSelect_ContentResources/")+key))continue;
         const auto type=sdk::ebx::read_document(db.read(ui::require_asset(db,name)));
         auto& model=partition.clone_instance(doc.instances.at(modelIndex),true);
         auto& typeRef=ui::require_object(ui::require_field(*model.object,"TypeRef").value,"model type");
@@ -51,15 +52,40 @@ bool run_throwdown_menu_residency(int count,const char* const* args) {
         ui::require_field(*record.object,"DefaultValue").value.data=defaultValue;
         ui::require_array(ui::require_field(*partition.root()->object,"Resources").value,"Resources").push_back({partition.point_to(record)});
     }
+    // Model registration does not retain private widget blueprints when the
+    // level domain is retired. Include styles and images as well as widgets:
+    // LogoHoverRing_FillStyle is resolved dynamically, so a widget-only
+    // dependency list loses it when changing maps. Anchor the complete
+    // private UI dependency set in the
+    // native picker resource, which is loaded again on every map. The imports
+    // also let the compiler include the dependency closure in its owning bundles.
+    unsigned dependencies{};
+    for(const auto& resource:project.resources)if(resource.kind==projects::ResourceKind::ebx &&
+       resource.name.starts_with("UI/ReSkate/")) {
+        const auto identity=sdk::ebx::read_root_identity(resource.payload);
+        partition.import(identity.fileGuid,identity.classGuid);++dependencies;
+    }
+    const auto owningBundles=content->bundles;
+    for(auto& resource:project.resources)if(resource.added && resource.name.starts_with("UI/ReSkate/"))
+        for(const auto& bundle:owningBundles)
+            if(std::ranges::find(resource.bundles,bundle)==resource.bundles.end())resource.bundles.push_back(bundle);
     const auto emitted=ui::emit(content->name,partition);content->payload=emitted.bytes;
     auto verified=sdk::ebx::read_document(emitted.bytes);sdk::ebx::decode_boxed_values(verified,emitted.bytes);
     const auto updated=native_defaults(verified);
     for(const auto& [name,target]:defaults)if(updated.find(name)==updated.end() || updated.at(name)!=target)
         throw std::runtime_error("menu residency changed an existing native default: "+name);
-    if(updated.size()!=defaults.size()+2)throw std::runtime_error("private model templates were not serialized");
+    for(const auto& [key,name]:models)
+        if(!updated.contains(std::string("Throwdown_ModeSelect_ContentResources/")+key))
+            throw std::runtime_error("private model templates were not serialized");
+    for(const auto& resource:project.resources)if(resource.kind==projects::ResourceKind::ebx &&
+       resource.name.starts_with("UI/ReSkate/")) {
+        const auto identity=sdk::ebx::read_root_identity(resource.payload);
+        if(!std::ranges::any_of(verified.imports,[&](const auto& i){return i.fileGuid==identity.fileGuid && i.classGuid==identity.classGuid;}))
+            throw std::runtime_error("picker UI dependency missing: "+resource.name);
+    }
     const std::filesystem::path out(args[4]);std::filesystem::create_directories(out.parent_path());
     projects::save_project(project,out);auto mod=out;mod.replace_extension(".fbmod");
     reskate::modding::mods::write_fbmod(project,mod,args[2],&db);
-    std::cout<<"resident_picker_types=2 existing_defaults_preserved="<<defaults.size()<<" resources="<<project.resources.size()<<"\nmod="<<mod.string()<<'\n';
+    std::cout<<"resident_picker_types=2 resident_ui_assets="<<dependencies<<" existing_defaults_preserved="<<defaults.size()<<" resources="<<project.resources.size()<<"\nmod="<<mod.string()<<'\n';
     return true;
 }

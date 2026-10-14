@@ -7,6 +7,7 @@
 #include "native_setup_roles.h"
 #include "native_hud_selection.h"
 #include "native_hud_values.h"
+#include "Extension/UI/Overlay/overlay.h"
 #include "native_menu_dump.h"
 #include "native_menu_internal.h"
 #include "Extension/Throwdowns/one_up_runtime.h"
@@ -58,6 +59,7 @@ struct Original { Value tile, category, description; std::array<float,2> tile_si
 struct HudPlayer { Value row, background, name, stamps, strike_anchor, strike_item; std::array<Value,3> letters; bool out{}; };
 struct ResultPlayer { Value row, rank, outcome; };
 struct MatchPanel {
+    std::string match_key;
     Value page, panel, header, badge, notice, settings, columns, outer_anchor;
     Value quit, board, prompt, prompt_anchor, prompt_item;
     Value mounted_slot, saved_slot;
@@ -102,14 +104,20 @@ struct ModeHud {
     Value blind_anchor, blind_item, results, results_title, results_notice, results_rows, results_anchor, results_item;
     std::map<std::uint64_t,ResultPlayer> result_players;
     Value race_rows,race_anchor,race_item;
+    Value results_header,results_columns,results_badge,results_panel_anchor,results_panel_item;
+    Value results_logo_anchor,results_logo_item,results_notice_anchor,results_notice_item,results_columns_anchor,results_columns_item;
+    std::array<Value,3> results_captions;
     Value race_position,race_position_anchor,race_position_item,race_warning,race_warning_anchor,race_warning_item;
     bool race_warning_visible{};
     bool clock_visible{};
     std::array<Value,16> placement_prompts;
     Value placement_list,placement_anchor,placement_item,placement_size,placement_snap;
     Value editor_panel_anchor,editor_panel_item,exit_panel_anchor,exit_panel_item,exit_text,exit_list,exit_anchor,exit_item;
-    bool exit_visible{};
+    bool exit_visible{},clear_ring_visible{};
+    Value clear_ring_anchor,clear_ring_item;
     Value race_header_anchor,race_header_item;
+    Value score_anchor,score_item;
+    unsigned theme_mode=~0U;
     std::array<Value,11> editor_row_anchors,editor_row_items;
     std::array<Value,2> exit_actions,exit_captions;
     std::map<std::uint64_t,RaceHudPlayer> race_players;
@@ -120,6 +128,7 @@ struct ModeHud {
     std::array<ModeMarker,32> markers;
     std::vector<Value> world_items;
     std::uint32_t results_game{};
+    unsigned results_theme=~0U;
     std::map<std::uint64_t,Value> labels;
     std::uint32_t game{};
     std::uint64_t go_until{};
@@ -133,13 +142,15 @@ struct State {
     MapBranding map_branding;
     MatchPanel match_panel;
     std::atomic<bool> match_panel_open{};
+    std::mutex panel_input_mutex;
+    MatchPanelStartInput panel_start_input;
+    std::string panel_start_request;
     bool in_menu{};
     unsigned mode_seconds=300, mode_capacity=6, mode_hide_seconds=30;
 
     // Borrowed native marker fields, restored when this match releases them.
     std::map<Handle,std::pair<Value,bool>> marker_originals;
     Address manager{}, base{}, anchor_asset{}, primary_input{};
-    std::uint64_t asset_world{};
     Value page, cards, card, category, description, details_list, original_body, original_back;
     Value picker_grid, picker_anchor, oneup_logo;
     std::array<Value,3> picker_stock, picker_stock_logos;
@@ -343,22 +354,13 @@ Address asset(const Context& c, const char* name) {
     }
     const auto find_loaded=[&](const char* path) {
         for(const auto anchor:anchors)if(const auto found=named_asset(c,anchor,path))return found;
-        // Throwdown HUD resources are a child of the gameplay UI domain, so
-        // walking a generic presenter's parents cannot reach them. Search
-        // loaded child domains through the native lookup, bounded to the UI
-        // domains observed on this build and linked to our current anchors.
+        // Shared widgets may belong to a sibling/resident UI domain after a
+        // custom-map switch. Only the engine's loaded-domain lookup is used;
+        // no stale asset pointer or unloaded archive entry is retained.
         const auto find=game::native_data().find_asset;
-        if(find)for(unsigned candidate=2;candidate<0xbbf;++candidate) {
-            auto domain=static_cast<std::uint16_t>(candidate);
-            std::set<std::uint16_t> visited;
-            bool related=false;
-            while(domain>1 && domain<0xbbf && visited.size()<32 && visited.insert(domain).second) {
-                if(domains.contains(domain)) {related=true;break;}
-                const auto owner=read<Address>(c.base+build::engine::domain_owners+domain*8ULL);
-                if(!owner)break;
-                domain=read<std::uint16_t>(owner+0x42);
-            }
-            if(related)if(const auto found=find(static_cast<std::uint16_t>(candidate),path))return found;
+        if(find)for(unsigned candidate=0;candidate<0xbbf;++candidate) {
+            if(!read<Address>(c.base+build::engine::domain_owners+candidate*8ULL))continue;
+            if(const auto found=find(static_cast<std::uint16_t>(candidate),path))return found;
         }
         return Address{};
     };
@@ -635,7 +637,7 @@ constexpr std::int32_t hud_clock_id=0x31555075;
 constexpr std::int32_t hud_panel_id=0x31555076;
 constexpr std::int32_t hud_title_id=0x31555077, hud_badge_id=0x31555078;
 constexpr std::int32_t hud_strike_id=0x31555800;
-void clear_hud_state() {
+void clear_hud_state(bool preserve_match_input=false) {
     auto& s=state();s.hud_ready.store(false);s.hud_ended_at=0;s.hud_go_until=0;s.hud_countdown_token={};
     s.hud_root={};s.hud_stack={};s.hud_notice={};s.hud_anchor={};s.hud_item={};
     s.hud_timer={};s.hud_timer_anchor={};s.hud_timer_item={};
@@ -647,8 +649,23 @@ void clear_hud_state() {
     s.hud_results_anchor={};s.hud_results_item={};s.result_players.clear();s.eliminated_at.clear();s.results_match=0;s.results_turn=0;
     s.hud_initialized=false;s.hud_countdown_visible=false;s.hud_intro_visible=false;s.hud_results_visible=false;
     s.match_panel={};s.match_panel_open.store(false);
+    {std::lock_guard input_lock(s.panel_input_mutex);reset_match_panel_input(s.panel_start_input,s.panel_start_request,preserve_match_input);}
     // Waiting notifications outlive score/countdown HUD rebuilds. Keep their
     // hidden ownership until queue teardown or a genuine native creation/join.
+}
+std::vector<HudVisibilityField> hud_visibility_fields(const Context& c) {
+    const auto item_type=c.type(stack_item);
+    std::vector<HudVisibilityField> fields;
+    // Only visibility tracks restart when the native stack has disabled an
+    // item we still own and want shown. Visible items keep their animation.
+    for(const auto key:{0x8c0583eeU,0xc5c7cc11U}) {
+        const auto track=c.member(item_type,key);
+        for(const auto value:{0x20247753U,0x2426103fU,0x1e3ce013U}) {
+            const auto field=c.member(track.type,value);
+            fields.push_back({std::size_t{track.offset}+field.offset,size(field.type)});
+        }
+    }
+    return fields;
 }
 void publish_hud_items(const Context& c,bool score,bool countdown,bool intro=false,bool results=false) {
     auto& s=state();if(!s.hud_stack.handle)return;
@@ -673,12 +690,19 @@ void publish_hud_items(const Context& c,bool score,bool countdown,bool intro=fal
     }
     // FreeRoamHUD has no ActivityPauseButton_Stack renderer. A private native
     // StackScreen presents that control on the mounted full-aspect HUD.
-    if(next!=old)c.array(target,next,static_cast<unsigned>(next.size()/stride));
+    const auto presenter_offset=c.member(c.type(stack_item),content).offset;
+    std::vector<std::int32_t> owned_ids{hud_score_id,hud_countdown_id,hud_intro_id,hud_results_id,hud_clock_id,hud_panel_id,hud_title_id,hud_badge_id};
+    for(int i=0;i<6;++i)owned_ids.push_back(hud_strike_id+i);
+    const auto visibility_fields=hud_visibility_fields(c);
+    const HudVisibilityContract visibility{c.member(c.type(stack_item),0x369babfe).offset,owned_ids,visibility_fields};
+    if(const auto stable=reconcile_hud_items<Widget>(old,next,stride,offset,presenter_offset,&visibility))
+        c.array(target,*stable,static_cast<unsigned>(stable->size()/stride));
 }
 void plain_label(const Context& c,Value value,const std::string& text) {
     const auto label_text=c.field(value,text_field);
     if(!read<Address>(c.address(label_text)) || c.text(label_text,2048)!=text) c.text(label_text,text);
-    c.set(c.field(value,0x042924a4),true);
+    const auto visible=c.field(value,0x042924a4);
+    if(!read<bool>(c.address(visible)))c.set(visible,true);
 }
 bool setup_body_content_matches(const Context& c,Value live,Value saved) {
     unsigned live_count{},live_stride{},saved_count{},saved_stride{};
@@ -929,7 +953,7 @@ void switch_page(const Context& c, bool details) {
     s.details=details;
     s.setup_open.store(details,std::memory_order_release);
 }
-void release(const Context& c) {
+void release(const Context& c,bool preserve_match_input=false) {
     auto& s=state(); s.owner.store(0);
     restore_map_branding(c);
     restore_match_panel(c);
@@ -981,7 +1005,7 @@ void release(const Context& c) {
     s.page={}; s.cards={}; s.card={}; s.panel={}; s.panel_anchor={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.body_items={}; s.confirm_action={}; s.original_actions={};
     s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={};
     s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.details_list={};s.rows.clear(); s.originals.clear(); s.assets.clear(); s.displayed.clear(); s.duration_choices.clear(); s.details=false;
-    clear_hud_state();
+    clear_hud_state(preserve_match_input);
     s.setup_open.store(false,std::memory_order_release);
 }
 void initialize(const Context& c, Value p, Value list) {
@@ -2059,8 +2083,10 @@ void native_score_hud(const Context& c) {
     if(!show) {publish_hud_items(c,false,s.hud_countdown_visible,s.hud_intro_visible);s.hud_ready.store(false);return;}
     const auto label_widget=asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget");
     const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
-    const auto notice_widget=asset(c,"UI/Foundations/Components/Notices/BasicNotice_Widget");
-    constexpr float board_width=872.f,row_height=76.f,row_pitch=84.f;
+    const auto notice_widget=asset(c,"UI/ReSkate/Throwdowns/OneUpScore_Widget");
+    float board_width=480.f;
+    for(const auto& player:v.state.players)board_width=std::max(board_width,float(native_hud_name_width(v.name(player.id)))+252.f);
+    constexpr float row_height=76.f,row_pitch=84.f;
     constexpr float score_height=224.f;
     const float height=score_height+row_pitch*static_cast<float>(v.state.players.size());
     const auto place=[&](Value anchor,float width,float h,float x,float y,float pivot_x,float pivot_y,float scale=1.f) {
@@ -2079,7 +2105,7 @@ void native_score_hud(const Context& c) {
             s.hud_title=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
             label_styles(c,s.hud_title,"TextStylesList/D94-Caps-Bold_White","TextStylesList/D94-Caps-Bold_White");
             s.hud_badge=make(c,texture_schema);
-            c.set(c.field(s.hud_badge,0xf524c836),96.f);c.set(c.field(s.hud_badge,0x6fbd254e),96.f);
+            c.set(c.field(s.hud_badge,0xf524c836),144.f);c.set(c.field(s.hud_badge,0x6fbd254e),144.f);
             c.set(c.field(s.hud_badge,0xd1997d0c),false);
             c.set(c.field(s.hud_badge,0xcd4a53c0),record_ref(c,"InteractivityColorStylesList/InteractiveColors.Core.AllWhite"));
             s.hud_board=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
@@ -2090,14 +2116,14 @@ void native_score_hud(const Context& c) {
         // share a leaderboard row's bounds.
         for(auto* counter:{&s.hud_target,&s.hud_current})if(!counter->handle) {
             *counter=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-            c.set(c.field(*counter,0x13be0d51),std::array<float,2>{board_width,72.f});
+            c.set(c.field(*counter,0x13be0d51),std::array<float,2>{480.f,72.f});
             const auto label=c.field(*counter,0x94703efc);
             label_styles(c,label,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-            c.set(c.field(label,0x3d8639d0),2);c.set(c.field(label,0x87ad624c),2);
+            c.set(c.field(label,0x3d8639d0),0);c.set(c.field(label,0x87ad624c),2);
             c.set(c.field(label,0xc13ba637),false);
         }
         if(!s.hud_notice.handle)s.hud_notice=make(c,linear_list);
-        hud_list(c,s.hud_notice,{{notice_widget,{0,s.hud_target.handle}},{notice_widget,{0,s.hud_current.handle}}},false,72.f,8.f,0.f,board_width);
+        hud_list(c,s.hud_notice,{{notice_widget,{0,s.hud_target.handle}},{notice_widget,{0,s.hud_current.handle}}},false,72.f,8.f,0.f,480.f);
         if(!s.hud_clock.handle)s.hud_clock=record_model(c,"Activities_HudElementData_ContentResource/A_ActivityCountdown");
         if(!s.hud_rows.handle)s.hud_rows=make(c,linear_list);
         hud_list(c,s.hud_content,{{label_widget,{0,s.hud_board.handle}},{list_widget,{0,s.hud_notice.handle}},
@@ -2110,10 +2136,11 @@ void native_score_hud(const Context& c) {
     place(s.hud_anchor,board_width,height,.95f,.5f,1.f,.5f,.85f);
     mount_hud(c,s.hud_title,label_widget,s.hud_title_anchor,s.hud_title_item,hud_title_id,false);
     place(s.hud_title_anchor,480.f,96.f,.04f,.14f,0.f,0.f);
-    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.path(s.hud_title_anchor,{0xde7d30c7,key}),110.f);
+    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.path(s.hud_title_anchor,{0xde7d30c7,key}),162.f);
+    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.path(s.hud_title_anchor,{0x185a5736,key}),24.f);
     publish_texture(c,std::array{c.field(s.hud_badge,0x6e469d2a)},"UI/ReSkate/OneUp/img_OneUp_Blue_1024");
     mount_hud(c,s.hud_badge,asset(c,"UI/ReSkate/Throwdowns/HUDLogo_Widget"),s.hud_badge_anchor,s.hud_badge_item,hud_badge_id,false);
-    place(s.hud_badge_anchor,96.f,96.f,.04f,.14f,0.f,0.f);
+    place(s.hud_badge_anchor,144.f,144.f,.04f,.14f,0.f,0.f);
     mount_hud(c,s.hud_clock,asset(c,"UI/Foundations/Components/Countdown/Countdown_Widget"),s.hud_clock_anchor,s.hud_clock_item,hud_clock_id,false);
     place(s.hud_clock_anchor,150.f,64.f,.5f,.93f,.5f,1.f,.85f);
     const auto points=[](double n){return std::to_string(static_cast<std::uint32_t>(std::max(0.0,n)));};
@@ -2149,28 +2176,29 @@ void native_score_hud(const Context& c) {
             }
 
         }
+        const float name_width=float(native_hud_name_width(v.name(player.id)));
+        c.set(c.field(hud.background,0x13be0d51),std::array<float,2>{name_width,row_height});
         if(!hud_list_has_items(c,hud.row,4)) {
-            std::vector<Widget> cells{{notice_widget,{0,hud.background.handle}}};
+            std::vector<Widget> cells{{asset(c,"UI/ReSkate/Throwdowns/OneUpName_Widget"),{0,hud.background.handle}}};
             for(const auto& stamp:hud.letters)cells.push_back({asset(c,"UI/Foundations/Components/Notices/SmallNotice_Widget"),{0,stamp.handle}});
-            hud_list(c,hud.row,cells,true,row_height,8.f,0.f,board_width,620.f);
+            hud_list(c,hud.row,cells,true,row_height,8.f,0.f,board_width,name_width);
             for(unsigned col=0;col<4;++col) {
                 const auto ref=read<Handle>(c.address(c.element(c.field(hud.row,0xf2c90867),col)));
                 const Value anchor{ref,c.type_of(ref)};
-                c.set(c.field(anchor,0x1cff7243),std::array<float,2>{col==0?620.f:row_height,row_height});
+                c.set(c.field(anchor,0x1cff7243),std::array<float,2>{col==0?name_width:row_height,row_height});
                 for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.path(anchor,{0x185a5736,key}),0.f);
             }
         }
         plain_label(c,hud.name,v.name(player.id));hud.out=!player.eligible();
         label_styles(c,hud.name,hud.out?"TextStylesList/H52-XBold_Grey500":"TextStylesList/H52-XBold_White",
             hud.out?"TextStylesList/H52-XBold_Grey500":"TextStylesList/H52-XBold_White");
-        if(hud.out) {
-            mount_hud(c,{},asset(c,"UI/ReSkate/OneUp/EliminatedLine_Widget"),hud.strike_anchor,hud.strike_item,
-                hud_strike_id+static_cast<int>(ids.size()),false);
-            place(hud.strike_anchor,board_width,row_height,.95f,.5f,1.f,0.f,.85f);
-            const auto layout=c.field(hud.strike_anchor,0x185a5736);
-            const auto offset=.85f*(-height*.5f+score_height+static_cast<float>(ids.size())*row_pitch);
-            c.set(c.field(layout,0x40bfbff4),offset);c.set(c.field(layout,0x1d233266),offset);
-        }
+        const auto name_art=std::string("UI/ReSkate/Throwdowns/")+(hud.out?"OneUpEliminated_":"OneUpName_")+std::to_string(static_cast<unsigned>(name_width))+"_Widget";
+        const auto name_blueprint=asset(c,name_art.c_str());
+        const auto name_anchor=read<Handle>(c.address(c.element(c.field(hud.row,0xf2c90867),0)));
+        c.set(c.field({name_anchor,c.type_of(name_anchor)},0x1cff7243),std::array<float,2>{name_width,row_height});
+        const auto name_slot=c.field({name_anchor,c.type_of(name_anchor)},widget);
+        if(read<Widget>(c.address(name_slot)).blueprint!=name_blueprint)
+            c.set(name_slot,Widget{name_blueprint,{0,hud.background.handle}});
         for(unsigned letter=0;letter<3;++letter) {
             const auto style=record_ref(c,earned_one_up_letter(player.penalties,letter)?
                 "NoticeStylesList/SmallNotice_ControlSelection_Focus":"NoticeStylesList/SmallNotice_ControlSelection_Default");
@@ -2401,18 +2429,36 @@ bool release_native_one_up_menu(std::uintptr_t base) noexcept {
 }
 void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noexcept {
     auto& s=state();s.in_menu=in_menu;
-    const auto now=GetTickCount64(); if(loading || (now<s.next_tick && !one_up::flag_placement_active())) return; s.next_tick=now+200;
+    const auto now=GetTickCount64();
     try {
+    // Poll at the caller's client tick rate, not the 200ms UI refresh rate.
+    // This snapshot is normalized XInput for every supported controller and
+    // contains only keyboard state from the foreground game window.
+    const auto panel_view=match_panel_view();
+    ControllerInput panel_input;
+    DingoSDKOverlayReadControllerInput(&panel_input,true);
+    // ControllerInput.keys contains bindable gameplay keys, which excludes
+    // Escape. PromptKeys explicitly samples Escape from the foreground game.
+    const bool escape=(DingoSDKOverlayReadPromptKeys() & 8u)!=0;
+    DWORD foreground_process{};
+    GetWindowThreadProcessId(GetForegroundWindow(),&foreground_process);
+    const bool input_allowed=!loading && panel_view.available && foreground_process==GetCurrentProcessId();
+    {
+        std::lock_guard input_lock(s.panel_input_mutex);
+        if(s.panel_start_input.sample(panel_input.buttons,escape,input_allowed,in_menu)) {
+            s.panel_start_request=panel_view.open_command+":"+panel_view.argument;
+            s.next_tick=0;
+        }
+        if(!input_allowed)s.panel_start_request.clear();
+    }
+    if(loading || (now<s.next_tick && !one_up::flag_placement_active())) return; s.next_tick=now+200;
         const auto ui=read<Address>(base+build::engine::ui_manager); const auto manager=ui?read<Address>(ui+0x140):0; if(!manager)return;
         const Context c(base,manager); game::ModelWriteLock lock(manager);
         if(s.manager && s.manager!=manager) { s.owned.manager_replaced(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear(); s.displayed.clear(); s.generations.clear(); s.details=false; }
         s.manager=manager; s.base=base;
-        const auto world=modes::native_view().world;
-        if(world && s.asset_world && world!=s.asset_world) {
-            release(c);s.generations.clear();s.anchor_asset=0;s.primary_input=0;
-            logging::write(logging::Level::info,logging::Channel::ui,"Throwdowns: rebuilding native picker and HUD assets for the new world.");
-        }
-        if(world)s.asset_world=world;
+        // The native menu lifetime releases models BEFORE a level unload and
+        // rebuilds each new page below. Multiplayer world/session rebinding is
+        // independent of level loading and must not erase a mounted picker/HUD.
         retire_solo_pending_queue(c);
         one_up::tick_flag_placement(c);
         // A native page can retire before its Quit/Start delegate is pumped.
@@ -2487,6 +2533,7 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
                     if(action.argument==std::to_string(v.state.match) && v.state.match && v.participant && v.state.phase!=one_up::Phase::lobby && v.state.phase!=one_up::Phase::cancelled) {
                         s.match_panel.requested_until=now+2000;
                         s.match_panel.request_after=now+250;
+                        request_activity_details(c);
                     }
                 }
                 else if(action.command=="mode-setup-area" || action.command=="mode-setup-join") {
@@ -2513,6 +2560,7 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
                             restore_match_panel(c);
                         } else {
                             s.match_panel.requested_until=now+2000;s.match_panel.request_after=now+250;
+                            request_activity_details(c);
                         }
                     }
                 }
@@ -2541,11 +2589,11 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
         }
         ++s.pass;
         session_marker_controls(c);
-        if(s.page.handle && c.type_of(s.page.handle)!=s.page.type) release(c);
+        if(s.page.handle && c.type_of(s.page.handle)!=s.page.type) release(c,true);
         // The game creates new page/list generations when Throwdowns reopens.
         // Find fresh instances rather than leaving the card on a retired page.
         for(const auto& p:c.roots({page.hash})) if(const auto list=card_list(c,p.model)) {
-            if(s.page.handle && (p.model.handle!=s.page.handle || list->handle!=s.cards.handle) && !s.generations.contains({p.model.handle,list->handle})) release(c);
+            if(s.page.handle && (p.model.handle!=s.page.handle || list->handle!=s.cards.handle) && !s.generations.contains({p.model.handle,list->handle})) release(c,true);
             if(!s.page.handle && !s.generations.contains({p.model.handle,list->handle})) { initialize(c,p.model,*list); break; }
         }
         if(!s.page.handle) {

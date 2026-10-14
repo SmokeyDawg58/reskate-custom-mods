@@ -65,12 +65,14 @@ public:
     // A landed trick/sequence's final native points, accepted before the visible
     // turn deadline. Earlier points stay banked if a later trick is bailed.
     bool trick_scored(Token, std::uint64_t event, double native_score, std::uint32_t elapsed, Time received);
+    bool bailed(Token,std::uint32_t elapsed,Time received);
     void tick(Time);
     std::uint32_t remaining(Time) const noexcept;
 private:
     State state_;
     Time phase_at_{}, turn_at_{};
     std::uint64_t last_trick_{};
+    std::uint32_t score_cutoff_=120000;
     bool solo_test_{};
     std::size_t cursor_{};
     Player* player(PlayerId);

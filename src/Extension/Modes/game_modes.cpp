@@ -660,6 +660,7 @@ void track_bail(State &s, std::uint32_t physics, float vertical, std::uint64_t n
         s.fall_peak = 0;
     }
     if (bailed && !s.bail.active) {
+        multiplayer::one_up::report_bail(now);
         logging::log(logging::Level::info, logging::Channel::runtime, "Game modes: bail (state {} -> {}) at {:.1f} m/s.",
                      s.previous_state, physics, s.recent_speed);
         // ReSkate's own Hall of Meat replaces the Bone Cam wherever it runs (its switch, or a Hall of
@@ -1014,7 +1015,7 @@ void track_game(State &s, std::uint64_t now) {
                 play(finished ? Cue::finish : Cue::checkpoint);
                 if (!finished) {
                     const auto passed=mandatory_gates(g.settings,me->score),total=mandatory_gates(g.settings,count);
-                    popup(s,passed==total?"All mandatory gates cleared! Head to the red finish":std::format("Mandatory gates {}/{}",passed,total));
+                    popup(s,passed==total?"All required gates cleared! Head to the red finish":std::format("Required gates {}/{}",passed,total));
                 }
             }
         }
@@ -1071,7 +1072,7 @@ void track_game(State &s, std::uint64_t now) {
         if (missed && (g.missed_warned != me->score || now>g.recovery_until)) {
             g.missed_warned = me->score;g.recovery_pending=true;g.recovery_queued=0;g.recovery_until=now+8000;
             play(Cue::missed);
-            popup(s, std::format("Go back to mandatory gate {}!",mandatory_gates(g.settings,index)+1));
+            popup(s, std::format("Go back to required gate {}!",mandatory_gates(g.settings,index)+1));
         }
     }
     if (!has_area(g.settings)) return;
@@ -1236,7 +1237,7 @@ void run_placing(State &s, std::uint64_t now) {
     s.keys_previous = keys;
     // Presses meant for ReSkate's menu, the chat or another window do nothing here.
     const bool focus = !overlay::interface_open() && game_window_focused();
-    if (!focus) {s.clear_hold.update(false,false,now);s.editor_presses.previous=15;return;}
+    if (!focus) {s.clear_hold.update(false,false,now);s.editor_presses.suppress();return;}
     const bool close=(pressed&0x2000) || struck[3];
     if(g.settings.mode==Mode::race && s.editor_exit_confirm) {
         if(close){s.editor_exit_confirm=false;return;}
@@ -1253,6 +1254,7 @@ void run_placing(State &s, std::uint64_t now) {
             multiplayer::one_up::flag_registration_left();
             g.native_flag_placed=false;s.race_resume_editor=false;
         }
+        if(g.settings.mode==Mode::race)end_game(s,{});
         notice(s,"Placement closed. Your draft is kept; open Throwdowns to continue.");
         return;
     }
@@ -1300,7 +1302,7 @@ void run_placing(State &s, std::uint64_t now) {
             ((buttons&pad_right) || held(VK_NEXT)?2u:0u) |
             ((buttons&pad_down) || held(VK_OEM_4)?4u:0u) |
             ((buttons&pad_up) || held(VK_OEM_6)?8u:0u);
-        const auto step=s.editor_presses.update(held_editor);
+        const auto step=s.editor_presses.update(held_editor,now);
         const int turn=int(bool(step&2))-int(bool(step&1));
         const int resize=int(bool(step&8))-int(bool(step&4));
         const bool ctrl=held(VK_CONTROL);
@@ -1323,10 +1325,10 @@ void run_placing(State &s, std::uint64_t now) {
         };
         if(confirm && (s.race_object==1 || s.race_object==3)) {
             if(list.empty())popup(s,"Place the starting flag first.");
-            else if(place(static_cast<RaceObject>(s.race_object)))popup(s,s.race_object==3?"Gray guiding gate placed (optional).":"Mandatory gate placed.");
+            else if(place(static_cast<RaceObject>(s.race_object)))popup(s,s.race_object==3?"Gray guiding gate placed (optional).":"Required gate placed.");
             else popup(s,"Gate could not be placed.");
         } else if(confirm && s.race_object==2) {
-            if(!mandatory_gates(g.settings,list.size()))popup(s,"Place a start and at least one mandatory gate first.");
+            if(!mandatory_gates(g.settings,list.size()))popup(s,"Place a start and at least one required gate first.");
             else {
                 if(place(RaceObject::finish))popup(s,"Finish placed. Press Start to save the route.");
                 else popup(s,"Finish could not be placed.");
@@ -1605,10 +1607,10 @@ void build_hud(State &s, std::uint64_t now) {
                 h.clock = clock_text(mode==Mode::race && me ? me->remaining_ms : st->remaining_ms);
             if(mode==Mode::race && me) {
                 const auto passed=mandatory_gates(g.settings,std::max(0,me->score)),total=mandatory_gates(g.settings,g.settings.points.size());
-                h.status=std::format("MANDATORY {}/{}  /  {} LEFT",passed,total,total-passed);
+                h.status=std::format("REQUIRED {}/{}  /  {} LEFT",passed,total,total-passed);
                 if(me->out)h.status="DNF";
                 else if(static_cast<std::size_t>(me->score)>=g.settings.points.size())h.status="FINISHED";
-                else if(g.missed_warned==me->score && (g.recovery_pending || now<g.recovery_until))h.status=std::format("GO BACK: MANDATORY {}  /  {} LEFT",passed+1,total-passed);
+                else if(g.missed_warned==me->score && (g.recovery_pending || now<g.recovery_until))h.status=std::format("GO BACK: REQUIRED {}  /  {} LEFT",passed+1,total-passed);
             }
             if (mode == Mode::one_up) {
                 const auto target = st->target > 0 ? "beat " + grouped(st->target) : std::string("set a score");
@@ -1787,9 +1789,9 @@ void build_hud(State &s, std::uint64_t now) {
                 break;
             case State::Placing::points:
                 if (mode == Mode::race) {
-                    h.hint = std::format("{}  /  Size {:.0f}%",s.race_object==2?"Red finish":s.race_object==3?"Gray guiding gate":"Mandatory gate",s.draft_width/6.f*100);
-                    h.prompts = {{0,"LT/RT or Z/X","Mandatory / Finish / Guide"},{'R',"A / Click / Enter","Place gate"},{0,"D-pad Left/Right / PgUp/PgDn","Rotate"},{0,"D-pad Up/Down / [ ]","Size"},{0,"Start / F","Save route"},{0,"X / Backspace","Undo"}};
-                    h.line = std::format("{} mandatory; {} guiding; {}; gate {:.0f} m wide",mandatory_gates(g.settings,g.settings.points.size()),
+                    h.hint = std::format("{}  /  Size {:.0f}%",s.race_object==2?"Red finish":s.race_object==3?"Gray guiding gate":"Required gate",s.draft_width/6.f*100);
+                    h.prompts = {{0,"LT/RT or Z/X","Required / Finish / Guide"},{'R',"A / Click / Enter","Place gate"},{0,"D-pad Left/Right / PgUp/PgDn","Rotate"},{0,"D-pad Up/Down / [ ]","Size"},{0,"Start / F","Save route"},{0,"X / Backspace","Undo"}};
+                    h.line = std::format("{} required; {} guiding; {}; gate {:.0f} m wide",mandatory_gates(g.settings,g.settings.points.size()),
                         std::count(g.settings.gate_kinds.begin(),g.settings.gate_kinds.end(),RaceGateKind::guiding),g.race_finish_placed?"finish placed":"finish needed",s.draft_width*2);
                     break;
                 }
@@ -1959,8 +1961,11 @@ void build_hud(State &s, std::uint64_t now) {
     native.names.emplace_back(self_id(s),name_of(s,self_id(s)));
     for(const auto& [id,name]:s.names)if(id!=self_id(s))native.names.emplace_back(id,name);
     const auto local_racer=native.state?std::find_if(native.state->standings.begin(),native.state->standings.end(),[&](const auto& row){return row.player==native.local;}):std::vector<Standing>::const_iterator{};
-    set_competition_stock_physics(native.active && native.settings.mode==Mode::race && native.state &&
-        (native.state->phase==Phase::countdown || native.state->phase==Phase::playing) && local_racer!=native.state->standings.end());
+    const auto oneup=multiplayer::one_up::view();
+    const bool oneup_competing=oneup.participant && oneup.state.match &&
+        oneup.state.phase!=multiplayer::one_up::Phase::lobby && oneup.state.phase!=multiplayer::one_up::Phase::finished && oneup.state.phase!=multiplayer::one_up::Phase::cancelled;
+    set_competition_stock_physics(oneup_competing || (native.active && native.state &&
+        (native.state->phase==Phase::countdown || native.state->phase==Phase::playing) && local_racer!=native.state->standings.end()));
     s.input_locked.store(native.state && native.state->phase==Phase::countdown,std::memory_order_release);
     s.markers_restricted.store(native.state && (native.state->phase==Phase::countdown || native.state->phase==Phase::playing),std::memory_order_release);
     std::lock_guard lock(s.hud_mutex);
@@ -2344,7 +2349,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
         g.leading = true;
         g.settings.mode = *mode;
         g.settings.duration_s = default_duration(*mode);
-        if(*mode==Mode::race)physics_tuning::prepare();
+        physics_tuning::prepare();
         if (tag_like(*mode)) g.settings.radius = default_tag_reach; // how close tags (or infects)
         if (*mode == Mode::skate) { // S.K.A.T.E.: five letters, time to line a trick up
             g.settings.strikes = 5;
@@ -2415,7 +2420,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
         s.placing=State::Placing::none;s.cursor_ok=false;
         s.placement_flight.store(false,std::memory_order_release);
         overlay::pause_game_input(false);
-        return race?"Deathrace: choose Players, then Confirm to place mandatory gates, gray guides and one red finish. Choose the finish deadline in setup.":
+        return race?"Deathrace: choose Players, then Confirm to place required gates, gray guides and one red finish. Choose the finish deadline in setup.":
             std::format("{}: choose settings, Confirm to place the starting flag, then hold Start in the waiting HUD.",mode_name(g.settings.mode));
     }
     const auto changed = [&](std::string text) {
@@ -2428,7 +2433,10 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
             if(g.settings.mode==Mode::race && g.native_lobby) {
                 if(what=="done" && !race_route_ready(g.settings,g.race_finish_placed))
                     return "error: place the red finish before saving the route.";
-                if(what=="cancel") {multiplayer::one_up::flag_registration_left();g.native_flag_placed=false;s.race_resume_editor=false;}
+                if(what=="cancel") {
+                    end_game(s,"Deathrace placement cancelled. Your course is saved.");
+                    return "Placing stopped.";
+                }
             }
             s.placing = State::Placing::none;
             return "Placing stopped.";

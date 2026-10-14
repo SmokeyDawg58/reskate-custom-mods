@@ -100,7 +100,7 @@ std::string_view mode_summary(Mode m) noexcept {
     case Mode::jam: return "Land lines inside the area. Every line adds to your score; highest total wins.";
     case Mode::one_up: return "Take turns. Beat the last score or take a strike; last one standing wins.";
     case Mode::meat: return "Bail as hard as you can. Speed, drops and tumbling score; most meat wins.";
-    case Mode::race: return "Cross mandatory gates in order; gray guides are optional. Reach the red finish. Countdown only in the final 30 seconds.";
+    case Mode::race: return "Cross required gates in order; gray guides are optional. Reach the red finish. Countdown only in the final 30 seconds.";
     case Mode::domination: return "Take spots with your best line there. Every second you hold one scores.";
     case Mode::graffiti: return "Grind it, manual it, gap it: what you skate takes your colour. A bigger line steals it. Most tags wins.";
     case Mode::tag: return "One player is it: get close to tag someone else. No tag-backs. Least time spent it wins.";
@@ -620,6 +620,8 @@ void Referee::remove_player(std::uint64_t player, std::uint64_t now_ms) {
         std::erase_if(players_, [&](const Player &q) { return q.id == player; });
         return;
     }
+    if(settings_.mode==Mode::race && phase_==Phase::playing && !p->finished)
+        p->aux=static_cast<std::int32_t>(std::min<std::uint64_t>(now_ms>=play_at_?now_ms-play_at_:0,0x7fffffff));
     p->out = true;
     call(name_of(player) + " left the game");
     if (phase_ != Phase::playing) return;
@@ -940,7 +942,7 @@ void Referee::event(std::uint64_t player, Event event, std::int32_t value, const
             return;
         p->score=static_cast<std::int32_t>(next_race_gate(settings_,static_cast<std::size_t>(value)+1));
         if (value>0 && static_cast<std::size_t>(value)+1<settings_.points.size())
-            call(std::format("{}: mandatory gate {}/{}",name_of(player),mandatory_gates(settings_,p->score),mandatory_gates(settings_,settings_.points.size())));
+            call(std::format("{}: required gate {}/{}",name_of(player),mandatory_gates(settings_,p->score),mandatory_gates(settings_,settings_.points.size())));
         if (static_cast<std::size_t>(p->score) == settings_.points.size()) {
             p->finished = true;
             p->aux = static_cast<std::int32_t>(std::min<std::uint64_t>(now_ms - phase_at_, 0x7fffffff));
@@ -1013,7 +1015,7 @@ bool Referee::tick(std::uint64_t now_ms) {
         if (settings_.mode==Mode::race) {
             bool expired{};
             for(auto& p:players_)if(!p.out && !p.finished) {
-                if(elapsed>=settings_.duration_s*1000ull) {p.out=true;expired=true;call(name_of(p.id)+" DNF: missed the finish deadline");}
+                if(elapsed>=settings_.duration_s*1000ull) {p.aux=static_cast<std::int32_t>(settings_.duration_s*1000u);p.out=true;expired=true;call(name_of(p.id)+" DNF: missed the finish deadline");}
             }
             if(expired && !std::all_of(players_.begin(),players_.end(),[](const Player& p){return p.finished || p.out;}))return true;
         }
@@ -1119,6 +1121,8 @@ Message Referee::state(std::uint64_t now_ms) const {
         m.standings.push_back({p.id, p.score, p.aux, p.out, m.turn == p.id});
         if(settings_.mode==Mode::race && phase_==Phase::playing && !p.out && !p.finished) {
             m.standings.back().remaining_ms=left(settings_.duration_s*1000ull);
+            m.standings.back().aux=static_cast<std::int32_t>(std::min<std::uint64_t>(
+                now_ms>=play_at_?now_ms-play_at_:0,settings_.duration_s*1000ull));
         }
         // Infection: aux 1 and `up` for the infected (who wear the reaper), score the tenths survived.
         if (settings_.mode == Mode::infection) {
