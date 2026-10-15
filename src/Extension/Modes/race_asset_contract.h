@@ -5,6 +5,21 @@
 #include <limits>
 
 namespace dingosdk::modes::race_world::detail {
+class CheckpointWorldLifetime {
+    bool blocked_=true,shutdown_{};
+    std::uint32_t retired_game_{};
+public:
+    bool blocked() const noexcept {return blocked_;}
+    bool can_publish(std::uint32_t game) const noexcept {return !blocked_ && game && game!=retired_game_;}
+    bool before_transition(unsigned next,std::uint32_t current_game) noexcept {
+        if(next==13 || next==21) {if(!shutdown_)blocked_=false;return false;}
+        if(next!=14 && next!=22 && next!=3 && next!=24)return false;
+        const bool release=!blocked_;blocked_=true;
+        if(current_game)retired_game_=current_game;
+        if(next==24)shutdown_=true;
+        return release;
+    }
+};
 template<class ReadPointer>
 bool checkpoint_blueprint(std::uintptr_t asset, std::uintptr_t base, ReadPointer read) {
     constexpr auto maximum = std::numeric_limits<std::uintptr_t>::max();

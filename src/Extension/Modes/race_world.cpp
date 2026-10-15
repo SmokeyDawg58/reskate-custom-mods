@@ -37,6 +37,7 @@ template<std::size_t N> void prefix(std::uintptr_t base,std::uintptr_t rva,const
 struct Gate {Vec3 at{};float yaw{},width{};bool finish{},guiding{};bool operator==(const Gate&) const=default;};
 struct Entity {std::uintptr_t entity{},owner{},context{};unsigned group{},part{};};
 struct State {
+    detail::CheckpointWorldLifetime lifetime;
     std::mutex mutex;std::vector<Entity> entities;std::vector<Gate> gates;
     std::array<std::uintptr_t,9> assets{};std::array<std::uint16_t,9> asset_domains{};
     std::uintptr_t context{};std::uint64_t world{},retry{},preview_at{};
@@ -157,7 +158,11 @@ std::string start_error(std::uint64_t world,std::uint32_t game) {
 void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
     auto& s=state();
     try {
-        const auto context=ptr(client,8);const auto view=native_view();const auto now=GetTickCount64();
+        const auto view=native_view();
+        {std::lock_guard lock(s.mutex);
+            if(s.lifetime.blocked() || (view.active && !s.lifetime.can_publish(view.game)))return;
+        }
+        const auto context=ptr(client,8);const auto now=GetTickCount64();
         const bool active=view.active && view.settings.mode==Mode::race && !(view.state && view.state->phase==Phase::results);
         {std::lock_guard lock(s.mutex);s.route_ready=false;}
         if(s.context && s.context!=context) {std::lock_guard lock(s.mutex);s.entities.clear();s.gates.clear();s.dirty.clear();s.assets={};s.context=0;}
@@ -255,5 +260,19 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
     } catch(const std::exception& e0) {
         if(s.error!=e0.what()) {s.error=e0.what();logging::log(logging::Level::error,logging::Channel::runtime,"Deathrace objects: {}",s.error);}
     } catch(...) {logging::write(logging::Level::error,logging::Channel::runtime,"Deathrace object creation failed.");}
+}
+void before_level_transition(std::uintptr_t base,unsigned next) noexcept {
+    auto& s=state();bool release{};
+    {std::lock_guard lock(s.mutex);release=s.lifetime.before_transition(next,s.game);}
+    if(!release)return;
+    // Retire in the live world before its component data disappears. Saved
+    // courses live in game_modes and remain intact.
+    try {clear(base);}
+    catch(...) {logging::write(logging::Level::error,logging::Channel::runtime,"Deathrace pre-transition gate cleanup failed.");}
+    {std::lock_guard lock(s.mutex);
+        s.entities.clear();s.gates.clear();s.dirty.clear();s.assets={};s.asset_domains={};
+        s.context=0;s.world=0;s.game=0;s.ready_world=0;s.ready_game=0;s.route_ready=false;s.retry=0;
+    }
+    logging::log(logging::Level::info,logging::Channel::runtime,"Deathrace gate ownership retired before native state {}.",next);
 }
 }

@@ -5,6 +5,8 @@
 #include "Extension/Modes/game_modes.h"
 #include "one_up_input_contract.h"
 #include "Extension/UI/NativeMenu/native_menu_data.h"
+#include "Extension/UI/NativeMenu/one_up_menu.h"
+#include "Extension/UI/NativeMenu/native_hud_selection.h"
 #include "throwdown_lab.h"
 #include "throwdown_relay.h"
 #include "virtual_player_names.h"
@@ -47,6 +49,15 @@ struct State {
     void (*send_event)(Address, Address, const Address*){};
     Address (*parameters)(Address, Address){};
     NativeThrowdownLifetime lifetime;
+    NativeActivityUiLease custom_ui_presence;
+    std::mutex custom_ui_presence_mutex;
+    std::string custom_ui_diagnostic;
+    std::uint64_t custom_ui_diagnostic_at{};
+    std::atomic<Address> menu_trace_address{};
+    std::atomic<DWORD> menu_trace_thread{};
+    std::atomic<std::int32_t> menu_trace_selection{};
+    std::atomic<bool> menu_details_presence_reported{};
+    std::atomic<bool> menu_details_check_reported{};
     Address solo_client_activity{};
     std::uint32_t solo_client_player{}, solo_client_group{};
 };
@@ -68,39 +79,59 @@ std::uint32_t realm() {
     const auto offset = read<std::uint32_t>(state().base + engine::context_type_offset);
     return context && offset < 0x1000000 ? read<std::uint32_t>(context + offset) : 0;
 }
-// Native player id of the hosted offline server's only real player, or zero.
+// The MP participant id is not the PlayerId used by native client/UI getters.
 // Steam roster entries are UI models and never appear in this native list.
-std::uint32_t sole_offline_player_id() {
+NativeActivityPlayerIds sole_offline_player_ids() {
     const auto base = state().base;
     const auto server = read<Address>(base + engine::game_server);
-    if (!server || read<Address>(server) != base + engine::server_vtable) return 0;
+    if (!server || read<Address>(server) != base + engine::server_vtable) return {};
     const auto context = read<Address>(server + 8);
     const auto manager_offset = read<std::uint32_t>(base + engine::context_player_manager_offset);
-    if (!context || manager_offset > 0x1000000) return 0;
+    if (!context || manager_offset > 0x1000000) return {};
     const auto manager = read<Address>(context + manager_offset);
-    if (!manager || read<Address>(manager) != base + engine::server_player_manager_vtable) return 0;
+    if (!manager || read<Address>(manager) != base + engine::server_player_manager_vtable) return {};
     const auto first = read<Address>(manager + 0xc8), last = read<Address>(manager + 0xd0);
-    if (!first || last - first != 8) return 0;
+    if (!first || last - first != 8) return {};
     const auto player = read<Address>(first);
     // Registration offsets locate sibling base classes of the same player, so
     // the differences are signed and small.
     const auto parent = static_cast<std::int64_t>(read<std::uint32_t>(base + engine::player_parent_offset));
     const auto identity = static_cast<std::int64_t>(read<std::uint32_t>(base + throwdowns::player_identity_offset)) - parent;
-    if (player < 0x100000 || identity < -0x10000 || identity > 0x10000) return 0;
-    return read<std::uint32_t>(static_cast<Address>(static_cast<std::int64_t>(player) + identity) + 0x68);
+    if (player < 0x100000 || identity < -0x10000 || identity > 0x10000 ||
+        read<Address>(player)!=base+engine::server_player_vtable ||
+        read<Address>(base+engine::server_player_vtable+0x10)!=base+0x7ff930)return {};
+    // Native virtual GetPlayerId is mov eax,[rcx+48]; ret (IDA/Ghidra and
+    // both live client/server vtables agree). Read it without a virtual call.
+    static const bool id_verified=read<std::array<unsigned char,4>>(base+0x7ff930)==
+        std::array<unsigned char,4>{0x8b,0x41,0x48,0xc3};
+    if(!id_verified)return {};
+    return {read<std::uint32_t>(static_cast<Address>(static_cast<std::int64_t>(player) + identity) + 0x68),
+        read<std::uint32_t>(player+0x48)};
 }
+std::uint32_t sole_offline_player_id() { return sole_offline_player_ids().participant; }
 
 // Same client-player lookup and sibling-base adjustment used by the native
 // GetPlayerIsInActivity/GetPlayerMPActivityIdleState functions (834520/834950).
 // Never use the skater or the SDK's UI record as a native player pointer.
-Address client_activity_variables(std::uint32_t uid) {
+Address client_activity_variables(std::uint32_t participant,std::uint32_t* menu_player=nullptr) {
     const auto base=state().base;
+    const auto ids=sole_offline_player_ids();
+    if(!ids.matches_participant(participant))return 0;
+    // Native GetPlayerIsInActivity selects the client realm explicitly with
+    // GetContextForRealm, not the caller's TLS context. Our UI tick runs AFTER
+    // original_tick returns, when that temporary TLS scope may already be gone.
+    constexpr std::array<unsigned char,19> context_prefix{
+        0x89,0x54,0x24,0x10,0x53,0x48,0x83,0xec,0x30,0x4c,0x8b,0x05,0xe8,0xb7,0x70,0x05,0x48,0x8b,0xd9};
+    static const bool verified=read<std::array<unsigned char,19>>(base+0x18b6e40)==context_prefix;
+    if(!verified)throw std::runtime_error("Native client context lookup fingerprint differs");
     Address context{};
-    reinterpret_cast<Address (*)(Address*)>(base+engine::current_context)(&context);
+    reinterpret_cast<Address (*)(Address*,std::uint32_t)>(base+0x18b6e40)(&context,client_realm);
+    const auto realm_offset=read<std::uint32_t>(base+engine::context_type_offset);
+    if(!context || realm_offset>0x1000000 || read<std::uint32_t>(context+realm_offset)!=client_realm)return 0;
     const auto offset=read<std::uint32_t>(base+engine::context_player_manager_offset);
     if(!context || offset>0x1000000)return 0;
     const auto manager=read<Address>(context+offset);
-    if(!manager)return 0;
+    if(!manager || read<Address>(manager)!=base+engine::local_player_manager_vtable)return 0;
     const auto first=read<Address>(manager+0x78),last=read<Address>(manager+0x80);
     if(!first || last<first || last-first>64*8 || (last-first)%8)return 0;
     const auto delta=static_cast<std::int64_t>(read<std::uint32_t>(base+0x6f7bae0))-
@@ -108,11 +139,13 @@ Address client_activity_variables(std::uint32_t uid) {
     if(delta < -0x10000 || delta > 0x10000)return 0;
     for(auto at=first;at<last;at+=8) {
         const auto player=read<Address>(at);
-        if(!player)continue;
+        if(!player || read<Address>(player)!=base+engine::local_player_vtable)continue;
         const auto id_function=read<Address>(read<Address>(player)+0x10);
-        if(id_function<base || id_function-base>=supported_build::game_image_size)continue;
-        if(reinterpret_cast<std::uint32_t (*)(Address)>(id_function)(player)==uid)
+        if(id_function!=base+0x7ff930)continue;
+        if(ids.matches_menu_player(read<std::uint32_t>(player+0x48))) {
+            if(menu_player)*menu_player=ids.menu_player;
             return static_cast<Address>(static_cast<std::int64_t>(player)+delta);
+        }
     }
     return 0;
 }
@@ -181,15 +214,71 @@ void complete_one_up_controls(Address vm) {
     if(output)WriteProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(output),&result,sizeof(result),&written);
 }
 
+void complete_custom_details_presence(Address vm) {
+    // This is the authored ActivitiesDetailsScreen -> MenusClosed condition,
+    // not its OnEnd action. Let the native condition execute all its reads and
+    // preserve its selected-menu/navigation/layer close reasons (local 0x80).
+    // Its other term is !activity_present, local 0x81. Native presence means
+    // DynamicPhaseHandler.PhaseSetEntities has entries when the dynamic manager
+    // exists; otherwise it uses RuleActionManager.ActiveRuleActionHandles.
+    // A custom match supplies that activity ownership only for its own Start
+    // request. No fake native event, phase entity, camera or Page is created.
+    auto& s=state();
+    const auto selection=s.menu_trace_address.load(std::memory_order_acquire);
+    if(!selection || s.menu_trace_thread.load(std::memory_order_relaxed)!=GetCurrentThreadId() || !vm)return;
+    const auto resource=read<Address>(vm+0x38),instance=read<Address>(vm+0x30);
+    constexpr std::array<std::uint32_t,10> layout{48,296,140,332,3,0,3,655385,2293760,0};
+    if(!resource || !instance || read<Address>(instance)!=resource ||
+       read<std::uint32_t>(resource+0x10)!=0x05edc9f8 ||
+       read<std::array<std::uint32_t,10>>(resource+0x20)!=layout)return;
+    if(!active() || realm()!=client_realm ||
+       !(one_up::restricts_session_markers() || modes::restricts_session_markers()))return;
+    const auto pages=instance+48;
+    const auto constants=read<Address>(pages),arguments=read<Address>(pages+8),locals=read<Address>(pages+16);
+    if(!constants || !arguments || !locals ||
+       read<std::uint32_t>(constants+8)!=0xaf4c67d7 ||
+       read<std::uint32_t>(constants+0x28)!=0xcc4776b5 ||
+       read<std::uint32_t>(constants+0x48)!=0xd71ee0a1)return;
+    const auto output=read<Address>(arguments);
+    if(!output || read<std::int32_t>(selection)!=1)return;
+    std::array<std::uint8_t,140> values{};
+    if(!memory::peek_bytes(locals,values.data(),values.size()))return;
+    const auto original=read<std::uint8_t>(output);
+    if(!s.menu_details_check_reported.exchange(true,std::memory_order_relaxed))
+        logging::log(logging::Level::info,logging::Channel::ui,
+            "PanelTrace native Details exit predicate: graph={:#x}, selected={}, native_exit={}, close_requested={}, native_activity_present={}, frame_result={}, output={:#x}, locals={:#x}.",
+            0x05edc9f8,values[0x64],original,values[0x80],values[0x81],values[0x8b],output,locals);
+    // The exact final native copy must agree with its saved result. Reject an
+    // expired/nested frame or changed graph instead of borrowing its pointers.
+    if(values[0x8b]!=original || values[0x89]!=1 || values[0x8a]!=1 ||
+       !custom_details_presence_needed(true,values[0x64],original,values[0x80],values[0x81]))return;
+    {
+        std::lock_guard presence_lock(s.custom_ui_presence_mutex);
+        if(!s.custom_ui_presence.owned())return;
+    }
+    if(s.lifetime.active() || s.lifetime.has_activity())return;
+    const std::uint8_t keep_native_details=0;
+    SIZE_T written{};
+    if(WriteProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(output),&keep_native_details,
+            sizeof(keep_native_details),&written) && written==sizeof(keep_native_details) &&
+       !s.menu_details_presence_reported.exchange(true,std::memory_order_relaxed))
+        logging::log(logging::Level::info,logging::Channel::ui,
+            "Throwdowns: native Details recognized custom activity owner; graph={:#x}, close_requested={}, native_activity_present={}, native_exit={} -> 0; native Back/camera/input unchanged.",
+            0x05edc9f8,values[0x80],values[0x81],original);
+}
+
 std::uint64_t player_in_activity_hook(std::uint32_t uid) {
     const auto original=state().player_in_activity(uid);
-    if(original || !(one_up::restricts_session_markers() || modes::restricts_session_markers()))return original;
+    if(native_activity_flag(original) || !(one_up::restricts_session_markers() || modes::restricts_session_markers()))return original;
     profile_runtime::PreserveError preserve;
     try {
         // The original pause/marker UI must treat the local 1-Up participant
         // as playing an activity even after its temporary flag queue retires.
-        // Return the adapter state; do not latch native replicated player vars.
-        if(active() && realm()==client_realm && uid && uid==sole_offline_player_id())return 1;
+        // The query adapter remains independent of the scoped client UI lease.
+        if(active() && realm()==client_realm) {
+            const auto ids=sole_offline_player_ids();
+            if(ids.matches_menu_player(uid) && client_activity_variables(ids.participant))return 1;
+        }
     } catch(...) {}
     return original;
 }
@@ -535,6 +624,83 @@ bool consume_one_up_marker_expression(Address vm,std::uint32_t pc) noexcept {
 bool local_throwdown_active() noexcept {
     return state().lifetime.active();
 }
+void set_custom_activity_menu_request(Address address) noexcept {
+    auto& s=state();
+    s.menu_trace_address.store(0,std::memory_order_release);
+    s.menu_details_presence_reported.store(false,std::memory_order_relaxed);
+    s.menu_details_check_reported.store(false,std::memory_order_relaxed);
+    std::int32_t value{};
+    if(!address || !memory::peek(address,value))return;
+    s.menu_trace_selection.store(value,std::memory_order_relaxed);
+    s.menu_trace_thread.store(GetCurrentThreadId(),std::memory_order_relaxed);
+    s.menu_trace_address.store(address,std::memory_order_release);
+}
+void sync_custom_activity_ui_presence(bool participant) noexcept {
+    profile_runtime::PreserveError preserve;
+    auto& s=state();
+    try {
+        if(!active())return;
+        std::lock_guard presence_lock(s.custom_ui_presence_mutex);
+        if(!participant && !s.custom_ui_presence.owned() && s.custom_ui_diagnostic.empty())return;
+        const auto caller_realm=realm();
+        const auto uid=sole_offline_player_id();
+        std::uint32_t menu_player{};
+        const auto vars=uid?client_activity_variables(uid,&menu_player):0;
+        const auto group=vars?read<std::uint32_t>(vars+0x100):0;
+        const auto current=vars?read<std::uint8_t>(vars+0x104)!=0:false;
+        const bool native_flag=vars && s.player_in_activity && native_activity_flag(s.player_in_activity(menu_player));
+        const bool queued=s.lifetime.active(),native_activity=s.lifetime.has_activity();
+        const bool was_owned=s.custom_ui_presence.owned();
+        const auto diagnostic=[&](const char* result) {
+            if(!participant && !was_owned && s.custom_ui_diagnostic.empty())return;
+            const auto message=std::format(
+                "wanted={}, caller_realm={:#x}, participant={}, menu_player={}, variables={:#x}, group={}, flag={}, getter={}, idle={}, queue={}, native_activity={}, owned={}, result={}",
+                participant,caller_realm,uid,menu_player,vars,group,current,native_flag,
+                vars?read<std::uint32_t>(vars+0x108):0,queued,native_activity,s.custom_ui_presence.owned(),result);
+            const auto now=GetTickCount64();
+            if(message!=s.custom_ui_diagnostic || ((participant || was_owned) && now>=s.custom_ui_diagnostic_at+1000)) {
+                logging::log(logging::Level::info,logging::Channel::ui,"Throwdowns: activity UI handoff: {}.",message);
+                s.custom_ui_diagnostic=message;s.custom_ui_diagnostic_at=now;
+            }
+        };
+        // Verify the existing getter and reflected flag identify the same
+        // player before acquiring. No idle/group/backend values are changed.
+        if(participant && (!vars || !s.player_in_activity || native_flag!=current)) {
+            diagnostic(!uid?"no sole native player":!vars?"no verified native client player":
+                !s.player_in_activity?"native getter unavailable":"native getter disagrees with client player");
+            return;
+        }
+        bool write_failed{};
+        s.custom_ui_presence.update(participant && !queued,vars,uid,group,current,
+            native_activity,[&](bool value) {
+                SIZE_T written{};
+                const std::uint8_t flag=value?1:0;
+                const bool applied=WriteProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(vars+0x104),
+                    &flag,sizeof(flag),&written) && written==sizeof(flag);
+                if(applied && (native_activity_flag(s.player_in_activity(menu_player))!=value)) {
+                    // A same-id object from another context cannot be the
+                    // native UI owner. Undo this one-byte attempt immediately.
+                    const std::uint8_t original=current?1:0;
+                    WriteProcessMemory(GetCurrentProcess(),reinterpret_cast<void*>(vars+0x104),&original,sizeof(original),&written);
+                    write_failed=true;
+                    return false;
+                }
+                if(applied)logging::log(logging::Level::info,logging::Channel::ui,
+                    "Throwdowns: client activity UI presence {} -> {} for player {}, group {}, variables {:#x}; native idle/backend unchanged.",
+                    current,value,uid,group,vars);
+                if(!applied)write_failed=true;
+                return applied;
+            });
+        diagnostic(write_failed?"write/getter verification failed":queued?"native queue owns activity":
+            native_activity?"native event owns activity":s.custom_ui_presence.owned()?"scoped client flag owned":
+            participant && current?"client flag already native":participant?"client flag not acquired":"released");
+        if(!participant && !s.custom_ui_presence.owned())s.custom_ui_diagnostic.clear();
+    } catch(const std::exception& error) {
+        static std::uint64_t next_log{};const auto now=GetTickCount64();
+        if(now>=next_log) {next_log=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,
+            "Throwdowns: client activity UI presence unavailable: {}",error.what());}
+    } catch(...) {}
+}
 bool local_throwdown_host() noexcept { return state().lifetime.host(); }
 void native_throwdown_player_limit(std::uint32_t limit) noexcept {
     try { state().lifetime.player_limit(limit); } catch (...) {}
@@ -566,6 +732,8 @@ void native_throwdown_participant_left(Address activity, std::uint32_t player) n
     } catch (...) {}
 }
 void native_throwdown_level_left() noexcept {
+    set_custom_activity_menu_request(0);
+    sync_custom_activity_ui_presence(false);
     try {
         state().solo_client_activity=0;state().solo_client_player=0;state().solo_client_group=0;
         if (state().lifetime.clear())
@@ -576,11 +744,45 @@ void native_throwdown_level_left() noexcept {
 
 void complete_native_throwdown_parameters(Address vm) noexcept {
     pump_throwdown_lab(vm);
+    // Native expressions can select, then immediately retire, the menu in a
+    // single frame. Sample after the deepest completed call on its UI thread
+    // so the log identifies the writer instead of only the next 100ms snapshot.
+    {
+        profile_runtime::PreserveError preserve;
+        try {
+            auto& s=state();const auto address=s.menu_trace_address.load(std::memory_order_acquire);
+            std::int32_t value{};
+            if(address && s.menu_trace_thread.load(std::memory_order_relaxed)==GetCurrentThreadId() &&
+               memory::peek(address,value)) {
+                const auto previous=s.menu_trace_selection.exchange(value,std::memory_order_relaxed);
+                if(previous!=value) {
+                    const auto resource=vm?read<Address>(vm+0x38):0;
+                    logging::log(logging::Level::info,logging::Channel::ui,
+                        "PanelTrace selection changed {} -> {} after native graph {:#x}, resource={:#x}, VM={:#x}, field={:#x}, realm={:#x}.",
+                        previous,value,resource?read<std::uint32_t>(resource+0x10):0,resource,vm,address,realm());
+                }
+            }
+        } catch(...) {}
+    }
     {
         profile_runtime::PreserveError preserve;
         try {
             if(active() && realm()==client_realm)complete_solo_client_exit();
             complete_one_up_controls(vm);
+            complete_custom_details_presence(vm);
+            // Replace presentation at the native publication boundary, rather
+            // than waiting for the next throttled UI/camera confirmation tick.
+            // Real activities, other realms/threads and unarmed requests keep
+            // their own contents. The native outer Page is never replaced.
+            auto& s=state();const auto selected=s.menu_trace_address.load(std::memory_order_acquire);
+            if(selected && s.menu_trace_thread.load(std::memory_order_relaxed)==GetCurrentThreadId()) {
+                const auto resource=vm?read<Address>(vm+0x38):0,instance=vm?read<Address>(vm+0x30):0;
+                if(resource && instance && read<Address>(instance)==resource &&
+                   menu_data::native_activity_page_publish_graph(read<std::uint32_t>(resource+0x10),
+                       read<std::array<std::uint32_t,10>>(resource+0x20)) &&
+                   active() && realm()==client_realm && read<std::int32_t>(selected)==1)
+                    prepare_native_one_up_match_panel();
+            }
         } catch(...) {}
     }
     const bool one_up_queue=one_up::flag_registration_owned();

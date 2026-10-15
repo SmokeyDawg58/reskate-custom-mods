@@ -45,8 +45,31 @@ struct ActivityDetailsOwnership {
     bool owns(std::uint64_t live_page, std::uint64_t live_layer, int live_item) const noexcept {
         return requested && page && layer && live_page == page && live_layer == layer && live_item == item;
     }
+    // Back can deactivate the item before teardown runs. Cached presenters
+    // still retain this page and must be restored before a second entry.
+    bool retains(std::uint64_t live_page) const noexcept {
+        return requested && page && live_page == page;
+    }
     void clear_mount() noexcept { page = layer = 0; item = 0; }
     void retire() noexcept { clear_mount(); requested = false; }
+};
+
+// Native navigation is asynchronous and its action slot can be busy. Keep
+// ownership until Back is consumed; never abandon it on a failed enqueue.
+class ActivityDetailsClose {
+    std::uint64_t since_{};
+    bool pending_{},queued_{};
+public:
+    void begin(std::uint64_t now) noexcept {
+        if(!pending_) {since_=now;pending_=true;queued_=false;}
+    }
+    bool pending() const noexcept { return pending_; }
+    bool needs_back() const noexcept { return pending_ && !queued_; }
+    void back_queued(bool accepted) noexcept { if(accepted)queued_=true; }
+    bool needs_selection_recovery(std::uint64_t now,bool exact_page,bool owned_selection) const noexcept {
+        return pending_ && exact_page && owned_selection && now>=since_ && now-since_>=2000;
+    }
+    void reset() noexcept { *this={}; }
 };
 
 // The native Layer_Menu capture has TargetIndex=-1 after its transition has
@@ -63,9 +86,9 @@ inline std::optional<unsigned> active_activity_stack_item(int stack_index, unsig
 class MatchPanelStartInput {
     bool down_{}, menu_open_{}, available_{}, initialized_{};
 public:
-    bool sample(std::uint32_t buttons, bool escape, bool available, bool menu_open) noexcept {
+    bool sample(std::uint32_t buttons, bool escape, bool available, bool menu_open,bool owned_panel=false) noexcept {
         const bool down=(buttons & 0x0010u)!=0 || escape;
-        const bool request=initialized_ && available_ && available && !menu_open_ && down && !down_;
+        const bool request=initialized_ && available_ && available && (!menu_open_ || owned_panel) && down && !down_;
         down_=down;menu_open_=menu_open;available_=available;initialized_=true;
         return request;
     }

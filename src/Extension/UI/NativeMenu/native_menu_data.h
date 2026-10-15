@@ -5,6 +5,7 @@
 #include <span>
 #include <string>
 #include <vector>
+#include <cstring>
 
 namespace dingosdk::multiplayer::menu_data {
 using Address = std::uintptr_t;
@@ -51,6 +52,13 @@ public:
         static_assert(std::is_trivially_copyable_v<T>);
         if (size(target.type) != sizeof(T)) throw std::runtime_error("Native menu value size differs.");
         publish(target, &value);
+    }
+    template<class T> void set_if_changed(Value target, const T& value) const {
+        static_assert(std::is_trivially_copyable_v<T>);
+        if (size(target.type) != sizeof(T)) throw std::runtime_error("Native menu value size differs.");
+        T current{};
+        if(!memory::peek_bytes(address(target),&current,sizeof(T)))throw std::runtime_error("Native menu value is unavailable.");
+        if(std::memcmp(&current,&value,sizeof(T)))publish(target,&value);
     }
     void text(Value target, const std::string& text) const;
     std::string text(Value value, std::size_t maximum = 128) const;

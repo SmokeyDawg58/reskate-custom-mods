@@ -20,12 +20,21 @@ void complete_native_throwdown_parameters(std::uintptr_t vm) noexcept;
 // Before either native interpreter executes a marker input action. Restrict
 // only verified local-client action entries belonging to a running 1-Up.
 bool consume_one_up_marker_expression(std::uintptr_t vm,std::uint32_t pc) noexcept;
-// Native player id of the hosted offline server's only real player, or zero.
+// MP participant/UniqueId of the hosted offline server's sole real player,
+// or zero. This is NOT the native client PlayerId used by activity UI getters;
+// native client PlayerId zero is valid and is resolved separately.
 std::uint32_t local_native_player_id() noexcept;
 // True from the moment the local player creates or joins a throwdown until it
 // ends, is left or destroyed. Retail mirrors this onto UIPlayerInfo, where the
 // throwdown Quit action reads it; offline the SDK owns that record.
 bool local_throwdown_active() noexcept;
+// Client UI thread only. Match availability owns the observed native client
+// activity flag; results, Quit and real world teardown relinquish it.
+void sync_custom_activity_ui_presence(bool participant) noexcept;
+// Arm the exact selection owned by this custom Start request. The Details
+// exit predicate can recognize its custom activity owner, and native selection
+// changes are traced. Zero releases it before the model/world may retire.
+void set_custom_activity_menu_request(std::uintptr_t address) noexcept;
 // True while that throwdown is the local player's own (it created it).
 bool local_throwdown_host() noexcept;
 // QueueFilled confirmed the server activity containing the local player. Only

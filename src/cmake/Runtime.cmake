@@ -243,7 +243,14 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc"
     "FONT_BODY RCDATA \"${dingosdk_menu_fonts}/Montserrat-SemiBold.ttf\"\n"
     "FONT_BRUSH RCDATA \"${dingosdk_menu_fonts}/PermanentMarker-Regular.ttf\"\n")
 target_sources(dingosdk_runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${PROJECT_SOURCE_DIR}/assets/one_up/native_assets.bin")
+# The packed file can retain an older timestamp when copied from an authored
+# package. Change the resource source itself when the bytes change so MSBuild
+# cannot silently reuse a resource compiled with the previous artwork bundle.
+file(SHA256 "${PROJECT_SOURCE_DIR}/assets/one_up/native_assets.bin" dingosdk_native_asset_sha256)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/one_up_native_assets.rc"
+    "// Native asset SHA256: ${dingosdk_native_asset_sha256}\n"
     "ONE_UP_NATIVE_ASSETS RCDATA \"${PROJECT_SOURCE_DIR}/assets/one_up/native_assets.bin\"\n")
 target_sources(dingosdk_runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/one_up_native_assets.rc")
 

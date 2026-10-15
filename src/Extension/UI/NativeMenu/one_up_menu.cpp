@@ -58,13 +58,18 @@ struct Row { Value model, anchor, tile, selector; std::vector<Handle> choices; s
 struct Original { Value tile, category, description; std::array<float,2> tile_size{}, description_size{}; float icon_width{}, icon_height{}; };
 struct HudPlayer { Value row, background, name, stamps, strike_anchor, strike_item; std::array<Value,3> letters; bool out{}; };
 struct ResultPlayer { Value row, rank, outcome; };
+struct MatchPanelPlayer { Value row,rank,outcome; bool portrait_attempted{}; };
 struct MatchPanel {
+    ActivityMenuTransitionGate transition;
+    float camera_fov_before{};
     std::string match_key;
-    Value page, panel, header, badge, notice, settings, columns, outer_anchor;
+    Value page, panel, header, header_rows, header_titles, header_anchor, badge, notice, settings, columns, outer_anchor;
     Value quit, board, prompt, prompt_anchor, prompt_item;
+    std::array<float,3> board_widths{};
+    std::vector<std::uint64_t> player_order;
     Value mounted_slot, saved_slot;
-    std::array<Value,2> setting_rows, setting_values;
-    std::map<std::uint64_t,ResultPlayer> players;
+    std::array<Value,3> setting_rows, setting_values, setting_titles, setting_icons, setting_lists, setting_anchors;
+    std::map<std::uint64_t,MatchPanelPlayer> players;
     std::uint64_t requested_until{};
     std::uint64_t request_after{};
     std::uint64_t retry_after{};
@@ -99,11 +104,18 @@ struct NativeSetupRows {
 };
 struct NativeSetupActions { std::size_t callback_offset{};std::vector<OwnedNativeAction> rows; };
 struct ModeHud {
+    HudPublicationGate publication;
+    HudCountdownLifecycle countdown_lifecycle;
+    HudCountdownVisibility transients;
     Value stack, title, status, score, target, current, clock, content, rows, anchor, item, clock_anchor, clock_item;
     Value countdown, countdown_anchor, countdown_item, intro, intro_badge, intro_anchor, intro_item;
     Value blind_anchor, blind_item, results, results_title, results_notice, results_rows, results_anchor, results_item;
     std::map<std::uint64_t,ResultPlayer> result_players;
-    Value race_rows,race_anchor,race_item;
+    Value race_rows,race_board,race_anchor,race_item;
+    Value race_title,race_columns;std::array<Value,3> race_captions;
+    Value race_elapsed,race_elapsed_anchor,race_elapsed_item;
+    Value race_deadline,race_deadline_anchor,race_deadline_item,race_deadline_caption,race_deadline_caption_anchor,race_deadline_caption_item;
+    std::array<float,3> race_widths{100.f,224.f,320.f};
     Value results_header,results_columns,results_badge,results_panel_anchor,results_panel_item;
     Value results_logo_anchor,results_logo_item,results_notice_anchor,results_notice_item,results_columns_anchor,results_columns_item;
     std::array<Value,3> results_captions;
@@ -135,7 +147,20 @@ struct ModeHud {
     unsigned row_count=~0U;
     bool race_layout{},placing_layout{};
 };
+struct HudSurfaceSlot { Value anchor,item;Widget display{}; };
+struct HudSurface {
+    Value stack,transition;
+    std::map<std::int32_t,HudSurfaceSlot> slots;
+    std::set<std::int32_t> visible;
+    HudSurfaceContentGate content_gate;
+    HudActivationHandoff activation;
+    bool revealed{},suspended{};
+    std::size_t displayed_count{};
+};
 struct State {
+    HudPublicationGate hud_publication;
+    HudStackActiveBudget hud_active_budget;
+    std::map<Handle,HudSurface> hud_surfaces;
     std::map<std::string,ModeCard> mode_cards;
     std::string selected_mode, mode_status;
     ModeHud mode_hud;
@@ -146,6 +171,7 @@ struct State {
     MatchPanelStartInput panel_start_input;
     std::string panel_start_request;
     bool in_menu{};
+    bool panel_key_down{};
     unsigned mode_seconds=300, mode_capacity=6, mode_hide_seconds=30;
 
     // Borrowed native marker fields, restored when this match releases them.
@@ -226,6 +252,7 @@ void mode_cards(const Context& c);
 void logo_picker(const Context& c);
 void mode_render(const Context& c);
 void mode_hud(const Context& c);
+void mode_hud_transients(const Context& c,const modes::NativeView& view,std::uint64_t now);
 void mode_action(const Context& c,const Action& a);
 void mode_art(const Context& c,std::span<const Value> fields,const std::string& logo);
 void mode_hud_publish(const Context& c,bool show,bool countdown=false,bool intro=false,bool blind=false,bool results=false,bool race=false);
@@ -258,7 +285,7 @@ std::optional<Value> mounted_body(const Context& c, Value p) {
     return c.field(c.element(children,0),content);
 }
 Value make(const Context& c, Schema schema, Address authored_type=0) {
-    auto& s = state(); const auto id=(s.owner.load() ^ 0x3155500000000000ULL) + ++s.next_id;
+    auto& s = state(); const auto id=0x3155500000000000ULL + ++s.next_id;
     Value value;
     if(authored_type) {
         require((kind(authored_type)==2 || kind(authored_type)==4) && size(authored_type)==schema.size && read<std::uint32_t>(read<Address>(authored_type))==schema.hash,
@@ -617,7 +644,7 @@ Ref record_ref(const Context& c,const char* name) {
     const auto record=asset(c,name);native_record_type(c,record);return {record,0};
 }
 void clear_value(const Context& c,Value value) {
-    if(kind(value.type)==7) {c.text(value,"");return;}
+    if(kind(value.type)==7) {if(!read<Address>(c.address(value)) || !c.text(value).empty())c.text(value,"");return;}
     if(kind(value.type)==4) {
         // Native array publication reads the count preceding the pointer even
         // for an empty array. A null pointer is not an empty counted array.
@@ -629,7 +656,10 @@ void clear_value(const Context& c,Value value) {
         const auto defaults=make(c,{read<std::uint32_t>(read<Address>(value.type)),static_cast<std::uint16_t>(size(value.type))},value.type);
         c.copy(value,c.address(defaults)); return;
     }
-    const std::vector<std::byte> empty(size(value.type)); c.publish(value,empty.data());
+    const std::vector<std::byte> empty(size(value.type));
+    std::vector<std::byte> current(empty.size());
+    require(memory::peek_bytes(c.address(value),current.data(),current.size()),"Native reset value is unavailable.");
+    if(current!=empty)c.publish(value,empty.data());
 }
 constexpr std::int32_t hud_score_id=0x31555071, hud_countdown_id=0x31555072, hud_intro_id=0x31555073;
 constexpr std::int32_t hud_results_id=0x31555074;
@@ -653,50 +683,205 @@ void clear_hud_state(bool preserve_match_input=false) {
     // Waiting notifications outlive score/countdown HUD rebuilds. Keep their
     // hidden ownership until queue teardown or a genuine native creation/join.
 }
-std::vector<HudVisibilityField> hud_visibility_fields(const Context& c) {
-    const auto item_type=c.type(stack_item);
-    std::vector<HudVisibilityField> fields;
-    // Only visibility tracks restart when the native stack has disabled an
-    // item we still own and want shown. Visible items keep their animation.
-    for(const auto key:{0x8c0583eeU,0xc5c7cc11U}) {
-        const auto track=c.member(item_type,key);
-        for(const auto value:{0x20247753U,0x2426103fU,0x1e3ce013U}) {
-            const auto field=c.member(track.type,value);
-            fields.push_back({std::size_t{track.offset}+field.offset,size(field.type)});
-        }
+template<class PublishRows> void publish_gameplay_hud_rows(const Context& c,Value stack,std::span<const std::byte> rows,unsigned stride,unsigned id_offset,PublishRows&& publish_rows) {
+    unsigned owned{};
+    for(std::size_t at=0;at<rows.size();at+=stride) {
+        std::int32_t id{};std::memcpy(&id,rows.data()+at+id_offset,sizeof(id));
+        owned+=custom_hud_item(id);
     }
-    return fields;
+    const auto limit=c.field(stack,0x6a93bc8a); // MaxFocusedItemCount / MaxActiveItemCount
+    const auto live=read<int>(c.address(limit));
+    state().hud_active_budget.publish(stack.handle,live,owned,[&](int next) {
+        c.set_if_changed(limit,next);
+        logging::log(logging::Level::debug,logging::Channel::ui,
+            "Custom HUD active budget: stack={:#x}, owned={}, limit={} -> {}.",stack.handle,owned,live,next);
+    },std::forward<PublishRows>(publish_rows));
+}
+void restore_hud_active_budgets(const Context& c) {
+    auto& budget=state().hud_active_budget;
+    for(const auto handle:budget.stacks()) {
+        const auto type=c.type_of(handle);
+        if(!type || type!=c.type({0xd71ee0a1,80}))continue;
+        const auto limit=c.field(Value{handle,type},0x6a93bc8a);
+        budget.update(handle,read<int>(c.address(limit)),0,[&](int next){c.set_if_changed(limit,next);});
+    }
+    budget.manager_replaced();
+}
+Value opaque_hud_transition(const Context& c,Value stack,HudSurface& surface) {
+    if(surface.transition.handle)return surface.transition;
+    const auto checkpoint=state().owned.checkpoint();
+    try {
+        // The captured default fades 0->1 and scales 1.5->1. These are menu
+        // entrance effects, inappropriate for persistent gameplay overlays.
+        // Clone every mutable curve edge; never edit shared native styles.
+        PrivateUiGraph graph{c};
+        const auto style=graph.clone(read<Ref>(c.address(c.field(stack,0x54c9abee))));
+        require(read<std::uint32_t>(read<Address>(style.type))==0x69df7d5a && size(style.type)==64,
+                "Native HUD transition style differs.");
+        const auto curve=[&](std::uint32_t key,std::uint32_t hash) {
+            const auto value=reference(c,read<Ref>(c.address(c.field(style,key))));
+            require(value.handle && read<std::uint32_t>(read<Address>(value.type))==hash,
+                    "Native HUD transition curve differs.");
+            return c.field(value,0x600f43a4); // Keyframes, with original input times retained.
+        };
+        const auto alpha=curve(0x36120f6c,0x6beddefb);
+        unsigned count{},stride{};auto points=c.array(alpha,128,count,stride);
+        require(count>=2 && stride==8,"Native HUD opacity keyframes differ.");
+        const auto alpha_type=c.element(alpha,0).type;
+        points=constant_hud_curve<float>(points,stride,c.member(alpha_type,0x2358a817).offset,1.f);
+        c.array(alpha,points,count);
+        const auto transform=curve(0x5f61032a,0xa5a8bd1f);
+        points=c.array(transform,128,count,stride);
+        require(count>=2 && stride==80,"Native HUD transform keyframes differ.");
+        const auto transform_type=c.element(transform,0).type;
+        const std::array<float,16> identity{1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,0};
+        points=constant_hud_curve(points,stride,c.member(transform_type,0x2358a817).offset,identity);
+        c.array(transform,points,count);
+        surface.transition=style;
+        logging::log(logging::Level::info,logging::Channel::ui,
+            "Custom HUD private transition: stack={:#x}, opacity=1, transform=identity; stock styles unchanged.",stack.handle);
+        return style;
+    } catch(...) {
+        state().owned.rollback(checkpoint,[&](Value value){c.destroy(value);});
+        throw;
+    }
+}
+HudSurfaceSlot& hud_surface_slot(const Context& c,Value stack,std::int32_t id) {
+    auto& surface=state().hud_surfaces[stack.handle];surface.stack=stack;
+    auto& slot=surface.slots[id];
+    if(slot.anchor.handle && slot.item.handle)return slot;
+    const auto transition=opaque_hud_transition(c,stack,surface);
+    slot.anchor=make(c,anchor_schema);slot.item=make(c,stack_item);
+    c.set(c.field(slot.anchor,widget),Widget{});
+    c.set(c.field(slot.item,0x1e95752c),id);
+    c.set(c.field(slot.item,0xd78d240b),Ref{0,transition.handle});
+    c.set(c.field(slot.item,content),Widget{asset(c,"UI/Foundations/Templates/Layouts/Anchored/AnchoredContentPresenter_Widget"),{0,slot.anchor.handle}});
+    c.set(c.field(slot.item,0x369babfe),true);
+    for(const auto track:{0x8c0583eeU,0xc5c7cc11U}) {
+        c.set(c.path(slot.item,{track,0x20247753}),1.f);c.set(c.path(slot.item,{track,0x2426103f}),1.f);
+        c.set(c.path(slot.item,{track,0x1e3ce013}),true);
+    }
+    return slot;
+}
+void hide_hud_surface_content(const Context& c,HudSurface& surface) {
+    surface.content_gate.reset();surface.revealed=false;
+    for(auto& [id,slot]:surface.slots)if(slot.anchor.handle && c.type_of(slot.anchor.handle)==slot.anchor.type) {
+        const auto value=c.field(slot.anchor,widget);
+        const auto display=read<Widget>(c.address(value));
+        if(display.blueprint)slot.display=display;
+        c.set_if_changed(value,Widget{});
+    }
+}
+void suspend_hud_surface_content(const Context& c) {
+    for(auto& [handle,surface]:state().hud_surfaces) {
+        surface.suspended=true;hide_hud_surface_content(c,surface);
+    }
+}
+void publish_hud_surface(const Context& c,Value stack,std::span<const Value> visible,bool mode) {
+    auto& s=state();auto found=s.hud_surfaces.find(stack.handle);
+    if(found==s.hud_surfaces.end() && visible.empty())return;
+    auto& surface=s.hud_surfaces[stack.handle];surface.stack=stack;
+    std::erase_if(surface.visible,[&](int id){return (id>=0x4d4f4400 && id<0x4d4f4440)==mode;});
+    for(const auto item:visible)if(item.handle)surface.visible.insert(read<int>(c.address(c.field(item,0x1e95752c))));
+    const auto target=c.field(stack,items);unsigned count{},stride{};
+    const auto old=c.array(target,custom_hud_stack_item_limit,count,stride);
+    require(stride==stack_item.size,"Native stable HUD stack ABI differs.");
+    const auto id_offset=c.member(c.type(stack_item),0x1e95752c).offset;
+    const auto presenter_offset=c.member(c.type(stack_item),content).offset;
+    std::vector<std::byte> next;
+    for(unsigned i=0;i<count;++i) {
+        std::int32_t id{};std::memcpy(&id,old.data()+i*stride+id_offset,4);
+        if(!custom_hud_item(id))next.insert(next.end(),old.begin()+i*stride,old.begin()+(i+1)*stride);
+    }
+    if(!surface.visible.empty())for(const auto id:custom_hud_slot_order) {
+        auto& slot=hud_surface_slot(c,stack,id);
+        // Dynamic artwork (rank color, badge, results panel) is still authored
+        // through the same private anchor. Remember it before blanking a slot.
+        const auto display=read<Widget>(c.address(c.field(slot.anchor,widget)));
+        if(display.blueprint)slot.display=display;
+        const auto at=next.size();next.resize(at+stride);
+        require(memory::peek_bytes(c.address(slot.item),next.data()+at,stride),"Native stable HUD source unavailable.");
+        next[at+c.member(c.type(stack_item),0x369babfe).offset]=std::byte{1};
+    }
+    const auto stable=reconcile_hud_items<Widget>(old,next,stride,id_offset,presenter_offset);
+    if(stable)hide_hud_surface_content(c,surface);
+    publish_gameplay_hud_rows(c,stack,next,stride,id_offset,[&] {
+        if(stable) {
+            c.array(target,*stable,static_cast<unsigned>(stable->size()/stride));
+            surface.activation.remounted(GetTickCount64());
+            logging::log(logging::Level::info,logging::Channel::ui,
+                "Stable HUD presenters mounted: stack={:#x}, native_items={}, custom_active_items={}; content waits for native activation.",
+                stack.handle,next.size()/stride-(surface.visible.empty()?0:custom_hud_slot_order.size()),
+                surface.visible.empty()?0:custom_hud_slot_order.size());
+        }
+    });
+    if(surface.visible.empty()) {hide_hud_surface_content(c,surface);return;}
+    if(surface.suspended) {
+        // A real native menu retires/rebinds item contexts even though its
+        // retained presenter identities stay the same. Bootstrap that return
+        // once; ordinary content changes never set suspended.
+        surface.suspended=false;surface.activation.remounted(GetTickCount64());
+    }
+    // Context construction follows the initial list notification. Once it
+    // exists, one same-identity bootstrap refresh supplies the full active
+    // state before any content is revealed. New HUD elements never do this.
+    const bool handoff=surface.activation.due(GetTickCount64());
+    if(handoff) {
+        c.array(target,next,static_cast<unsigned>(next.size()/stride));
+        surface.activation.published();surface.content_gate.reset();
+        logging::log(logging::Level::info,logging::Channel::ui,
+            "Stable HUD activation handoff: stack={:#x}; presenter count/IDs unchanged, content still blank.",stack.handle);
+    }
+    // Native content creation can temporarily reset IsActive/interpolation for
+    // every initialized sibling. The private curves stay opaque/identity, so
+    // copying live inline items or blanking their content would cause the
+    // very flicker this path must avoid. Only real mount/menu gates hide it.
+    const bool settled=!stable && !handoff && !surface.activation.pending();
+    const bool reveal=surface.content_gate.allow(settled,GetTickCount64());
+    if(reveal && (!surface.revealed || surface.displayed_count!=surface.visible.size()))
+        logging::log(logging::Level::debug,logging::Channel::ui,
+            "Stable HUD content visible: stack={:#x}, visible={}, mounted={}; Items unchanged.",
+            stack.handle,surface.visible.size(),custom_hud_slot_order.size());
+    surface.revealed=reveal;surface.displayed_count=surface.visible.size();
+    for(auto& [id,slot]:surface.slots)
+        c.set_if_changed(c.field(slot.anchor,widget),reveal && surface.visible.contains(id)?slot.display:Widget{});
+}
+void detach_hud_surfaces(const Context& c) {
+    for(auto& [handle,surface]:state().hud_surfaces) {
+        hide_hud_surface_content(c,surface);
+        if(c.type_of(handle)!=surface.stack.type)continue;
+        const auto target=c.field(surface.stack,items);unsigned count{},stride{};
+        const auto old=c.array(target,custom_hud_stack_item_limit,count,stride);
+        const auto offset=c.member(c.type(stack_item),0x1e95752c).offset;
+        std::vector<std::byte> next;
+        for(unsigned i=0;i<count;++i) {
+            int id{};std::memcpy(&id,old.data()+i*stride+offset,4);
+            if(!custom_hud_item(id))next.insert(next.end(),old.begin()+i*stride,old.begin()+(i+1)*stride);
+        }
+        publish_gameplay_hud_rows(c,surface.stack,next,stride,offset,[&] {
+            if(next.size()!=old.size())c.array(target,next,static_cast<unsigned>(next.size()/stride));
+        });
+    }
+    state().hud_surfaces.clear();
 }
 void publish_hud_items(const Context& c,bool score,bool countdown,bool intro=false,bool results=false) {
     auto& s=state();if(!s.hud_stack.handle)return;
     if(c.type_of(s.hud_stack.handle)!=s.hud_stack.type) {s.hud_ready.store(false);return;}
-    const auto target=c.field(s.hud_stack,items);
-    unsigned count{},stride{};const auto old=c.array(target,32,count,stride);
-    require(stride==stack_item.size,"Native HUD stack schema differs.");
-    const auto offset=c.member(c.type(stack_item),0x1e95752c).offset;
-    std::vector<std::byte> next;
-    for(unsigned i=0;i<count;++i) {
-        std::int32_t id{};std::memcpy(&id,old.data()+i*stride+offset,4);
-        if(id!=hud_score_id && id!=hud_countdown_id && id!=hud_intro_id && id!=hud_results_id && id!=hud_clock_id && id!=hud_panel_id && id!=hud_title_id && id!=hud_badge_id && !(id>=hud_strike_id && id<hud_strike_id+6))next.insert(next.end(),old.begin()+i*stride,old.begin()+(i+1)*stride);
+    const bool ready=hud_publication_allowed(read<bool>(c.address(c.field(s.hud_stack,0x369babfe))),s.in_menu,
+        (score || countdown || intro || results) && s.match_panel_open.load());
+    const bool settled=s.hud_publication.allow(s.hud_stack.handle,one_up::view().state.match,ready,GetTickCount64());
+    if(!ready || ((score || countdown || intro || results || s.match_panel.prompt_visible) && !settled)) {
+        if(const auto found=s.hud_surfaces.find(s.hud_stack.handle);found!=s.hud_surfaces.end()) {
+            if(!ready)found->second.suspended=true;
+            hide_hud_surface_content(c,found->second);
+        }
+        return;
     }
+    std::vector<Value> visible;
     for(const auto item:{score?s.hud_item:Value{},score?s.hud_clock_item:Value{},score?s.hud_title_item:Value{},score?s.hud_badge_item:Value{},countdown?s.hud_timer_item:Value{},intro?s.hud_intro_item:Value{},results?s.hud_results_item:Value{},
-        s.match_panel.prompt_visible && !s.in_menu && !s.match_panel.quitting?s.match_panel.prompt_item:Value{}})if(item.handle) {
-        const auto start=next.size();next.resize(start+stride);
-        require(memory::peek_bytes(c.address(item),next.data()+start,stride),"Native HUD item unavailable.");
-    }
-    if(score)for(const auto id:s.hud_player_ids)if(const auto& player=s.hud_players.at(id);player.out && player.strike_item.handle) {
-        const auto start=next.size();next.resize(start+stride);
-        require(memory::peek_bytes(c.address(player.strike_item),next.data()+start,stride),"Native elimination stroke unavailable.");
-    }
-    // FreeRoamHUD has no ActivityPauseButton_Stack renderer. A private native
-    // StackScreen presents that control on the mounted full-aspect HUD.
-    const auto presenter_offset=c.member(c.type(stack_item),content).offset;
-    std::vector<std::int32_t> owned_ids{hud_score_id,hud_countdown_id,hud_intro_id,hud_results_id,hud_clock_id,hud_panel_id,hud_title_id,hud_badge_id};
-    for(int i=0;i<6;++i)owned_ids.push_back(hud_strike_id+i);
-    const auto visibility_fields=hud_visibility_fields(c);
-    const HudVisibilityContract visibility{c.member(c.type(stack_item),0x369babfe).offset,owned_ids,visibility_fields};
-    if(const auto stable=reconcile_hud_items<Widget>(old,next,stride,offset,presenter_offset,&visibility))
-        c.array(target,*stable,static_cast<unsigned>(stable->size()/stride));
+        s.match_panel.prompt_visible && !s.in_menu && !s.match_panel.quitting?s.match_panel.prompt_item:Value{}})if(item.handle)visible.push_back(item);
+    if(score)for(const auto id:s.hud_player_ids)if(const auto& player=s.hud_players.at(id);player.out && player.strike_item.handle)visible.push_back(player.strike_item);
+    publish_hud_surface(c,s.hud_stack,visible,false);
 }
 void plain_label(const Context& c,Value value,const std::string& text) {
     const auto label_text=c.field(value,text_field);
@@ -767,10 +952,10 @@ void remember_official(const Context& c,Value value) {
     c.copy(copy,c.address(value)); originals.emplace(value.handle,std::pair{value,copy});
 }
 void label_styles(const Context& c,Value label,const char* idle,const char* focused) {
-    c.set(c.field(label,0xf94d8cc6),record_ref(c,idle));
-    c.set(c.field(label,0xa1e84eb1),record_ref(c,focused));
-    c.set(c.field(label,0xfc23a999),record_ref(c,idle));
-    c.set(c.field(label,0x25189231),record_ref(c,focused));
+    c.set_if_changed(c.field(label,0xf94d8cc6),record_ref(c,idle));
+    c.set_if_changed(c.field(label,0xa1e84eb1),record_ref(c,focused));
+    c.set_if_changed(c.field(label,0xfc23a999),record_ref(c,idle));
+    c.set_if_changed(c.field(label,0x25189231),record_ref(c,focused));
 }
 Value compact_anchor(const Context& c,Value model,const char* blueprint,float height,bool focusable) {
     auto result=make(c,anchor_schema);
@@ -955,6 +1140,48 @@ void switch_page(const Context& c, bool details) {
 }
 void release(const Context& c,bool preserve_match_input=false) {
     auto& s=state(); s.owner.store(0);
+    if(preserve_match_input) {
+        // A picker generation is not a world/UI-manager lifetime. Retiring
+        // it during Start previously destroyed the active HUD, panel and
+        // delegates while native navigation still retained those references.
+        if(const auto slot=mounted_body(c,s.page)) {
+            const auto mounted=read<Widget>(c.address(*slot)).data.handle;
+            if(mounted==s.picker_anchor.handle || mounted==s.panel_anchor.handle) {
+                c.copy(*slot,c.address(s.original_body));
+                c.copy(back(c,s.page),c.address(s.original_back));
+                c.copy(c.field(s.page,0xd2118ca8),c.address(c.field(s.original_actions,0xd2118ca8)));
+                c.text(c.path(s.page,{0x3781b603,text_field}),s.original_title);
+            }
+        }
+        if(s.cards.handle && c.type_of(s.cards.handle)==s.cards.type) {
+            unsigned count{},stride{};const auto bytes=c.array(c.field(s.cards,rows_field),64,count,stride);
+            require(stride==sizeof(Ref),"1-Up card list changed during picker retirement.");
+            std::vector<Ref> retained;
+            for(unsigned i=0;i<count;++i) {
+                Ref ref{};std::memcpy(&ref,bytes.data()+i*stride,stride);
+                if(ref.handle!=s.card.handle && std::none_of(s.mode_cards.begin(),s.mode_cards.end(),
+                    [&](const auto& entry){return entry.second.tile.handle==ref.handle;}))retained.push_back(ref);
+            }
+            c.array(c.field(s.cards,rows_field),retained);
+        }
+        for(const auto& o:s.originals) {
+            if(c.type_of(o.tile.handle)==o.tile.type)c.set(c.field(o.tile,0x868043e1),o.tile_size);
+            if(c.type_of(o.category.handle)==o.category.type) {
+                c.set(c.field(o.category,0x495ffd43),o.icon_width);c.set(c.field(o.category,0x24fb5ca8),o.icon_height);
+            }
+            if(c.type_of(o.description.handle)==o.description.type)c.set(c.field(o.description,0x1cff7243),o.description_size);
+        }
+        // Retained roots are released by the existing real world/manager
+        // cleanup. Native cached pages can still reference this generation.
+        s.page={};s.cards={};s.card={};s.panel={};s.panel_anchor={};s.badge={};
+        s.duration_selector={};s.body_items={};s.confirm_action={};s.original_actions={};
+        s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={};
+        s.mode_cards.clear();s.selected_mode.clear();s.details_list={};s.rows.clear();s.originals.clear();
+        s.displayed.clear();s.duration_choices.clear();s.details=false;s.setup_open.store(false);
+        logging::write(logging::Level::info,logging::Channel::ui,
+            "Throwdowns: picker generation retired; active gameplay HUD, native panel and delegates retained.");
+        return;
+    }
     restore_map_branding(c);
     restore_match_panel(c);
     session_marker_controls(c,true);
@@ -977,7 +1204,7 @@ void release(const Context& c,bool preserve_match_input=false) {
     { std::lock_guard lock(s.mutex);
       std::erase_if(s.pending,[](const Action& a){return a.command!="oneup" && a.command!="mode-setup-area" && a.command!="mode-setup-join" && a.command!="panel-quit" && a.command!="throwdown-panel" && a.command!="mode-panel-quit" && a.command!="mode-throwdown-panel" && a.command!="mode-wait-start" && a.command!="mode-wait-leave";}); }
     s.owned.release([&] {
-        publish_hud_items(c,false,false);mode_hud_publish(c,false);s.hud_ready.store(false);
+        detach_hud_surfaces(c);restore_hud_active_budgets(c);s.hud_ready.store(false);
         restore_official(c);
     s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0;
         if (const auto slot=mounted_body(c,s.page)) {
@@ -1009,7 +1236,7 @@ void release(const Context& c,bool preserve_match_input=false) {
     s.setup_open.store(false,std::memory_order_release);
 }
 void initialize(const Context& c, Value p, Value list) {
-    auto& s=state(); s.page=p; s.cards=list; s.owner.store(p.handle); s.next_id=0;
+    auto& s=state(); s.page=p; s.cards=list; s.owner.store(p.handle);
     unsigned count{},stride{}; auto bytes=c.array(c.field(list,rows_field),3,count,stride);
     std::vector<Ref> refs(count); std::memcpy(refs.data(),bytes.data(),bytes.size());
     for (const auto& ref:refs) {
@@ -1019,8 +1246,11 @@ void initialize(const Context& c, Value p, Value list) {
     }
     const auto donor=s.originals[1]; const auto card_widget=read<Widget>(c.address(c.path(donor.tile,{widget,widget})));
     s.anchor_asset=card_widget.blueprint;
-    s.source_label=reference(c,read<Widget>(c.address(c.field(donor.description,widget))).data);
-    require(s.source_label.type && size(s.source_label.type)==label_schema.size,"1-Up description label unavailable.");
+    const auto donor_label=reference(c,read<Widget>(c.address(c.field(donor.description,widget))).data);
+    require(donor_label.type && size(donor_label.type)==label_schema.size,"1-Up description label unavailable.");
+    // Gameplay and the details panel outlive the picker that supplied this
+    // label. Own its typed copy instead of borrowing a retired native page.
+    s.source_label=make(c,label_schema,donor_label.type);c.copy(s.source_label,c.address(donor_label));
     s.card=make(c,tile_schema,donor.tile.type); c.copy(s.card,c.address(donor.tile));
     s.category=make(c,category_schema,donor.category.type); c.copy(s.category,c.address(donor.category));
     for (const auto hash : {0x189084daU, 0xc2917efcU})
@@ -2001,10 +2231,11 @@ void mount_hud(const Context& c,Value model,Address blueprint,Value& anchor,Valu
         logging::log(logging::Level::info,logging::Channel::ui,
             "1-Up: attached to live gameplay HUD {:#x}; authored defaults excluded.",selected);
     }
-    const auto anchor_widget=asset(c,"UI/Foundations/Templates/Layouts/Anchored/AnchoredContentPresenter_Widget");
-        if(anchor.handle && item.handle)return;
-        const auto next_anchor=make(c,anchor_schema);
-        c.set(c.field(next_anchor,widget),Widget{blueprint,{0,model.handle}});
+        auto& slot=hud_surface_slot(c,s.hud_stack,id);
+        if(anchor.handle==slot.anchor.handle && item.handle==slot.item.handle)return;
+        const auto next_anchor=slot.anchor;
+        slot.display=Widget{blueprint,{0,model.handle}};
+        c.set(c.field(next_anchor,widget),Widget{});
         c.set(c.field(next_anchor,0x1cff7243),std::array<float,2>{center?700.f:1100.f,center?480.f:900.f});
         c.set(c.field(next_anchor,0x144aee01),false);
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
@@ -2016,15 +2247,7 @@ void mount_hud(const Context& c,Value model,Address blueprint,Value& anchor,Valu
             c.set(c.field(layout,0x40bfbff4),offset);c.set(c.field(layout,0x1d233266),offset);
             c.set(c.field(layout,0xfec5e0b1),center?.5f:0.f);c.set(c.field(layout,0xd01f4a21),1.f);
         }
-        const auto next_item=make(c,stack_item);
-        c.set(c.field(next_item,0x1e95752c),id);
-        c.copy(c.field(next_item,0xd78d240b),c.address(c.field(s.hud_stack,0x54c9abee)));
-        c.set(c.field(next_item,content),Widget{anchor_widget,{0,next_anchor.handle}});
-        c.set(c.field(next_item,0x369babfe),true);
-        for(const auto track:{0x8c0583eeU,0xc5c7cc11U}) {
-            c.set(c.path(next_item,{track,0x20247753}),1.f);c.set(c.path(next_item,{track,0x2426103f}),1.f);
-            c.set(c.path(next_item,{track,0x1e3ce013}),true);
-        }
+        const auto next_item=slot.item;
         anchor=next_anchor;item=next_item;
 }
 void native_countdown_hud(const Context& c) {
@@ -2042,7 +2265,7 @@ void native_countdown_hud(const Context& c) {
     if(s.hud_intro_visible) {
         if(!s.hud_intro.handle) {
             s.hud_intro=record_model(c,"TD_Hud_ContentResources/TD_ActivityBanner");
-            c.set(c.field(s.hud_intro,0xf79313be),record_ref(c,"ActivityBannerStylesList/ActivityBannerCenterFullWidthStyle.Throwdown.Default"));
+            c.set_if_changed(c.field(s.hud_intro,0xf79313be),record_ref(c,"ActivityBannerStylesList/ActivityBannerCenterFullWidthStyle.Throwdown.Default"));
             const auto heading=c.field(s.hud_intro,0xcbc57608);
             const auto authored=record_model(c,"TD_Hud_ContentResources/TD_ActivityBanner_ContentWithTitle");
             c.copy(heading,c.address(authored));
@@ -2050,13 +2273,13 @@ void native_countdown_hud(const Context& c) {
             label_styles(c,c.field(heading,0x44688629),"TextStylesList/D180-Caps_White","TextStylesList/D180-Caps_White");
             plain_label(c,c.field(heading,0x00f3b15e),"Beat the target. Last skater standing wins!");
             s.hud_intro_badge=make(c,texture_schema);
-            c.set(c.field(s.hud_intro_badge,0xf524c836),256.f);
-            c.set(c.field(s.hud_intro_badge,0x6fbd254e),256.f);
-            c.set(c.field(heading,content),Widget{asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget"),{0,s.hud_intro_badge.handle}});
+            c.set_if_changed(c.field(s.hud_intro_badge,0xf524c836),256.f);
+            c.set_if_changed(c.field(s.hud_intro_badge,0x6fbd254e),256.f);
+            c.set_if_changed(c.field(heading,content),Widget{asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget"),{0,s.hud_intro_badge.handle}});
         }
         publish_texture(c,std::array{c.field(s.hud_intro_badge,0x6e469d2a)},"UI/ReSkate/OneUp/img_OneUp_Blue_1024");
         mount_hud(c,s.hud_intro,asset(c,"UI/Features/Activities/Blueprints/ActivityBanner_CenterFullWidth_Widget"),s.hud_intro_anchor,s.hud_intro_item,hud_intro_id,true);
-        c.set(c.field(s.hud_intro_anchor,0x1cff7243),std::array<float,2>{1920.f,600.f});
+        c.set_if_changed(c.field(s.hud_intro_anchor,0x1cff7243),std::array<float,2>{1920.f,600.f});
     }
     if(s.hud_countdown_visible) {
         if(!s.hud_timer.handle)s.hud_timer=record_model(c,"Activities_HudElementData_ContentResource/Activities_CountdownItemHUD");
@@ -2064,15 +2287,14 @@ void native_countdown_hud(const Context& c) {
         // transitions. CountdownViewModel belongs to the small queue timer
         // and is not the model consumed by the game's turn-start animation.
         plain_label(c,c.field(s.hud_timer,0x58c9d354),show_go?"GO!":std::to_string(native_hud_seconds(v.remaining)));
-        c.set(c.field(s.hud_timer,1698918111U),show_go?0.f:std::clamp(static_cast<float>(v.remaining)/3000.f,0.f,1.f));
+        c.set_if_changed(c.field(s.hud_timer,1698918111U),show_go?0.f:std::clamp(static_cast<float>(v.remaining)/3000.f,0.f,1.f));
         mount_hud(c,s.hud_timer,asset(c,"UI/Features/Activities/Widgets/System/ActivityCountdown_Widget"),s.hud_timer_anchor,s.hud_timer_item,hud_countdown_id,true);
-        c.set(c.field(s.hud_timer_anchor,0x1cff7243),std::array<float,2>{512.f,512.f});
+        c.set_if_changed(c.field(s.hud_timer_anchor,0x1cff7243),std::array<float,2>{512.f,512.f});
     }
     if(fresh_countdown) {
         s.hud_countdown_token=token;
         logging::write(logging::Level::info,logging::Channel::ui,"1-Up: native Throwdown intro and ActivityCountdown 3-2-1/GO sequence mounted.");
     }
-    publish_hud_items(c,s.hud_ready.load(),s.hud_countdown_visible,s.hud_intro_visible);
 }
 void native_score_hud(const Context& c) {
     auto& s=state();const auto v=one_up::view();const auto now=GetTickCount64();
@@ -2080,7 +2302,7 @@ void native_score_hud(const Context& c) {
     if(!ended)s.hud_ended_at=0;else if(!s.hud_ended_at)s.hud_ended_at=now;
     const bool show=v.state.match && v.state.phase!=one_up::Phase::lobby &&
         (!ended || now-s.hud_ended_at<5000);
-    if(!show) {publish_hud_items(c,false,s.hud_countdown_visible,s.hud_intro_visible);s.hud_ready.store(false);return;}
+    if(!show) {s.hud_ready.store(false);return;}
     const auto label_widget=asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget");
     const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
     const auto notice_widget=asset(c,"UI/ReSkate/Throwdowns/OneUpScore_Widget");
@@ -2090,13 +2312,13 @@ void native_score_hud(const Context& c) {
     constexpr float score_height=224.f;
     const float height=score_height+row_pitch*static_cast<float>(v.state.players.size());
     const auto place=[&](Value anchor,float width,float h,float x,float y,float pivot_x,float pivot_y,float scale=1.f) {
-        c.set(c.field(anchor,0x1cff7243),std::array<float,2>{width,h});
+        c.set_if_changed(c.field(anchor,0x1cff7243),std::array<float,2>{width,h});
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
             const bool vertical=axis==0x185a5736U;const auto layout=c.field(anchor,axis);
-            c.set(c.field(layout,0x99bbed5a),vertical?y:x);c.set(c.field(layout,0x49943bed),vertical?y:x);
-            c.set(c.field(layout,0x40bfbff4),0.f);c.set(c.field(layout,0x1d233266),0.f);
-            c.set(c.field(layout,0xfec5e0b1),vertical?pivot_y:pivot_x);
-            c.set(c.field(layout,0xd01f4a21),scale);
+            c.set_if_changed(c.field(layout,0x99bbed5a),vertical?y:x);c.set_if_changed(c.field(layout,0x49943bed),vertical?y:x);
+            c.set_if_changed(c.field(layout,0x40bfbff4),0.f);c.set_if_changed(c.field(layout,0x1d233266),0.f);
+            c.set_if_changed(c.field(layout,0xfec5e0b1),vertical?pivot_y:pivot_x);
+            c.set_if_changed(c.field(layout,0xd01f4a21),scale);
         }
     };
     const bool rebuild=!s.hud_initialized || !hud_list_has_items(c,s.hud_content,3) || s.hud_player_ids.size()!=v.state.players.size();
@@ -2105,9 +2327,9 @@ void native_score_hud(const Context& c) {
             s.hud_title=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
             label_styles(c,s.hud_title,"TextStylesList/D94-Caps-Bold_White","TextStylesList/D94-Caps-Bold_White");
             s.hud_badge=make(c,texture_schema);
-            c.set(c.field(s.hud_badge,0xf524c836),144.f);c.set(c.field(s.hud_badge,0x6fbd254e),144.f);
-            c.set(c.field(s.hud_badge,0xd1997d0c),false);
-            c.set(c.field(s.hud_badge,0xcd4a53c0),record_ref(c,"InteractivityColorStylesList/InteractiveColors.Core.AllWhite"));
+            c.set_if_changed(c.field(s.hud_badge,0xf524c836),144.f);c.set_if_changed(c.field(s.hud_badge,0x6fbd254e),144.f);
+            c.set_if_changed(c.field(s.hud_badge,0xd1997d0c),false);
+            c.set_if_changed(c.field(s.hud_badge,0xcd4a53c0),record_ref(c,"InteractivityColorStylesList/InteractiveColors.Core.AllWhite"));
             s.hud_board=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
             label_styles(c,s.hud_board,"TextStylesList/SP38-SemiB_White","TextStylesList/SP38-SemiB_White");
         }
@@ -2116,11 +2338,11 @@ void native_score_hud(const Context& c) {
         // share a leaderboard row's bounds.
         for(auto* counter:{&s.hud_target,&s.hud_current})if(!counter->handle) {
             *counter=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-            c.set(c.field(*counter,0x13be0d51),std::array<float,2>{480.f,72.f});
+            c.set_if_changed(c.field(*counter,0x13be0d51),std::array<float,2>{480.f,72.f});
             const auto label=c.field(*counter,0x94703efc);
             label_styles(c,label,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-            c.set(c.field(label,0x3d8639d0),0);c.set(c.field(label,0x87ad624c),2);
-            c.set(c.field(label,0xc13ba637),false);
+            c.set_if_changed(c.field(label,0x3d8639d0),0);c.set_if_changed(c.field(label,0x87ad624c),2);
+            c.set_if_changed(c.field(label,0xc13ba637),false);
         }
         if(!s.hud_notice.handle)s.hud_notice=make(c,linear_list);
         hud_list(c,s.hud_notice,{{notice_widget,{0,s.hud_target.handle}},{notice_widget,{0,s.hud_current.handle}}},false,72.f,8.f,0.f,480.f);
@@ -2129,18 +2351,19 @@ void native_score_hud(const Context& c) {
         hud_list(c,s.hud_content,{{label_widget,{0,s.hud_board.handle}},{list_widget,{0,s.hud_notice.handle}},
             {list_widget,{0,s.hud_rows.handle}}},false,48.f,12.f,row_pitch*static_cast<float>(v.state.players.size()),board_width);
         const auto counter_anchor=read<Handle>(c.address(c.element(c.field(s.hud_content,0xf2c90867),1)));
-        c.set(c.field({counter_anchor,c.type_of(counter_anchor)},0x1cff7243),std::array<float,2>{board_width,152.f});
+        c.set_if_changed(c.field({counter_anchor,c.type_of(counter_anchor)},0x1cff7243),std::array<float,2>{board_width,152.f});
         s.hud_initialized=true;
     }
     mount_hud(c,s.hud_content,list_widget,s.hud_anchor,s.hud_item,hud_score_id,false);
     place(s.hud_anchor,board_width,height,.95f,.5f,1.f,.5f,.85f);
     mount_hud(c,s.hud_title,label_widget,s.hud_title_anchor,s.hud_title_item,hud_title_id,false);
     place(s.hud_title_anchor,480.f,96.f,.04f,.14f,0.f,0.f);
-    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.path(s.hud_title_anchor,{0xde7d30c7,key}),162.f);
-    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.path(s.hud_title_anchor,{0x185a5736,key}),24.f);
+    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(s.hud_title_anchor,{0xde7d30c7,key}),162.f);
+    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(s.hud_title_anchor,{0x185a5736,key}),24.f);
     publish_texture(c,std::array{c.field(s.hud_badge,0x6e469d2a)},"UI/ReSkate/OneUp/img_OneUp_Blue_1024");
     mount_hud(c,s.hud_badge,asset(c,"UI/ReSkate/Throwdowns/HUDLogo_Widget"),s.hud_badge_anchor,s.hud_badge_item,hud_badge_id,false);
     place(s.hud_badge_anchor,144.f,144.f,.04f,.14f,0.f,0.f);
+    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(s.hud_badge_anchor,{0x185a5736,key}),-18.f);
     mount_hud(c,s.hud_clock,asset(c,"UI/Foundations/Components/Countdown/Countdown_Widget"),s.hud_clock_anchor,s.hud_clock_item,hud_clock_id,false);
     place(s.hud_clock_anchor,150.f,64.f,.5f,.93f,.5f,1.f,.85f);
     const auto points=[](double n){return std::to_string(static_cast<std::uint32_t>(std::max(0.0,n)));};
@@ -2148,9 +2371,9 @@ void native_score_hud(const Context& c) {
     plain_label(c,s.hud_board,ended?(v.state.winner?v.name(v.state.winner)+" WINS!":"MATCH COMPLETE"):v.name(v.state.active)+"'S TURN");
     plain_label(c,c.field(s.hud_target,0x94703efc),"TARGET   "+points(v.state.target));
     plain_label(c,c.field(s.hud_current,0x94703efc),"SCORE   "+points(v.state.best));
-    c.set(c.field(s.hud_clock,0x703c4d93),false);
-    c.set(c.field(s.hud_clock,0x167131bb),!ended);c.set(c.field(s.hud_clock,0x6186003c),!ended);
-    c.set(c.field(s.hud_clock,0xc11082ee),true);
+    c.set_if_changed(c.field(s.hud_clock,0x703c4d93),false);
+    c.set_if_changed(c.field(s.hud_clock,0x167131bb),!ended);c.set_if_changed(c.field(s.hud_clock,0x6186003c),!ended);
+    c.set_if_changed(c.field(s.hud_clock,0xc11082ee),true);
     native_timer_seconds(c,s.hud_clock,0x4cc5ec89,v.state.config.turn_ms);
     native_timer_seconds(c,s.hud_clock,0x0ec4a8c0,v.state.phase==one_up::Phase::playing?v.remaining:0);
     std::vector<std::uint64_t> ids;
@@ -2160,24 +2383,24 @@ void native_score_hud(const Context& c) {
         if(!hud.row.handle) {
             hud.row=make(c,linear_list);
             hud.background=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-            c.set(c.field(hud.background,0x13be0d51),std::array<float,2>{620.f,row_height});
+            c.set_if_changed(c.field(hud.background,0x13be0d51),std::array<float,2>{620.f,row_height});
             hud.name=c.field(hud.background,0x94703efc);
-            c.set(c.field(hud.name,0x87ad624c),2);c.set(c.field(hud.name,0x3d8639d0),2);
-            c.set(c.field(hud.name,0xc13ba637),false);c.set(c.field(hud.name,0xfc53d427),false);
+            c.set_if_changed(c.field(hud.name,0x87ad624c),2);c.set_if_changed(c.field(hud.name,0x3d8639d0),2);
+            c.set_if_changed(c.field(hud.name,0xc13ba637),false);c.set_if_changed(c.field(hud.name,0xfc53d427),false);
             unsigned index{};
             for(const auto* letter:{"1","U","P"}) {
                 auto& stamp=hud.letters[index++];
                 stamp=record_model(c,"Activities_HudElementData_ContentResource/Activity_HUD_CurrentScore_Notice");
-                c.set(c.field(stamp,0x13be0d51),std::array<float,2>{row_height,row_height});
+                c.set_if_changed(c.field(stamp,0x13be0d51),std::array<float,2>{row_height,row_height});
                 const auto label=c.field(stamp,0x94703efc);plain_label(c,label,letter);
                 label_styles(c,label,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-                c.set(c.field(label,0x87ad624c),2);c.set(c.field(label,0x3d8639d0),2);
-                c.set(c.field(label,0xc13ba637),false);
+                c.set_if_changed(c.field(label,0x87ad624c),2);c.set_if_changed(c.field(label,0x3d8639d0),2);
+                c.set_if_changed(c.field(label,0xc13ba637),false);
             }
 
         }
         const float name_width=float(native_hud_name_width(v.name(player.id)));
-        c.set(c.field(hud.background,0x13be0d51),std::array<float,2>{name_width,row_height});
+        c.set_if_changed(c.field(hud.background,0x13be0d51),std::array<float,2>{name_width,row_height});
         if(!hud_list_has_items(c,hud.row,4)) {
             std::vector<Widget> cells{{asset(c,"UI/ReSkate/Throwdowns/OneUpName_Widget"),{0,hud.background.handle}}};
             for(const auto& stamp:hud.letters)cells.push_back({asset(c,"UI/Foundations/Components/Notices/SmallNotice_Widget"),{0,stamp.handle}});
@@ -2185,8 +2408,8 @@ void native_score_hud(const Context& c) {
             for(unsigned col=0;col<4;++col) {
                 const auto ref=read<Handle>(c.address(c.element(c.field(hud.row,0xf2c90867),col)));
                 const Value anchor{ref,c.type_of(ref)};
-                c.set(c.field(anchor,0x1cff7243),std::array<float,2>{col==0?name_width:row_height,row_height});
-                for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.path(anchor,{0x185a5736,key}),0.f);
+                c.set_if_changed(c.field(anchor,0x1cff7243),std::array<float,2>{col==0?name_width:row_height,row_height});
+                for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(anchor,{0x185a5736,key}),0.f);
             }
         }
         plain_label(c,hud.name,v.name(player.id));hud.out=!player.eligible();
@@ -2195,14 +2418,14 @@ void native_score_hud(const Context& c) {
         const auto name_art=std::string("UI/ReSkate/Throwdowns/")+(hud.out?"OneUpEliminated_":"OneUpName_")+std::to_string(static_cast<unsigned>(name_width))+"_Widget";
         const auto name_blueprint=asset(c,name_art.c_str());
         const auto name_anchor=read<Handle>(c.address(c.element(c.field(hud.row,0xf2c90867),0)));
-        c.set(c.field({name_anchor,c.type_of(name_anchor)},0x1cff7243),std::array<float,2>{name_width,row_height});
+        c.set_if_changed(c.field({name_anchor,c.type_of(name_anchor)},0x1cff7243),std::array<float,2>{name_width,row_height});
         const auto name_slot=c.field({name_anchor,c.type_of(name_anchor)},widget);
         if(read<Widget>(c.address(name_slot)).blueprint!=name_blueprint)
-            c.set(name_slot,Widget{name_blueprint,{0,hud.background.handle}});
+            c.set_if_changed(name_slot,Widget{name_blueprint,{0,hud.background.handle}});
         for(unsigned letter=0;letter<3;++letter) {
             const auto style=record_ref(c,earned_one_up_letter(player.penalties,letter)?
                 "NoticeStylesList/SmallNotice_ControlSelection_Focus":"NoticeStylesList/SmallNotice_ControlSelection_Default");
-            c.set(c.field(hud.letters[letter],0x8cc042ef),style);c.set(c.field(hud.letters[letter],0xa1e84eb1),style);
+            c.set_if_changed(c.field(hud.letters[letter],0x8cc042ef),style);c.set_if_changed(c.field(hud.letters[letter],0xa1e84eb1),style);
         }
         ids.push_back(player.id);rows.push_back({list_widget,{0,hud.row.handle}});
     }
@@ -2211,10 +2434,9 @@ void native_score_hud(const Context& c) {
         for(unsigned row=0;row<rows.size();++row) {
             const auto ref=read<Handle>(c.address(c.element(c.field(s.hud_rows,0xf2c90867),row)));
             const Value anchor{ref,c.type_of(ref)};
-            c.set(c.field(anchor,0x6efc1a61),true);c.set(c.field(anchor,0xbe5683d9),false);
+            c.set_if_changed(c.field(anchor,0x6efc1a61),true);c.set_if_changed(c.field(anchor,0xbe5683d9),false);
         }
     }
-    publish_hud_items(c,true,s.hud_countdown_visible,s.hud_intro_visible);
     if(!s.hud_ready.exchange(true))logging::write(logging::Level::info,logging::Channel::ui,"1-Up: logo, brush heading, target/score strips, centered standings and clock mounted.");
 }
 void native_results_hud(const Context& c) {
@@ -2237,7 +2459,7 @@ void native_results_hud(const Context& c) {
         const auto winner=v.state.winner;
         plain_label(c,c.field(s.hud_results_notice,0x94703efc),winner?v.name(winner)+" WINS!":"PRACTICE COMPLETE");
         label_styles(c,c.field(s.hud_results_notice,0x94703efc),"TextStylesList/H64-XBold_White","TextStylesList/H64-XBold_White");
-        c.set(c.field(s.hud_results_notice,0x13be0d51),std::array<float,2>{1200.f,130.f});
+        c.set_if_changed(c.field(s.hud_results_notice,0x13be0d51),std::array<float,2>{1200.f,130.f});
         auto players=v.state.players;
         std::stable_sort(players.begin(),players.end(),[&](const auto& a,const auto& b){
             if(a.id==winner || b.id==winner)return a.id==winner && b.id!=winner;
@@ -2249,8 +2471,8 @@ void native_results_hud(const Context& c) {
         // Reuse the actual Throwdown results board and its rank/profile rows.
         // Only the content is changed; its column layout and player styles are
         // supplied by the original LEGACY_Scoreboard_Widget blueprint.
-        c.set(c.field(s.hud_results_rows,0x5a7cec85),true);
-        c.set(c.field(s.hud_results_rows,0xb7e92e95),true);
+        c.set_if_changed(c.field(s.hud_results_rows,0x5a7cec85),true);
+        c.set_if_changed(c.field(s.hud_results_rows,0xb7e92e95),true);
         plain_label(c,c.element(c.field(s.hud_results_rows,0x3d98d397),2),"1-UP");
         std::vector<Ref> rows;unsigned rank{};
         for(const auto& player:players) {
@@ -2261,12 +2483,12 @@ void native_results_hud(const Context& c) {
                 row.outcome=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
                 auto rank_widget=read<Widget>(c.address(c.field(row.row,0xc76d8b73)));
                 rank_widget.data={0,row.rank.handle};
-                c.set(c.field(row.row,0xc76d8b73),rank_widget);
+                c.set_if_changed(c.field(row.row,0xc76d8b73),rank_widget);
                 const auto scores=c.field(row.row,0xa3d2bba9);
                 c.array(c.field(scores,0xf2c90867),std::vector<Handle>{});
                 c.array(c.field(scores,rows_field),std::vector<Ref>{{0,row.outcome.handle}});
             }
-            c.set(c.field(row.row,0x8810a01e),player.id==v.local);
+            c.set_if_changed(c.field(row.row,0x8810a01e),player.id==v.local);
             plain_label(c,c.path(row.row,{0xaed127c3,profile_name_tag_field}),v.name(player.id));
             plain_label(c,c.field(row.rank,0x2718c842),std::to_string(++rank));
             plain_label(c,row.outcome,player.id==winner?"WINNER":player.connected?"1 U P":"LEFT");
@@ -2283,15 +2505,85 @@ void native_results_hud(const Context& c) {
         logging::log(logging::Level::info,logging::Channel::ui,"1-Up: native results leaderboard mounted for {} skater(s).",players.size());
     }
     mount_hud(c,s.hud_results,asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),s.hud_results_anchor,s.hud_results_item,hud_results_id,true);
-    c.set(c.field(s.hud_results_anchor,0x1cff7243),std::array<float,2>{1200.f,920.f});
-    c.set(c.path(s.hud_results_anchor,{0x185a5736,0x99bbed5a}),.5f);
-    c.set(c.path(s.hud_results_anchor,{0x185a5736,0x49943bed}),.5f);
-    publish_hud_items(c,false,false,false,true);
+    c.set_if_changed(c.field(s.hud_results_anchor,0x1cff7243),std::array<float,2>{1200.f,920.f});
+    c.set_if_changed(c.path(s.hud_results_anchor,{0x185a5736,0x99bbed5a}),.5f);
+    c.set_if_changed(c.path(s.hud_results_anchor,{0x185a5736,0x49943bed}),.5f);
     s.hud_results_visible=true;
 }
 #include "one_up_match_panel.inl"
+void trace_official_panel_models(const Context& c,std::uint64_t now) noexcept {
+    try {
+        const auto mode=modes::native_view();
+        const auto& lease=match_panel_lease(c);
+        logging::log(logging::Level::info,logging::Channel::ui,
+            "PanelTrace UI snapshot: tick={}, manager={:#x}, in_menu={}, custom_panel={}, requested={}, oneup={}, mode_game={}, mode_active={}, native_activity={}, phase={}, countdown_lock={}, closing={}, panel_page={:#x}, hud_root={:#x}, hud_stack={:#x}, race_game={}.",
+            now,c.manager,state().in_menu,state().match_panel_open.load(),state().match_panel.requested_until,
+            one_up::view().state.match,mode.game,mode.active,local_throwdown_active(),
+            mode.state?static_cast<int>(mode.state->phase):-1,
+            one_up::countdown_locks_input() || modes::countdown_locks_input(),lease.closing.pending(),
+            state().match_panel.page.handle,state().hud_root.handle,state().hud_stack.handle,state().mode_hud.game);
+        for(const auto& root:c.roots({0x1cead64a,0xcc4776b5,0xaf4c67d7})) {
+            const auto hash=read<std::uint32_t>(read<Address>(root.model.type));
+            std::string values;
+            if(hash==0x1cead64a)for(const auto value:read<std::array<std::int32_t,5>>(c.address(root.model)))values+=std::format(" {}",value);
+            else if(hash==0xaf4c67d7)values=std::to_string(read<std::int32_t>(c.address(c.field(root.model,0x88391637))));
+            else {
+                values=std::format(" action={:#x}",read<std::uint32_t>(c.address(c.field(root.model,0xf3ba9cf8))));
+                unsigned count{},stride{};const auto bytes=c.array(c.field(root.model,0xf437b255),32,count,stride);
+                if(stride==4)for(unsigned i=0;i<count;++i) {std::int32_t value{};std::memcpy(&value,bytes.data()+i*4,4);values+=std::format(" {}",value);}
+            }
+            logging::log(logging::Level::info,logging::Channel::ui,"PanelTrace navigation: tick={}, schema={:#x}, root={:#x};{}.",now,hash,root.model.handle,values);
+        }
+        unsigned captured{};
+        for(const auto& root:c.roots({0xd71ee0a1})) {
+            if(captured>=12)break;
+            if(!read<bool>(c.address(c.field(root.model,0x369babfe))))continue;
+            const auto item=active_match_panel_layer_item(c,root.model);if(!item.handle)continue;
+            const auto display=read<Widget>(c.address(c.field(item,content)));
+            if(!display.data.handle || !display.blueprint)continue;
+            const auto type=c.type_of(display.data.handle);if(type!=c.type(page))continue;
+            const Value page_model{display.data.handle,type};const auto action=back(c,page_model);
+            ++captured;
+            logging::log(logging::Level::info,logging::Channel::ui,
+                "PanelTrace native Page: tick={}, stack={:#x}, page={:#x}, item={}, blueprint={:#x}, Back={}, delegate={:#x}.",
+                now,root.model.handle,page_model.handle,read<int>(c.address(c.field(item,0x1e95752c))),display.blueprint,
+                c.text(c.field(action,0xb1e14cd6)),read<Address>(c.address(c.field(action,0x9c76b86c))));
+        }
+        const auto view_manager=read<Address>(c.base+0x75cbc48);
+        if(view_manager && read<Address>(view_manager)==c.base+0x63ece68) {
+            const auto first=read<Address>(view_manager+8),last=read<Address>(view_manager+16);
+            if(last>=first && last-first<=32*8)for(auto at=first;at<last;at+=8) {
+                const auto view=read<Address>(at);
+                if(!view || read<Address>(view)!=c.base+0x63ed0a0 || read<unsigned>(view+0x148) || read<unsigned>(view+0x14c))continue;
+                const auto camera=read<Address>(view+0x2b0);if(!camera)continue;
+                const auto pose=read<std::array<float,16>>(camera+0x50);
+                logging::log(logging::Level::info,logging::Channel::ui,
+                    "PanelTrace camera: tick={}, view={:#x}, camera={:#x}, vtable={:#x}, origin=({},{},{}), forward=({},{},{}), FOV={}.",
+                    now,view,camera,read<Address>(camera)-c.base,pose[12],pose[13],pose[14],pose[8],pose[9],pose[10],read<float>(camera+0xac));
+            }
+        }
+    } catch(const std::exception& e) {logging::log(logging::Level::info,logging::Channel::ui,"PanelTrace snapshot unavailable: {}.",e.what());}
+}
 void gameplay_hud(const Context& c,std::uint64_t now) {
     auto& s=state();
+    // Retire expired countdown/intro before any optional HUD builder can fail.
+    try {mode_hud_transients(c,modes::native_view(),now);}
+    catch(const std::exception&) { /* Retired native parents are retried safely. */ }
+    if(s.in_menu || s.match_panel_open.load()) {
+        suspend_hud_surface_content(c);
+        s.hud_publication.allow(s.hud_stack.handle,one_up::view().state.match,false,now);
+        s.mode_hud.publication.allow(s.mode_hud.stack.handle,s.mode_hud.game,false,now);
+        try {native_match_panel(c,now);}
+        catch(const std::exception& e) {
+            if(s.match_panel.requested_until && now>=s.match_panel.requested_until) {
+                try {restore_match_panel(c);}catch(...) {}
+                s.match_panel.requested_until=0;s.match_panel.request_after=0;
+            }
+            static std::uint64_t report{};
+            if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"Native challenge menu transition: {}",e.what());}
+        }
+        return;
+    }
     try {throwdown_map_identity(c);}
     catch(const std::exception& e) {
         static std::uint64_t report{};
@@ -2305,7 +2597,6 @@ void gameplay_hud(const Context& c,std::uint64_t now) {
     try {native_countdown_hud(c);}
     catch(const std::exception& e) {
         s.hud_countdown_visible=false;s.hud_intro_visible=false;
-        try {publish_hud_items(c,s.hud_ready.load(),false);}catch(...) {}
         static std::uint64_t report{};
         if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"1-Up native countdown HUD: {}",e.what());}
     }
@@ -2317,14 +2608,16 @@ void gameplay_hud(const Context& c,std::uint64_t now) {
         const auto match=one_up::view();
         if(!match.state.match || match.state.phase==one_up::Phase::lobby) {
             s.hud_ready.store(false);
-            try {publish_hud_items(c,false,s.hud_countdown_visible,s.hud_intro_visible);}catch(...) {}
         }
         static std::uint64_t report{};
         if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"1-Up native gameplay HUD: {}",e.what());}
     }
     try {mode_hud(c);}
     catch(const std::exception& e) {
-        try {mode_hud_publish(c,false);}catch(...) {}
+        // A transition can temporarily hide the native parent or delay an
+        // optional asset. Keep the last complete frame while the challenge
+        // still owns it; tearing it down here produces a double flash.
+        if(!modes::native_view().active)try {mode_hud_publish(c,false);}catch(...) {}
         static std::uint64_t report{};
         if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"Throwdown mode HUD: {}",e.what());}
     }
@@ -2419,42 +2712,108 @@ void render(const Context& c) {
 bool native_one_up_setup_open() noexcept { return state().setup_open.load(std::memory_order_acquire); }
 bool native_one_up_hud_ready() noexcept { return state().hud_ready.load(std::memory_order_acquire); }
 bool native_one_up_match_panel_open() noexcept { return state().match_panel_open.load(std::memory_order_acquire); }
+bool native_one_up_match_active() noexcept { try {return match_panel_view().available;}catch(...) {return false;} }
+void prepare_native_one_up_match_panel() noexcept {
+    // Native ModelWriteLock is recursive for the same thread (1933460);
+    // completion can therefore also run inside an SDK model publication.
+    static thread_local bool preparing{};
+    if(preparing)return;
+    auto& s=state();const auto now=GetTickCount64();
+    if(!s.manager || !s.base || !s.match_panel.page.handle || !pending_match_panel_request(Context{s.base,s.manager},now))return;
+    preparing=true;
+    struct Reset {bool& value;~Reset(){value=false;}} reset{preparing};
+    try {
+        const auto view=match_panel_view();
+        if(!view.available || view.open_command+":"+view.argument!=s.match_panel.match_key)return;
+        const auto ui=read<Address>(s.base+build::engine::ui_manager);
+        if(!ui || read<Address>(ui+0x140)!=s.manager)return;
+        const Context c{s.base,s.manager};game::ModelWriteLock lock{s.manager};
+        prepare_match_panel_body(c,now);
+    } catch(const std::exception& e) {
+        logging::log(logging::Level::warning,logging::Channel::ui,
+            "Throwdowns: native Details presentation preparation deferred: {}",e.what());
+    }
+}
 bool release_native_one_up_menu(std::uintptr_t base) noexcept {
+    overlay::capture_challenge_menu_input(false);
+    sync_custom_activity_ui_presence(false);
     auto& s=state(); if(s.owned.empty()) { s.owner.store(0); s.setup_open.store(false); return true; }
     try { const auto ui=read<Address>(base+build::engine::ui_manager); const auto manager=ui?read<Address>(ui+0x140):0;
         require(manager!=0,"1-Up UI manager unavailable during cleanup.");
-        if(manager!=s.manager) { s.owned.manager_replaced(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear(); s.displayed.clear(); s.generations.clear(); s.details=false; return true; }
+        if(manager!=s.manager) { s.owned.manager_replaced(); s.hud_active_budget.manager_replaced(); s.hud_surfaces.clear(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear(); s.displayed.clear(); s.generations.clear(); s.details=false; return true; }
         const Context c(base,manager); game::ModelWriteLock lock(manager); release(c); s.generations.clear(); return true;
     } catch(const std::exception& e) { logging::log(logging::Level::warning,logging::Channel::ui,"1-Up native menu cleanup: {}",e.what()); return false; }
 }
 void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noexcept {
-    auto& s=state();s.in_menu=in_menu;
+    auto& s=state();if(s.in_menu!=in_menu)s.next_tick=0;s.in_menu=in_menu;
     const auto now=GetTickCount64();
     try {
     // Poll at the caller's client tick rate, not the 200ms UI refresh rate.
     // This snapshot is normalized XInput for every supported controller and
     // contains only keyboard state from the foreground game window.
     const auto panel_view=match_panel_view();
+    // Waiting/placement retains the registration's native controls. Only
+    // competing gameplay or an explicit panel transition borrows UI presence.
+    sync_custom_activity_ui_presence(!loading && panel_view.available &&
+        (one_up::restricts_session_markers() || modes::restricts_session_markers() ||
+         s.match_panel.requested_until || s.match_panel_open.load()));
     ControllerInput panel_input;
     DingoSDKOverlayReadControllerInput(&panel_input,true);
     // ControllerInput.keys contains bindable gameplay keys, which excludes
     // Escape. PromptKeys explicitly samples Escape from the foreground game.
     const bool escape=(DingoSDKOverlayReadPromptKeys() & 8u)!=0;
+    s.panel_key_down=(panel_input.buttons & 0x0010u)!=0 || escape;
+    tick_official_panel_trace(s.panel_key_down,now);
+    static std::uint64_t next_panel_trace{};
+    if((official_panel_trace_active() || panel_view.available || s.match_panel_open.load()) &&
+       !loading && now>=next_panel_trace) {
+        next_panel_trace=now+(official_panel_trace_active()?100:1000);
+        const auto ui=read<Address>(base+build::engine::ui_manager);
+        const auto manager=ui?read<Address>(ui+0x140):0;
+        if(manager) {const Context c(base,manager);game::ModelWriteLock lock(manager);trace_official_panel_models(c,now);}
+    }
     DWORD foreground_process{};
     GetWindowThreadProcessId(GetForegroundWindow(),&foreground_process);
-    const bool input_allowed=!loading && panel_view.available && foreground_process==GetCurrentProcessId();
+    const bool input_allowed=!loading && panel_view.available && foreground_process==GetCurrentProcessId() && !overlay::interface_open();
+    overlay::capture_challenge_menu_input(!loading && panel_view.available,
+        !loading && panel_view.available && s.match_panel_open.load(std::memory_order_acquire),s.panel_key_down);
     {
         std::lock_guard input_lock(s.panel_input_mutex);
-        if(s.panel_start_input.sample(panel_input.buttons,escape,input_allowed,in_menu)) {
+        if(s.panel_start_input.sample(panel_input.buttons,escape,input_allowed,in_menu,s.match_panel_open.load())) {
             s.panel_start_request=panel_view.open_command+":"+panel_view.argument;
             s.next_tick=0;
         }
         if(!input_allowed)s.panel_start_request.clear();
     }
-    if(loading || (now<s.next_tick && !one_up::flag_placement_active())) return; s.next_tick=now+200;
+    if(loading)return;
+    if(now<s.next_tick && !one_up::flag_placement_active()) {
+        // Retry presentation at frame rate if native model publication lands
+        // after its script callback. This never rebuilds/restarts HUD stacks.
+        if(s.match_panel.requested_until)prepare_native_one_up_match_panel();
+        // Only text advances between full HUD ticks. Re-publishing the native
+        // stack each frame races its visibility/layout transitions.
+        const auto view=modes::native_view();
+        if(view.active && view.settings.mode==modes::Mode::race &&
+           view.game==s.mode_hud.game && s.mode_hud.race_rows.handle) {
+            const auto ui=read<Address>(base+build::engine::ui_manager);
+            const auto manager=ui?read<Address>(ui+0x140):0;
+            if(manager && manager==s.manager) {
+                try {
+                    const Context c(base,manager);game::ModelWriteLock lock(manager);
+                    if(in_menu && s.match_panel_open.load())match_panel_race_times(c,view,now);
+                    if(!in_menu && s.mode_hud.stack.handle && c.type_of(s.mode_hud.stack.handle)==s.mode_hud.stack.type &&
+                       hud_publication_allowed(read<bool>(c.address(c.field(s.mode_hud.stack,0x369babfe))),in_menu,
+                           s.match_panel_open.load()))
+                        mode_race_clocks(c,view,now);
+                } catch(...) { /* A retiring clock must not retire the whole HUD. */ }
+            }
+        }
+        return;
+    }
+    s.next_tick=now+200;
         const auto ui=read<Address>(base+build::engine::ui_manager); const auto manager=ui?read<Address>(ui+0x140):0; if(!manager)return;
         const Context c(base,manager); game::ModelWriteLock lock(manager);
-        if(s.manager && s.manager!=manager) { s.owned.manager_replaced(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear(); s.displayed.clear(); s.generations.clear(); s.details=false; }
+        if(s.manager && s.manager!=manager) { s.owned.manager_replaced(); s.hud_active_budget.manager_replaced(); s.hud_surfaces.clear(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear(); s.displayed.clear(); s.generations.clear(); s.details=false; }
         s.manager=manager; s.base=base;
         // The native menu lifetime releases models BEFORE a level unload and
         // rebuilds each new page below. Multiplayer world/session rebinding is
@@ -2524,16 +2883,14 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
                     const auto v=one_up::view();
                     if(action.argument==std::to_string(v.state.match) && v.state.match) {
                         s.match_panel.quitting=true;one_up::queue("leave");
-                        if(s.in_menu)request_menu_toggle(c);
-                        restore_match_panel(c);
+                        close_match_panel(c,now);
                     }
                 }
                 else if(action.command=="throwdown-panel") {
                     const auto v=one_up::view();
                     if(action.argument==std::to_string(v.state.match) && v.state.match && v.participant && v.state.phase!=one_up::Phase::lobby && v.state.phase!=one_up::Phase::cancelled) {
-                        s.match_panel.requested_until=now+2000;
-                        s.match_panel.request_after=now+250;
-                        request_activity_details(c);
+                        s.match_panel.requested_until=now+4000;
+                        s.match_panel.request_after=now;
                     }
                 }
                 else if(action.command=="mode-setup-area" || action.command=="mode-setup-join") {
@@ -2556,11 +2913,10 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
                        action.argument==std::to_string(v.game)) {
                         if(action.command=="mode-panel-quit") {
                             s.match_panel.quitting=true;modes::command("quit",{});
-                            if(s.in_menu)request_menu_toggle(c);
-                            restore_match_panel(c);
+                            close_match_panel(c,now);
                         } else {
-                            s.match_panel.requested_until=now+2000;s.match_panel.request_after=now+250;
-                            request_activity_details(c);
+                            s.match_panel.requested_until=now+4000;s.match_panel.request_after=now;
+
                         }
                     }
                 }

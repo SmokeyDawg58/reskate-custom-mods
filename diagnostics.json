@@ -1,0 +1,183 @@
+{
+  "generated_at_utc": "2026-10-15T21:23:17.127350+00:00",
+  "verdict": "READY_FOR_CONTROLLED_MULTIPLAYER_PLAYTEST",
+  "live_multi_pc_validation": "NOT_YET_PERFORMED",
+  "tested_dll_sha256": "e2d9626b49be3d8659c1e27a4c4ba5798c6461de65837e7a35253a0c5057e3a8",
+  "automated_tests": {
+    "passed": 78,
+    "failed": 0,
+    "names": [
+      "launcher_mod_manager",
+      "launcher_thunderstore",
+      "thunderstore_package",
+      "launcher_game_settings",
+      "launcher_gamepad_input",
+      "launcher_depot_output",
+      "content_catalogs",
+      "content_cache_install",
+      "item_thumbnails",
+      "world_layer_scan",
+      "mod_merge_grid",
+      "mod_build_stamp",
+      "bundle_ref_table",
+      "mod_scoring",
+      "mod_music",
+      "music_safety",
+      "music_playback_policy",
+      "music_shelf_lifetime",
+      "music_artwork",
+      "mod_merge_unshift",
+      "chunk_metadata_merge",
+      "mod_merge_added_assets",
+      "item_list_merge",
+      "ebx_merge",
+      "mod_merge_audit",
+      "store_copies",
+      "backtrace",
+      "throwdown_mode_rules_and_wire",
+      "deathrace_native_asset_contract",
+      "throwdown_challenge_registry",
+      "hall_of_meat",
+      "one_up_rules_and_wire",
+      "native_throwdown_lifetime",
+      "one_up_coordinator",
+      "one_up_flag_placement",
+      "multiplayer_voice",
+      "multiplayer_parties",
+      "server_activity",
+      "server_text",
+      "server_speed_check",
+      "server_board_check",
+      "server_config",
+      "server_park_mods",
+      "server_release",
+      "server_global_bans",
+      "server_words",
+      "word_filter",
+      "multiplayer_bandwidth",
+      "multiplayer_pose_codec",
+      "multiplayer_lanes",
+      "multiplayer_prediction",
+      "velocity_boost",
+      "first_person_stabilize",
+      "first_person_cycle",
+      "playstation_report",
+      "physics_tuning",
+      "camera_observer_recovery",
+      "linear_transform",
+      "draw_packet",
+      "skinned_mesh",
+      "game_textures",
+      "loading_screen_selection",
+      "native_menu_browser",
+      "native_menu_tools",
+      "native_menu_lifetime",
+      "native_callback_lifetime",
+      "steam_friend_join",
+      "multiplayer_protocol",
+      "throwdown_relay",
+      "multiplayer_native_layout",
+      "multiplayer_lobbies",
+      "multiplayer_mesh",
+      "developer_identity",
+      "multiplayer_settings_lock",
+      "simulation_time",
+      "overlay_held_input",
+      "ea_service_block",
+      "discord_presence"
+    ]
+  },
+  "protocol": {
+    "session": 50,
+    "game_modes": 12,
+    "one_up": 5,
+    "throwdown_payload_limit_bytes": 4096
+  },
+  "protocol_malformed_mutated_inputs_tested": 40000,
+  "load_simulations": [
+    {
+      "case": "load-16-players",
+      "simulated_players": 16,
+      "simulated_seconds": 30,
+      "players_connected_at_end": 16,
+      "failed_sends": 0,
+      "skipped_sends": 0,
+      "dropped_sends": 0,
+      "simulated_server_stall_seconds": 0,
+      "performance_line": "busy 5.1% of one core; 0.26 ms a pass on average, longest 0.6 ms; 1454 KB/s out",
+      "transport": "simulated; no live Steam clients"
+    },
+    {
+      "case": "load-16-players-stall",
+      "simulated_players": 16,
+      "simulated_seconds": 30,
+      "players_connected_at_end": 16,
+      "failed_sends": 0,
+      "skipped_sends": 0,
+      "dropped_sends": 0,
+      "simulated_server_stall_seconds": 2,
+      "performance_line": "busy 4.8% of one core; 0.26 ms a pass on average, longest 20.1 ms; 1363 KB/s out",
+      "transport": "simulated; no live Steam clients"
+    },
+    {
+      "case": "load-4-players",
+      "simulated_players": 4,
+      "simulated_seconds": 20,
+      "players_connected_at_end": 4,
+      "failed_sends": 0,
+      "skipped_sends": 0,
+      "dropped_sends": 0,
+      "simulated_server_stall_seconds": 0,
+      "performance_line": "busy 0.5% of one core; 0.03 ms a pass on average, longest 0.2 ms; 75 KB/s out",
+      "transport": "simulated; no live Steam clients"
+    }
+  ],
+  "local_preflight": {
+    "created_at_utc": "2026-10-15T21:17:38.471919+00:00",
+    "files": {
+      "Skate.exe": {
+        "sha256": "fbce74d5e28ef525dbba2cb4adbebc13405bdbd88f31bc940bca45e4ae88b8f9",
+        "matches_supported_build": true
+      },
+      "steam_api64.dll": {
+        "sha256": "88b55dc33bfe9d8f998b72bf7074ebe0d21318a0b6dfdcca3530cb1e0c102a39",
+        "matches_supported_build": true
+      },
+      "ReSkate.dll": {
+        "sha256": "e2d9626b49be3d8659c1e27a4c4ba5798c6461de65837e7a35253a0c5057e3a8",
+        "matches_playtest_build": true
+      },
+      "ReSkateLauncher.exe": {
+        "sha256": "26e45668f8f850f4e2635995df987a881d4633b3b414541e2fb1ae61986b63e1",
+        "matches_playtest_build": true
+      }
+    },
+    "launcher_auto_updates_enabled": false,
+    "launcher_offline_mode": false,
+    "enabled_mod_entries": 120,
+    "latest_game_log_scoring_check_stock": true,
+    "scoring_evidence": "Latest game startup reports stock trick scoring and physics across 129 checked mods.",
+    "architecture": "x64",
+    "installed_files_changed": false
+  },
+  "human_confirmed": [
+    "Prompt and steady custom HUD in editor, confirmation and race flow.",
+    "Native challenge camera/movement/menu entry and normal menus after Quit in two matches.",
+    "Custom logos, gates and HUD survived repeated saved-course map changes in earlier manual checks."
+  ],
+  "not_proven": [
+    "Steam relay and invitations between separate PCs/accounts.",
+    "Native gate creation, racer spawn facing and time/standings agreement on multiple PCs.",
+    "Guest Quit, challenge-leader departure, lobby-host departure and reconnect recovery in live play.",
+    "Custom-map package parity and native asset lifetime on each guest PC.",
+    "Very large route transfers under real shared throwdown message-rate limits."
+  ],
+  "readiness_scope": "Use 2-4 players, one shared stock map and a short route first. Increase route/map/connection stress after the baseline passes.",
+  "sandbox_first_run": {
+    "passed": 72,
+    "failed": 6,
+    "reason": "Temporary-file rename/publish and localhost operations were denied by the sandbox. The unchanged suite passed 78/78 with normal access."
+  },
+  "game_programs_controlled": false,
+  "installed_game_files_changed": false
+}

@@ -83,6 +83,7 @@ struct Game {
     std::optional<Referee> referee;     // leading, from the start
     std::optional<Message> state;       // the latest state (the leader's own when leading)
     std::uint64_t heard{}, setup_sent{}, state_sent{}, join_sent{};
+    std::uint64_t state_sampled_ms{};
     std::uint32_t sequence{}, calls_seen{};
     int checkpoint_sent{-1};
     bool lined_up{}; // Deathrace: put at the start gate for this game's countdown
@@ -827,7 +828,7 @@ void line_up(State &s) {
     Vec3 spot{};
     if (g.settings.mode == Mode::race && g.settings.points.size() >= 2) {
         const auto &start = g.settings.points[0];
-        const float yaw = gate_heading(g.settings, 0) * 3.14159265f / 180.0f, dx = std::sin(yaw), dz = std::cos(yaw);
+        const float yaw = race_start_heading(g.settings) * 3.14159265f / 180.0f, dx = std::sin(yaw), dz = std::cos(yaw);
         // Side by side across the gate, a step behind its line.
         const float across = (index - (count - 1.0f) * 0.5f) * 2.5f;
         spot = {start[0] - dz * across - dx * 1.5f, start[1], start[2] + dx * across - dz * 1.5f};
@@ -846,7 +847,7 @@ void line_up(State &s) {
             g.native_flag_placed?g.native_flag_yaw:s.heading);
         return;
     }
-    g.lined_up=teleport_to(spot, gate_heading(g.settings, 0)); // down the start gate
+    g.lined_up=teleport_to(spot, race_start_heading(g.settings));
 }
 // Where a game's banner stands and its joiners are sent: Deathrace's start gate, the circle's or
 // area's centre, its first spot, or where its leader set it up.
@@ -1450,6 +1451,7 @@ void run_leader(State &s, Game &g, std::uint64_t now) {
         g.tags_sent = g.tags.size();
     }
     g.state = r.state(now);
+    g.state_sampled_ms=now;
     record_result(s, g.leader, g.id, g.settings.mode, *g.state);
     if (changed || now - g.state_sent >= state_every_ms) {
         send(s, *g.state);
@@ -1938,6 +1940,7 @@ void build_hud(State &s, std::uint64_t now) {
         const auto& g=*s.game;
         native.active=true;native.leading=g.leading;native.leader=g.leader;native.game=g.id;
         native.settings=g.settings;native.state=g.state;native.capacity=g.capacity;native.placing=s.placing!=State::Placing::none;
+        native.state_sampled_ms=g.state_sampled_ms;
         native.flag_placed=g.native_flag_placed;
         native.pending_flag=g.native_lobby && !g.native_flag_placed && !g.referee;
         native.waiting=g.native_lobby && g.native_flag_placed && !g.referee && !native.placing;
@@ -2170,6 +2173,7 @@ bool receive(std::uint64_t sender, std::span<const std::uint8_t> bytes) {
     case Message::Kind::state:
         if (ours && !s.game->leading && sender == m.leader) {
             s.game->state = m;
+            s.game->state_sampled_ms=now;
             s.game->heard = now;
             record_result(s, m.leader, m.game, s.game->settings.mode, m);
         } else if (!ours && sender == m.leader) {
@@ -2562,6 +2566,11 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
         if(g.settings.mode==Mode::race)if(const auto error=race_world::start_error(s.world,g.id);!error.empty())return "error: "+error;
         if(g.settings.mode==Mode::race && !physics_tuning::game_tuning())return "error: stock physics are still loading; wait a moment before starting.";
         if (const auto why = missing(g.settings); !why.empty()) return "error: " + why;
+        if(g.settings.mode==Mode::race) {
+            // Start plane and lineup must share the restored course direction.
+            // Broadcast the change before countdown so every racer uses it.
+            align_race_start(g.settings);settings_changed(g);
+        }
         if (s.skater && g.settings.mode!=Mode::race && !g.native_flag_placed) {
             g.settings.spawn = s.position;
             g.settings.has_spawn = true;

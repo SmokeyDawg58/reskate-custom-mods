@@ -1,5 +1,5 @@
-// Private instances of the game's Throwdown details page, panel and scoreboard.
-// The pause state still owns the phone pose, input context, Back and teardown.
+// Private Throwdown details inside the native activity layer. The native
+// challenge navigation owns the camera, input context and Back transition.
 struct MatchPanelRow {
     std::uint64_t id{};
     std::string name,value;
@@ -8,19 +8,22 @@ struct MatchPanelView {
     bool available{};
     std::uint64_t local{};
     std::string title,description,logo,timer_caption,timer,score_caption;
+    std::string rule_caption,rule_value;
     std::string open_command,quit_command,argument;
     std::vector<MatchPanelRow> players;
 };
+std::string mode_racer_time(const modes::NativeView&,const modes::Standing&,std::uint64_t);
 MatchPanelView match_panel_view() {
     MatchPanelView result;
     const auto oneup=one_up::view();
     if(oneup.state.match && oneup.participant && oneup.state.phase!=one_up::Phase::lobby &&
        oneup.state.phase!=one_up::Phase::cancelled && oneup.state.phase!=one_up::Phase::finished) {
         result.available=true;result.local=oneup.local;
-        result.title="1-UP";result.description="Beat the previous turn total. Three penalties and you're out!";
+        result.title="1-UP";result.description="BEAT THE TARGET\nBeat the previous turn's score. Three penalties and you're out.";
         result.logo="UI/ReSkate/OneUp/img_OneUp_Blue_1024";
         result.timer_caption="Turn Timer";result.timer=std::to_string(oneup.state.config.turn_ms/1000)+"s";
-        result.score_caption="1-UP";result.open_command="throwdown-panel";result.quit_command="panel-quit";
+        result.score_caption="1-UP";result.rule_caption="Penalties";result.rule_value="3";
+        result.open_command="throwdown-panel";result.quit_command="panel-quit";
         result.argument=std::to_string(oneup.state.match);
         for(const auto& player:oneup.state.players)
             result.players.push_back({player.id,oneup.name(player.id),!player.connected?"LEFT":
@@ -38,7 +41,29 @@ MatchPanelView match_panel_view() {
     result.description=definition->description;result.logo=definition->logo;
     result.timer_caption=definition->supports_turns?"Turn Timer":"Timer";
     result.timer=std::to_string(definition->supports_turns?mode.settings.turn_s:mode.settings.duration_s)+"s";
-    result.score_caption=mode.settings.mode==modes::Mode::race?"GATES / TIME":"SCORE";
+    result.score_caption=mode.settings.mode==modes::Mode::race?"Time":"Score";
+    result.rule_caption="Area";result.rule_value=modes::has_area(mode.settings)?"Selected area":"Whole map";
+    if(mode.settings.mode==modes::Mode::race) {
+        result.description="FASTEST TIME\nPass Required gates in order. Guides are optional. Reach the red Finish.";
+        result.timer_caption="Time Limit";
+        result.timer=native_hud_race_time(static_cast<std::uint64_t>(mode.settings.duration_s)*1000);
+        result.rule_caption="Required Gates";
+        result.rule_value=std::to_string(modes::mandatory_gates(mode.settings,
+            mode.settings.points.size()-(mode.settings.race_finish && !mode.settings.points.empty()?1:0)));
+    } else if(mode.settings.mode==modes::Mode::jam)
+        result.description="TOTAL SCORE\nAccumulate the most points across all your tricks to win.";
+    else if(mode.settings.mode==modes::Mode::meat)
+        result.description="BAIL SCORE\nScore the biggest bail before time runs out.";
+    else if(mode.settings.mode==modes::Mode::domination)
+        result.description="CONTROL THE SPOTS\nBeat each spot's score to take control. Hold the most spots to win.";
+    else if(mode.settings.mode==modes::Mode::graffiti)
+        result.description="CLAIM THE MOST\nLand tricks on spots to claim them. Finish with the most claims.";
+    else if(mode.settings.mode==modes::Mode::tag)
+        result.description="SKATE TAG\nTag another skater when you're it. Avoid being caught.";
+    else if(mode.settings.mode==modes::Mode::infection)
+        result.description="STAY CLEAR\nAvoid infected skaters. Once caught, join the hunt.";
+    else if(mode.settings.mode==modes::Mode::hide)
+        result.description="HIDE & SEEK\nHide during the countdown, then avoid the seeker.";
     result.open_command="mode-throwdown-panel";result.quit_command="mode-panel-quit";
     result.argument=std::to_string(mode.game);
     for(unsigned i=0;i<mode.state->standings.size();++i) {
@@ -47,19 +72,25 @@ MatchPanelView match_panel_view() {
                                     [&](const auto& player){return player.first==standing.player;});
         result.players.push_back({standing.player,i<feed.rows.size()?feed.rows[i].name:
             name!=mode.names.end()?name->second:std::to_string(standing.player),
-            i<feed.rows.size()?feed.rows[i].value:std::to_string(standing.score)});
+            mode.settings.mode==modes::Mode::race?
+                mode_racer_time(mode,standing,GetTickCount64()):
+                i<feed.rows.size()?feed.rows[i].value:std::to_string(standing.score)});
     }
     return result;
 }
-// The activity flow owns the phone pose and input context. Its menu lives on
-// Layer_Menu, not on the separate Core pause-menu tab stack.
+// Borrow only the selected native activity Page. Never replace Core pause tabs.
 struct MatchPanelLease {
     Address manager{};
     Handle generation_page{};
     ActivityDetailsOwnership details;
+    ActivityDetailsClose closing;
     Value selection;
     Address page_blueprint{};
     Value shortcut_stack,saved_shortcut,shortcut_content,highlight;
+    Value menu_stack,native_page,saved_native_page;
+    bool selection_requested{};
+    bool selection_consumed{};
+    bool selection_retirement_allowed{};
     std::string back_navigation;
     std::string wait_reason;
     std::uint64_t wait_logged{};
@@ -133,9 +164,15 @@ bool request_activity_details(const Context& c) {
     const auto current=read<std::int32_t>(c.address(selected));
     // Rewards, celebrations and other native activity pages keep their owner.
     if(current!=0 && current!=1)return false;
-    auto& lease=match_panel_lease(c);lease.selection=selected;lease.details.request();
+    auto& lease=match_panel_lease(c);
+    if(current==1 && !lease.selection_requested)return false;
+    lease.selection=selected;lease.details.request();
     if(!current) {
+        lease.selection_requested=true;
+        lease.selection_consumed=false;
+        lease.selection_retirement_allowed=false;
         c.set(selected,std::int32_t{1}); // ActivityMenus.Activities_Details.
+        set_custom_activity_menu_request(c.address(selected));
         logging::write(logging::Level::info,logging::Channel::ui,"Throwdowns: native activity menu selected Activities_Details.");
     }
     return true;
@@ -152,6 +189,26 @@ bool request_native_navigation(const Context& c,const char* action) {
     c.set(navigation,game::native_name_hash(action));
     return true;
 }
+bool request_native_challenge_menu(const Context& c) {
+    // Official Start capture: Activities_OpenPause_Button (0x71760666)
+    // writes Activities_SelectedMenu=1, then native Flow_ActivityDetails
+    // owns the Page and camera. DelMar_UI_Navigation stays unchanged. Its
+    // stale Back=2 after placement previously blocked Start until Map opened.
+    return request_activity_details(c);
+}
+void retire_challenge_request(const Context& c) {
+    set_custom_activity_menu_request(0);
+    auto& lease=match_panel_lease(c);
+    // Expiry withdraws an unmounted request. Completed Back/restoration can
+    // also retire our consumed selection only if restoration began while the
+    // exact live selected Page/body was still ours. Restoring a retained old
+    // Page must never withdraw a replacement stock page's selection.
+    if(lease.selection_requested && (!lease.selection_consumed || lease.selection_retirement_allowed)) {
+        if(lease.selection.handle && c.type_of(lease.selection.handle)==lease.selection.type &&
+           read<std::int32_t>(c.address(lease.selection))==1)c.set(lease.selection,std::int32_t{0});
+    }
+    lease.selection_requested=false;
+}
 Value active_match_panel_layer_item(const Context& c,Value layer) {
     const auto list=c.field(layer,items);
     unsigned count{},stride{};c.array(list,32,count,stride);
@@ -163,24 +220,53 @@ Value active_match_panel_layer_item(const Context& c,Value layer) {
     const auto item=c.element(list,*selected);
     return read<bool>(c.address(c.field(item,0x369babfe)))?item:Value{};
 }
-bool owns_selected_match_panel(const Context& c) {
+bool match_panel_body_owned(const Context& c,Value native_page) {
+    const auto& p=state().match_panel;
+    if(!native_page.handle || c.type_of(native_page.handle)!=native_page.type || !p.outer_anchor.handle)return false;
+    const auto list=c.field(c.field(native_page,content),items);
+    unsigned count{},stride{};c.array(list,32,count,stride);
+    if(count!=1 || stride!=stack_item.size)return false;
+    const auto item=c.element(list,0);
+    const auto display=read<Widget>(c.address(c.field(item,content)));
+    return read<int>(c.address(c.field(item,0x1e95752c)))==hud_panel_id+2 &&
+        display.blueprint==asset(c,native_menu_detail::anchored_widget) && display.data.record==0 &&
+        display.data.handle==p.outer_anchor.handle;
+}
+bool match_panel_actions_owned(const Context& c,Value native_page) {
+    const auto& p=state().match_panel;
+    if(!p.quit.handle || c.type_of(p.quit.handle)!=p.quit.type)return false;
+    const auto actions=c.field(native_page,0xd2118ca8);
+    unsigned count{},stride{};c.array(actions,8,count,stride);
+    if(count!=1 || stride!=page_action_schema.size)return false;
+    const auto action=c.path(c.element(actions,0),{0xa704272a,0xc52416ef,0xa704272a,0xa2b71c93,0x9c76b86c});
+    const auto quit=c.path(p.quit,{0x0fb0d794,0xa704272a,0xc52416ef,0xa704272a,0xa2b71c93,0x9c76b86c});
+    const auto expected=read<Address>(c.address(quit));
+    return expected && read<Address>(c.address(action))==expected;
+}
+bool retains_current_match_panel_page(const Context& c) {
     const auto& lease=match_panel_lease(c);const auto& p=state().match_panel;
     if(!lease.details.requested || !lease.details.page || !lease.details.layer || !p.mounted_slot.handle ||
        c.type_of(p.mounted_slot.handle)!=p.mounted_slot.type)return false;
-    const auto layer=native_record_model(c,asset(c,"UI_Layer_Data/Layer_Menu"),0xd71ee0a1);
-    if(layer.handle!=lease.details.layer)return false;
+    const auto layer=lease.menu_stack;
+    if(!layer.handle || c.type_of(layer.handle)!=layer.type || layer.handle!=lease.details.layer)return false;
     const auto item=active_match_panel_layer_item(c,layer);
     if(!item.handle)return false;
     const auto current=read<Widget>(c.address(c.field(item,content)));
     return current.blueprint==lease.page_blueprint &&
-        lease.details.owns(current.data.handle,layer.handle,read<int>(c.address(c.field(item,0x1e95752c))));
+        lease.details.owns(current.data.handle,layer.handle,read<int>(c.address(c.field(item,0x1e95752c)))) &&
+        match_panel_body_owned(c,lease.native_page);
+}
+bool owns_selected_match_panel(const Context& c) {
+    const auto& lease=match_panel_lease(c);
+    return state().in_menu && lease.selection.handle && c.type_of(lease.selection.handle)==lease.selection.type &&
+        read<std::int32_t>(c.address(lease.selection))==1 && retains_current_match_panel_page(c);
 }
 bool request_menu_toggle(const Context& c) {
     const auto& lease=match_panel_lease(c);
     if(lease.details.requested)
         return owns_selected_match_panel(c) && !lease.back_navigation.empty() &&
             request_native_navigation(c,lease.back_navigation.c_str());
-    return request_native_navigation(c,"ToggleMenu");
+    return false;
 }
 void detach_match_panel_prompt(const Context& c) {
     state().match_panel.prompt_visible=false;
@@ -221,25 +307,83 @@ void detach_match_panel_prompt(const Context& c) {
 }
 void restore_match_panel_mount(const Context& c) {
     auto& s=state();auto& p=s.match_panel;
-    if(p.mounted_slot.handle && p.saved_slot.handle && c.type_of(p.mounted_slot.handle)==p.mounted_slot.type &&
-       game::native_data().models.value(c.manager,p.mounted_slot.handle,0,1)) {
-        const auto mounted=read<Widget>(c.address(p.mounted_slot));
-        // A tab change or native page retirement already released our mount.
-        // Never overwrite that newer content with a saved, unrelated page.
-        if(mounted.data.handle==p.page.handle)c.copy(p.mounted_slot,c.address(p.saved_slot));
+    auto& lease=match_panel_lease(c);
+    const bool owned_selection=owns_selected_match_panel(c);
+    // StackScreenController's destructor finds its item by the original Page
+    // DataContext/Blueprint. Keep that identity intact throughout native Back;
+    // restore only the body/actions we borrowed, even after the item is gone.
+    if(lease.saved_native_page.handle && lease.native_page.handle &&
+       c.type_of(lease.native_page.handle)==lease.native_page.type &&
+       c.type_of(lease.saved_native_page.handle)==lease.saved_native_page.type) {
+        if(match_panel_body_owned(c,lease.native_page)) {
+            c.copy(c.field(lease.native_page,content),c.address(c.field(lease.saved_native_page,content)));
+            lease.selection_retirement_allowed=owned_selection;
+        }
+        if(match_panel_actions_owned(c,lease.native_page))
+            c.copy(c.field(lease.native_page,0xd2118ca8),c.address(c.field(lease.saved_native_page,0xd2118ca8)));
     }
+    lease.menu_stack={};lease.native_page={};lease.saved_native_page={};
     p.mounted_slot={};s.match_panel_open.store(false,std::memory_order_release);
+    overlay::capture_challenge_menu_input(match_panel_view().available,false,s.panel_key_down);
     if(s.in_menu || p.quitting || !match_panel_view().available)detach_match_panel_prompt(c);
-    auto& lease=match_panel_lease(c);lease.details.clear_mount();lease.back_navigation.clear();lease.page_blueprint=0;
+    lease.details.clear_mount();lease.back_navigation.clear();lease.page_blueprint=0;
 }
 void restore_match_panel(const Context& c) {
     restore_match_panel_mount(c);
+    retire_challenge_request(c);
     auto& lease=match_panel_lease(c);lease.details.retire();lease.selection={};
+    lease.closing.reset();
     auto& p=state().match_panel;p.requested_until=0;p.request_after=0;
+}
+bool close_match_panel(const Context& c,std::uint64_t now) {
+    auto& lease=match_panel_lease(c);
+    lease.closing.begin(now);
+    if(!owns_selected_match_panel(c)) {
+        // Native Back has completed, or another owner replaced this page.
+        // Restore only cached copies still retaining our exact presenter.
+        restore_match_panel(c);
+        logging::write(logging::Level::info,logging::Channel::ui,
+            "Throwdowns: native details close completed; owned body/actions restored and input released.");
+        return true;
+    }
+    if(lease.closing.needs_back()) {
+        const bool queued=request_menu_toggle(c);
+        lease.closing.back_queued(queued);
+        if(queued)logging::write(logging::Level::info,logging::Channel::ui,
+            "Throwdowns: native details Back queued; retaining ownership until native teardown.");
+    }
+    // A stale busy navigation action must not strand a completed match. The
+    // captured native Back clears Activities_SelectedMenu to zero. Recover
+    // that selection only while this exact private page is still selected and
+    // we own the original 0->1 write; never touch a replacement stock page.
+    const bool own_selection=lease.selection_requested && lease.selection.handle &&
+        c.type_of(lease.selection.handle)==lease.selection.type &&
+        read<std::int32_t>(c.address(lease.selection))==1;
+    if(lease.closing.needs_selection_recovery(now,true,own_selection)) {
+        c.set(lease.selection,std::int32_t{0});
+        logging::write(logging::Level::warning,logging::Channel::ui,
+            "Throwdowns: native Back did not consume the owned details selection; withdrawing that exact selection.");
+    }
+    return false;
 }
 bool pending_match_panel_request(const Context&,std::uint64_t now) {
     const auto& p=state().match_panel;
-    return p.requested_until && now<p.requested_until && (state().in_menu || p.request_after);
+    return p.requested_until && now<p.requested_until;
+}
+std::optional<float> native_activity_camera_fov(const Context& c) {
+    const auto manager=read<Address>(c.base+0x75cbc48);
+    if(!manager || read<Address>(manager)!=c.base+0x63ece68)return {};
+    const auto first=read<Address>(manager+8),last=read<Address>(manager+16);
+    if(last<first || last-first>32*8 || (last-first)%8)return {};
+    for(auto at=first;at<last;at+=8) {
+        const auto view=read<Address>(at);
+        if(!view || read<Address>(view)!=c.base+0x63ed0a0 || read<unsigned>(view+0x148) || read<unsigned>(view+0x14c))continue;
+        const auto camera=read<Address>(view+0x2b0);
+        if(!camera)return {};
+        const auto fov=read<float>(camera+0xac);
+        if(std::isfinite(fov) && fov>1.f && fov<180.f)return fov;
+    }
+    return {};
 }
 Value panel_stack_item(const Context& c,Value stack,Widget display,int id) {
     const auto item=make(c,stack_item);
@@ -267,34 +411,23 @@ void panel_stack_content(const Context& c,Value stack,Widget display,int id) {
 bool mount_match_panel_prompt(const Context& c) {
     auto& s=state();auto& p=s.match_panel;auto& lease=match_panel_lease(c);
     if(s.in_menu) {detach_match_panel_prompt(c);return false;}
-    // The authored Activity HUD renders ActivityShortcutButtonStack through
-    // ActivityPauseButton_Stack. FreeRoamHUD, which hosts our custom matches,
-    // omits that renderer. Mount the same native StackScreen/control privately
-    // on the visible HUD rather than writing into an unrendered native stack.
+    // This is a persistent visual prompt. A StackScreen with an empty focus
+    // target treats it as a dismissed shortcut and hides it after its intro.
+    // Present the native LabelButton directly; Start still belongs to the
+    // separately verified challenge flow, never this non-clickable prompt.
     require(s.hud_root.handle && c.type_of(s.hud_root.handle)==s.hud_root.type,
             "Native gameplay shortcut HUD is not mounted.");
-    const auto parent=c.field(s.hud_root,0x0bcb2ef8);
     if(lease.shortcut_stack.handle)detach_match_panel_prompt(c);
-    if(!lease.shortcut_content.handle) {
-        lease.shortcut_content=make(c,{0xd71ee0a1,80},parent.type);
-        panel_stack_content(c,lease.shortcut_content,
-            {asset(c,"UI/Foundations/Components/Buttons/LabelButton/LabelButton_Widget"),{0,p.prompt.handle}},hud_panel_id+4);
-        c.set(c.field(lease.shortcut_content,0x18f8355b),-1);
-        c.set(c.field(lease.shortcut_content,0x1fbbb5da),true);
-        c.set(c.field(lease.shortcut_content,0x3b14d43c),true);
-        c.set(c.field(lease.shortcut_content,0xc912aa1d),true);
-        c.set(c.field(lease.shortcut_content,0xd9fc931c),0.f);
-        c.set(c.field(lease.shortcut_content,0x2a98baa3),true);
-    }
     const bool fresh=!p.prompt_item.handle;
-    mount_hud(c,lease.shortcut_content,asset(c,"UI/Foundations/Components/Stack/StackScreen"),
+    mount_hud(c,p.prompt,asset(c,"UI/Foundations/Components/Buttons/LabelButton/LabelButton_Widget"),
         p.prompt_anchor,p.prompt_item,hud_panel_id,false);
-    c.set(c.field(p.prompt_anchor,0x1cff7243),std::array<float,2>{440.f,80.f});
+    c.set_if_changed(c.field(p.prompt_anchor,0x1cff7243),std::array<float,2>{520.f,88.f});
     for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
-        const float at=axis==0xde7d30c7?.95f:.12f;
-        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set(c.path(p.prompt_anchor,{axis,field}),at);
-        for(const auto field:{0x40bfbff4U,0x1d233266U})c.set(c.path(p.prompt_anchor,{axis,field}),0.f);
-        c.set(c.path(p.prompt_anchor,{axis,0xfec5e0b1}),axis==0xde7d30c7?1.f:0.f);
+        const float at=axis==0xde7d30c7?.95f:.94f;
+        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(p.prompt_anchor,{axis,field}),at);
+        for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(p.prompt_anchor,{axis,field}),0.f);
+        c.set_if_changed(c.path(p.prompt_anchor,{axis,0xfec5e0b1}),1.f);
+        c.set_if_changed(c.path(p.prompt_anchor,{axis,0xd01f4a21}),1.f);
     }
     p.prompt_visible=true;
     if(fresh)logging::write(logging::Level::info,logging::Channel::ui,
@@ -350,6 +483,42 @@ void update_match_panel_quit(const Context& c,Value page_value,Value quit,const 
     if(read<Address>(c.address(c.field(mounted,0x9c76b86c)))!=read<Address>(c.address(c.field(source,0x9c76b86c))))
         c.copy(mounted,c.address(source));
 }
+void match_panel_notice_width(const Context& c,Value notice,float width) {
+    // LabelWidthConstraint is two optional floats, not a scalar. Match the
+    // reflected native schema so narrowing a cell cannot abort HUD building.
+    const auto constraint=c.field(notice,0xd369e2db);
+    c.set_if_changed(c.path(constraint,{0x3ccf8bcd,0x67800332}),false);
+    c.set_if_changed(c.path(constraint,{0x48269971,0x2358a817}),width);
+    c.set_if_changed(c.path(constraint,{0x48269971,0x67800332}),true);
+}
+void match_panel_table_style(const Context& c,Value notice) {
+    const auto slot=c.field(notice,0x8cc042ef);
+    const auto current=read<Ref>(c.address(slot));
+    if(!current.record)return; // Already a private style for this cell.
+    const auto source=reference(c,current);
+    require(source.type && size(source.type)==152,"Native notice table style differs.");
+    const auto style=make(c,{0x3870cb1b,152},source.type);c.copy(style,c.address(source));
+    // Custom frames already include their text inset. The inherited native
+    // Notice adds 24px on both sides, reducing a 100px position cell to a
+    // sliver and giving differently sized headings/rows different centers.
+    for(const auto padding:{0x8ca12548U,0xffaf82ffU,0x4a8068ceU})
+        for(const auto edge:{0xd7b53526U,0x29023866U,0xcb57674fU,0xf750f0a2U})
+            c.set(c.path(style,{padding,edge}),0);
+    c.set(c.field(style,3705201444U),false); // ShouldAnimate: a table has a single parent transition.
+    c.set(slot,Ref{0,style.handle});
+}
+void match_panel_list_size(const Context& c,Value list,unsigned index,float width,float height,float y=0.f) {
+    const auto handle=read<Handle>(c.address(c.element(c.field(list,0xf2c90867),index)));
+    const Value anchor{handle,c.type_of(handle)};
+    c.set_if_changed(c.field(anchor,0x1cff7243),std::array<float,2>{width,height});
+    c.set_if_changed(c.field(anchor,0x6efc1a61),false);
+    c.set_if_changed(c.field(anchor,0xbe5683d9),false);
+    for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
+        c.set_if_changed(c.path(anchor,{axis,0xd01f4a21}),1.f);
+        for(const auto field:{0x40bfbff4U,0x1d233266U})
+            c.set_if_changed(c.path(anchor,{axis,field}),axis==0x185a5736U?y:0.f);
+    }
+}
 void build_match_panel(const Context& c,const MatchPanelView& view) {
     auto& p=state().match_panel;if(p.page.handle)return;
     const auto checkpoint=state().owned.checkpoint();
@@ -365,17 +534,35 @@ void build_match_panel(const Context& c,const MatchPanelView& view) {
     plain_label(c,c.field(p.header,0x44688629),"Throwdown");
     plain_label(c,c.field(p.header,0x00f3b15e),"1-UP");
     label_styles(c,c.field(p.header,0x44688629),"TextStylesList/B52-SemiB_Bright","TextStylesList/B52-SemiB_Bright");
-    label_styles(c,c.field(p.header,0x00f3b15e),"TextStylesList/D180-Caps_White","TextStylesList/H72-XBold_White");
+    label_styles(c,c.field(p.header,0x00f3b15e),"TextStylesList/H72-XBold_White","TextStylesList/H72-XBold_White");
     c.set(c.path(p.header,{0x00f3b15e,0xfc53d427}),false);
     c.set(c.field(p.header,0x2840ecf6),Widget{});
     p.badge=make(c,texture_schema);
-    c.set(c.field(p.badge,0xf524c836),256.f);c.set(c.field(p.badge,0x6fbd254e),256.f);
-    c.set(c.field(p.header,content),Widget{asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget"),{0,p.badge.handle}});
-    c.set(c.field(p.panel,0xc0f1b449),Widget{asset(c,"UI/Foundations/Components/ContentPresenterVariations/ContentWithTitle_Widget"),{0,p.header.handle}});
+    c.set(c.field(p.badge,0xf524c836),192.f);c.set(c.field(p.badge,0x6fbd254e),192.f);
+    const auto header_label_widget=asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget");
+    const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
+    for(const auto key:{0x44688629U,0x00f3b15eU}) {
+        const auto label=c.field(p.header,key);
+        c.set(c.field(label,0xc13ba637),false);c.set(c.field(label,0xfc53d427),false);
+        c.set(c.field(label,0x3d8639d0),0);
+    }
+    // StackPanel measures its header by the child widget's intrinsic height.
+    // A full-screen AnchoredContentPresenter reports a full-screen height,
+    // regardless of its inner DesiredSize. Mount the measured list directly.
+    hud_list(c,p.header_titles,{{header_label_widget,{0,c.field(p.header,0x44688629).handle}},
+        {header_label_widget,{0,c.field(p.header,0x00f3b15e).handle}}},false,88.f,8.f,0.f,760.f);
+    hud_list(c,p.header_rows,{{}, {asset(c,"UI/ReSkate/Throwdowns/LogoTexture_Widget"),{0,p.badge.handle}},
+        {list_widget,{0,p.header_titles.handle}}},true,192.f,32.f);
+    match_panel_list_size(c,p.header_rows,0,32.f,192.f);
+    match_panel_list_size(c,p.header_rows,1,192.f,192.f);
+    match_panel_list_size(c,p.header_rows,2,760.f,192.f);
+    c.set(c.field(p.panel,0xc0f1b449),Widget{list_widget,{0,p.header_rows.handle}});
     p.notice=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-    plain_label(c,c.field(p.notice,0x94703efc),"Beat the previous turn total. Three penalties and you're out!");
-    c.set(c.field(p.notice,0x13be0d51),std::array<float,2>{1120.f,200.f});
+    plain_label(c,c.field(p.notice,0x94703efc),view.description);
+    c.set(c.field(p.notice,0x13be0d51),std::array<float,2>{1120.f,320.f});
     label_styles(c,c.field(p.notice,0x94703efc),"TextStylesList/B52-SemiB_Bright","TextStylesList/B52-SemiB_Bright");
+    c.set(c.path(p.notice,{0x94703efc,0xfc53d427}),true);
+    match_panel_notice_width(c,p.notice,1056.f);
     c.set(c.field(p.panel,0x4fd7853d),Widget{});
     std::vector<Widget> settings{{asset(c,"UI/Foundations/Components/Notices/BasicNotice_Widget"),{0,p.notice.handle}}};
     for(unsigned i=0;i<p.setting_rows.size();++i) {
@@ -384,20 +571,63 @@ void build_match_panel(const Context& c,const MatchPanelView& view) {
         c.set(c.field(p.setting_rows[i],0xf3d74cdd),0);
         const auto caption=c.field(p.setting_rows[i],0x58c9d354);
         c.copy(caption,c.address(state().source_label));
-        plain_label(c,caption,i?"Turn Timer":"Players");
+        plain_label(c,caption,"");
         label_styles(c,caption,"TextStylesList/B52-SemiB_Black","TextStylesList/B52-SemiB_Black");
+        p.setting_titles[i]=make(c,label_schema);
+        c.copy(p.setting_titles[i],c.address(state().source_label));
+        plain_label(c,p.setting_titles[i],i?"Turn Timer":"Players");
+        label_styles(c,p.setting_titles[i],"TextStylesList/B52-SemiB_Black","TextStylesList/B52-SemiB_Black");
+        c.set(c.field(p.setting_titles[i],0xc13ba637),false);
+        c.set(c.field(p.setting_titles[i],0xfc53d427),false);
+        c.set(c.field(p.setting_titles[i],0x3d8639d0),0);
         p.setting_values[i]=make(c,label_schema);
         c.copy(p.setting_values[i],c.address(state().source_label));
         c.set(c.field(p.setting_values[i],0xc13ba637),false);
         c.set(c.field(p.setting_values[i],0xfc53d427),false);
-        label_styles(c,p.setting_values[i],"TextStylesList/B52-SemiB_Black","TextStylesList/B52-SemiB_Black");
+        label_styles(c,p.setting_values[i],"TextStylesList/H64-XBold_Black","TextStylesList/H64-XBold_Black");
         c.set(c.field(p.setting_values[i],0x3d8639d0),1);
-        c.set(c.field(p.setting_rows[i],content),Widget{asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget"),{0,p.setting_values[i].handle}});
+        p.setting_icons[i]=make(c,texture_schema);
+        c.set(c.field(p.setting_icons[i],0xf524c836),64.f);
+        c.set(c.field(p.setting_icons[i],0x6fbd254e),64.f);
+        for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
+            const bool vertical=axis==0x185a5736U;
+            for(const auto edge:{0x99bbed5aU,0x49943bedU})
+                c.set(c.path(p.setting_icons[i],{axis,edge}),vertical?.5f:0.f);
+            c.set(c.path(p.setting_icons[i],{axis,0xfec5e0b1}),vertical?.5f:0.f);
+            c.set(c.path(p.setting_icons[i],{axis,0xd01f4a21}),1.f);
+        }
+        const char* icon=i==0?"UI/Textures/Icons/img_Icon_PlayerGroup_64":
+            i==1?"UI/Textures/Icons/Generic/img_Icon_TimerOutline_64":"UI/Textures/Icons/Generic/img_Icon_Rounds_128";
+        try {
+            c.set(c.field(p.setting_icons[i],0x6e469d2a),asset(c,icon));
+            c.set(c.field(p.setting_icons[i],0xcd4a53c0),record_ref(c,"InteractivityColorStylesList/InteractiveColors.Default.Darkest"));
+        } catch(const std::exception& e) {
+            // Optional decoration must never prevent the native Quit page
+            // from opening if a map is still making an icon resident.
+            logging::log(logging::Level::warning,logging::Channel::ui,"Throwdown setting icon deferred: {}",e.what());
+        }
+        const auto label_widget=asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget");
+        hud_list(c,p.setting_lists[i],{{asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget"),{0,p.setting_icons[i].handle}},
+            {label_widget,{0,p.setting_titles[i].handle}},{label_widget,{0,p.setting_values[i].handle}}},true,112.f,24.f);
+        match_panel_list_size(c,p.setting_lists[i],0,80.f,112.f);
+        match_panel_list_size(c,p.setting_lists[i],1,512.f,112.f);
+        match_panel_list_size(c,p.setting_lists[i],2,320.f,112.f);
+        p.setting_anchors[i]=make(c,anchor_schema);
+        c.set(c.field(p.setting_anchors[i],widget),Widget{asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),{0,p.setting_lists[i].handle}});
+        c.set(c.field(p.setting_anchors[i],0x1cff7243),std::array<float,2>{960.f,112.f});
+        for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
+            const bool vertical=axis==0x185a5736U;
+            for(const auto edge:{0x99bbed5aU,0x49943bedU})c.set(c.path(p.setting_anchors[i],{axis,edge}),0.f);
+            c.set(c.path(p.setting_anchors[i],{axis,0xfec5e0b1}),0.f);
+            c.set(c.path(p.setting_anchors[i],{axis,0xd01f4a21}),1.f);
+            for(const auto edge:{0x40bfbff4U,0x1d233266U})c.set(c.path(p.setting_anchors[i],{axis,edge}),vertical?0.f:64.f);
+        }
+        c.set(c.field(p.setting_rows[i],content),Widget{asset(c,native_menu_detail::anchored_widget),{0,p.setting_anchors[i].handle}});
         settings.push_back({asset(c,"UI/Foundations/Components/Settings/Widgets/SettingWrapper_Widget"),{0,p.setting_rows[i].handle}});
     }
     hud_list(c,p.settings,settings,false,144.f,16.f,0.f,1120.f);
     const auto rules_anchor=read<Handle>(c.address(c.element(c.field(p.settings,0xf2c90867),0)));
-    c.set(c.field({rules_anchor,c.type_of(rules_anchor)},0x1cff7243),std::array<float,2>{1120.f,200.f});
+    c.set(c.field({rules_anchor,c.type_of(rules_anchor)},0x1cff7243),std::array<float,2>{1120.f,320.f});
     panel_stack_content(c,c.field(p.panel,0x43967ece),
         {asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),{0,p.settings.handle}},hud_panel_id+1);
     // This authored footer is an empty list; the stock challenge rule supplies
@@ -423,7 +653,7 @@ void build_match_panel(const Context& c,const MatchPanelView& view) {
     match_panel_input(c,p.quit,quit_input,false);
     c.copy(c.field(p.quit,0x58c9d354),c.address(state().source_label));
     label_styles(c,c.field(p.quit,0x58c9d354),"TextStylesList/B52-SemiB-Caps_Dark","TextStylesList/B52-SemiB_Black");
-    c.set(c.path(p.quit,{0x58c9d354,0x3d8639d0}),2);
+    c.set(c.path(p.quit,{0x58c9d354,0x3d8639d0}),0);
     match_panel_action(c,p.quit,"QUIT",view,true);
     c.array(c.field(footer_list,0xf2c90867),std::vector<Handle>{});
     c.array(c.field(footer_list,rows_field),std::vector<Ref>{{0,p.quit.handle}});
@@ -440,13 +670,16 @@ void build_match_panel(const Context& c,const MatchPanelView& view) {
     require(memory::peek_bytes(c.address(quit_action),action_bytes.data(),action_bytes.size()),
             "Native Throwdown Panel Quit shortcut unavailable.");
     c.array(page_actions,action_bytes,1);
-    p.board=make(c,linear_list);
-    p.columns=record_model(c,"Throwdown_DetailsMenu_ContentResource/Throwdowns_Details_HorizontalPartition",native_menu_detail::horizontal_panel);
-    graph.walk(p.columns,0);
-    c.set(c.field(p.columns,0xf750f0a2),Widget{asset(c,"UI/Foundations/Components/StackVariations/StackPanel/StackPanel_Widget"),{0,p.panel.handle}});
-    c.set(c.field(p.columns,0x29023866),Widget{asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),{0,p.board.handle}});
+    p.board=record_model(c,"TD_Scoreboard_ContentResources/LEGACY_TD_Scoreboard");
+    graph.walk(p.board,0);
+    // LEGACY_TD_Scoreboard defaults to HUDLeaderboardListElement, whose input
+    // schema is different. It renders its sample stamps/999999 Pts when given
+    // a PlayerInlineScoreboardViewModel. Use that model's actual list bridge.
+    c.set(c.path(p.board,{0xfcdd0d32,0x55ca89f4}),
+        asset(c,"UI/Features/CommunityEvent/LEGACY_PlayerInlineScoreboardList_Widget"));
+    p.columns=make(c,linear_list);
     p.outer_anchor=record_model(c,"Throwdown_DetailsMenu_ContentResource/Throwdowns_Details_AnchoredContentPresenter",anchor_schema);
-    c.set(c.field(p.outer_anchor,widget),Widget{asset(c,native_menu_detail::horizontal_widget),{0,p.columns.handle}});
+    c.set(c.field(p.outer_anchor,widget),Widget{asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),{0,p.columns.handle}});
     panel_stack_content(c,c.field(page_value,content),
         {asset(c,native_menu_detail::anchored_widget),{0,p.outer_anchor.handle}},hud_panel_id+2);
     const auto back_action=back(c,page_value);
@@ -467,9 +700,165 @@ void build_match_panel(const Context& c,const MatchPanelView& view) {
         throw;
     }
 }
+void refresh_match_panel(const Context& c,const MatchPanelView& view) {
+    auto& p=state().match_panel;auto& lease=match_panel_lease(c);
+    plain_label(c,c.field(p.header,0x00f3b15e),view.title);
+    plain_label(c,c.field(p.notice,0x94703efc),view.description);
+    mode_art(c,std::array{c.field(p.badge,0x6e469d2a)},view.logo);
+    plain_label(c,p.setting_titles[0],"Players");
+    plain_label(c,p.setting_values[0],std::to_string(view.players.size()));
+    plain_label(c,p.setting_titles[1],view.timer_caption);
+    plain_label(c,p.setting_values[1],view.timer);
+    plain_label(c,p.setting_titles[2],view.rule_caption);
+    plain_label(c,p.setting_values[2],view.rule_value);
+    if(view.rule_caption=="Required Gates") {
+        mode_art(c,std::array{c.field(p.setting_icons[2],0x6e469d2a)},view.logo);
+        c.set_if_changed(c.field(p.setting_icons[2],0xcd4a53c0),
+            record_ref(c,"InteractivityColorStylesList/InteractiveColors.Core.AllWhite"));
+    }
+    const auto action_page=match_panel_body_owned(c,lease.native_page)?lease.native_page:p.page;
+    update_match_panel_quit(c,action_page,p.quit,view);
+    std::array<float,3> widths{200.f,640.f,400.f};
+    for(const auto& row:view.players) {
+        widths[1]=std::max(widths[1],float(native_hud_name_width(row.name)));
+        widths[2]=std::max(widths[2],1.5f*float(native_hud_value_width(row.value)));
+    }
+    const float width=widths[0]+widths[1]+widths[2]+16.f;
+    const bool resized=p.board_widths!=widths;
+    // Reuse the game's complete Throwdown scoreboard, profile rows, rank
+    // badges and local-player treatment. Its own template aligns the column
+    // headings and rows; separate notice boxes gave it a foreign appearance.
+    c.set_if_changed(c.field(p.board,0x5a7cec85),true);
+    c.set_if_changed(c.field(p.board,0xb7e92e95),true);
+    const auto headers=c.field(p.board,0x3d98d397);
+    for(unsigned col=0;col<3;++col) {
+        const auto label=c.element(headers,col);
+        plain_label(c,label,col==0?"POS":col==1?"NAME":view.score_caption);
+        label_styles(c,label,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
+    }
+    std::vector<Ref> rows;std::vector<std::uint64_t> order;unsigned rank{};
+    for(const auto& player:view.players) {
+        auto& row=p.players[player.id];++rank;
+        if(!row.row.handle) {
+            row.row=record_model(c,"TD_Scoreboard_ContentResources/TD_PlayerProfileInline");
+            PrivateUiGraph graph{c};graph.walk(row.row,0);
+            row.rank=record_model(c,"TD_Scoreboard_ContentResources/TD_DefaultRank");
+            row.outcome=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
+            auto display=read<Widget>(c.address(c.field(row.row,0xc76d8b73)));
+            display.data={0,row.rank.handle};c.set(c.field(row.row,0xc76d8b73),display);
+            const auto scores=c.field(row.row,0xa3d2bba9);
+            // The donor score list presents S.K.A.T.E. stamps. Supply a label
+            // template AND live handles, rather than inheriting those defaults.
+            c.set(c.field(scores,0x55ca89f4),asset(c,"UI/Foundations/Components/Text/Label/Widget/LabelListItem_Widget"));
+            c.array(c.field(scores,rows_field),std::vector<Ref>{});
+            c.array(c.field(scores,0xf2c90867),std::vector<Handle>{row.outcome.handle});
+            label_styles(c,row.outcome,"TextStylesList/B52-SemiB_Bright","TextStylesList/B52-SemiB_Bright");
+            c.set(c.field(row.outcome,0xfc53d427),false);
+            c.set(c.field(row.outcome,0xc13ba637),false);
+        }
+        c.set_if_changed(c.field(row.row,0x8810a01e),player.id==view.local);
+        const auto name=c.path(row.row,{0xaed127c3,profile_name_tag_field});
+        c.set_if_changed(c.field(name,0xc13ba637),false);
+        c.set_if_changed(c.field(name,0xfc53d427),false);
+        label_styles(c,name,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
+        plain_label(c,name,player.name);
+        // Use only this account's cached picture for this account's row.
+        // Optional portrait loading cannot prevent the native Quit panel.
+        if(!row.portrait_attempted)try {
+            const auto record=asset(c,("Throwdown_ModeSelect_ContentResources/SteamAvatar_"+std::to_string(player.id)).c_str());
+            const auto type=native_record_type(c,record);
+            require(read<std::uint32_t>(read<Address>(type))==category_schema.hash,"Steam picture record schema differs.");
+            const auto image=read<Address>(read<Address>(record+0x20)+c.member(type,0x189084da).offset);
+            require(image && (read<Address>(image+8)==c.base+build::native_menu::texture_asset_type ||
+                read<Address>(image+8)==c.base+build::native_menu::image_asset_type),"Steam picture is not resident yet.");
+            for(const auto texture:ui_models(c,c.field(row.row,0xaed127c3),2005356313U)) {
+                c.set_if_changed(c.field(texture,1888565495U),image);
+                c.text(c.field(texture,3630279999U),"");
+                row.portrait_attempted=true;
+            }
+        } catch(const std::exception&) { /* Other players keep their own native portrait. */ }
+        plain_label(c,c.field(row.rank,0x2718c842),std::to_string(rank));
+        plain_label(c,row.outcome,player.value);
+        order.push_back(player.id);rows.push_back({0,row.row.handle});
+    }
+    const auto player_list=c.field(p.board,0xfcdd0d32);
+    if(order!=p.player_order) {
+        c.array(c.field(player_list,rows_field),std::vector<Ref>{});
+        std::vector<Handle> handles;for(const auto& row:rows)handles.push_back(row.handle);
+        c.array(c.field(player_list,0xf2c90867),handles);
+    }
+    p.player_order=std::move(order);p.board_widths=widths;
+    // Fixed, nonoverlapping columns replace the donor's fractional partition:
+    // its left side did not reserve the rules panel's measured width.
+    if(resized || !hud_list_has_items(c,p.columns,2))
+        hud_list(c,p.columns,{{asset(c,"UI/Foundations/Components/StackVariations/StackPanel/StackPanel_Widget"),{0,p.panel.handle}},
+            {asset(c,"UI/Features/CommunityEvent/LEGACY_Scoreboard_Widget"),{0,p.board.handle}}},true,1450.f,192.f);
+    match_panel_list_size(c,p.columns,0,1120.f,1450.f);
+    match_panel_list_size(c,p.columns,1,width,140.f+140.f*float(view.players.size()),360.f);
+    c.set_if_changed(c.field(p.outer_anchor,0x1cff7243),std::array<float,2>{1312.f+width,1450.f});
+    for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
+        const float at=axis==0xde7d30c7U?.04f:.12f;
+        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(p.outer_anchor,{axis,field}),at);
+        c.set_if_changed(c.path(p.outer_anchor,{axis,0xfec5e0b1}),0.f);
+        c.set_if_changed(c.path(p.outer_anchor,{axis,0xd01f4a21}),1.f);
+        for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(p.outer_anchor,{axis,field}),0.f);
+    }
+}
+void match_panel_race_times(const Context& c,const modes::NativeView& view,std::uint64_t now) {
+    auto& p=state().match_panel;
+    if(!view.state || view.settings.mode!=modes::Mode::race ||
+       p.match_key!="mode-throwdown-panel:"+std::to_string(view.game) || !owns_selected_match_panel(c))return;
+    // Only publish text between normal presentation ticks. Never rebuild lists,
+    // navigation, camera state or page ownership to advance a race clock.
+    for(const auto& player:view.state->standings) {
+        const auto found=p.players.find(player.player);
+        if(found!=p.players.end() && found->second.outcome.handle &&
+           c.type_of(found->second.outcome.handle)==found->second.outcome.type)
+            plain_label(c,found->second.outcome,mode_racer_time(view,player,now));
+    }
+}
+// Prepare the native Page's presentation as soon as the game publishes it.
+// Camera/focus confirmation remains separate and cannot expose the stock body.
+bool prepare_match_panel_body(const Context& c,std::uint64_t now) {
+    auto& s=state();auto& p=s.match_panel;auto& lease=match_panel_lease(c);
+    if(!pending_match_panel_request(c,now) || p.quitting || !p.page.handle || !lease.selection_requested)return false;
+    if(lease.native_page.handle)return match_panel_body_owned(c,lease.native_page);
+    if(!lease.selection.handle || c.type_of(lease.selection.handle)!=lease.selection.type ||
+       read<std::int32_t>(c.address(lease.selection))!=1)return false;
+    const auto layer=native_record_model(c,asset(c,"UI_Layer_Data/Layer_Menu"),0xd71ee0a1);
+    const auto selected=layer.handle?active_match_panel_layer_item(c,layer):Value{};
+    if(!selected.handle)return false;
+    const auto page_blueprint=asset(c,"UI/Foundations/Templates/Page/Page_Widget");
+    const auto slot=c.field(selected,content);const auto original=read<Widget>(c.address(slot));
+    if(original.blueprint!=page_blueprint || !original.data.handle || original.data.handle==p.page.handle)return false;
+    const Value native_page{original.data.handle,c.type_of(original.data.handle)};
+    if(native_page.type!=c.type(page))return false;
+    const auto native_back=c.text(c.field(back(c,native_page),0xb1e14cd6));
+    if(native_back!="ActivitiesDetailsBack" && native_back!="ThrowdownDetailsBack")return false;
+    const auto saved=make(c,page,native_page.type);c.copy(saved,c.address(native_page));
+    lease.menu_stack=layer;lease.native_page=native_page;lease.saved_native_page=saved;p.mounted_slot=slot;
+    const auto item_id=read<int>(c.address(c.field(selected,0x1e95752c)));
+    lease.details.mount(native_page.handle,layer.handle,item_id);lease.selection_consumed=true;
+    lease.page_blueprint=page_blueprint;lease.back_navigation=native_back;
+    // Preserve the exact outer Widget/DataContext the native destructor owns.
+    c.copy(c.field(native_page,content),c.address(c.field(p.page,content)));
+    c.copy(c.field(native_page,0xd2118ca8),c.address(c.field(p.page,0xd2118ca8)));
+    logging::log(logging::Level::info,logging::Channel::ui,
+        "Throwdowns: prepared native Details body before focus; Page {:#x}, layer {:#x}, item {}, body {:#x}.",
+        native_page.handle,layer.handle,item_id,p.outer_anchor.handle);
+    return true;
+}
 void native_match_panel(const Context& c,std::uint64_t now) {
     auto& s=state();auto& p=s.match_panel;const auto view=match_panel_view();
     const auto identity=view.available?view.open_command+":"+view.argument:std::string{};
+    if(match_panel_lease(c).closing.pending()) {
+        if(!close_match_panel(c,now))return;
+    }
+    if((!view.available || p.quitting || (p.match_key!=identity && !p.match_key.empty())) &&
+       owns_selected_match_panel(c)) {
+        close_match_panel(c,now);
+        return; // New matches wait for the previous native page to leave.
+    }
     if(view.available && p.match_key!=identity) {
         // Restore the native phone slot before retiring the old match's graph.
         // Every match gets fresh press/hold state and callbacks, even when no
@@ -481,8 +870,21 @@ void native_match_panel(const Context& c,std::uint64_t now) {
     p.menu_was_open=s.in_menu;
     if(!view.available)p.quitting=false;
     if(!view.available || p.quitting) {
-        if(owns_selected_match_panel(c))request_menu_toggle(c);
         restore_match_panel(c);p.requested_until=0;return;
+    }
+    const auto& current_lease=match_panel_lease(c);
+    if(current_lease.native_page.handle && (!current_lease.selection.handle ||
+       c.type_of(current_lease.selection.handle)!=current_lease.selection.type ||
+       read<std::int32_t>(c.address(current_lease.selection))!=1 || !retains_current_match_panel_page(c))) {
+        // Back can finish before camera confirmation. Retire that prepared
+        // body now, rather than keeping a stale four-second opening request.
+        restore_match_panel(c);return;
+    }
+    if(s.match_panel_open.load() && !owns_selected_match_panel(c)) {
+        // Native Back may already have removed our Page before this tick.
+        // Release input ownership without modifying the next native menu.
+        restore_match_panel(c);
+        return;
     }
     // A generic menu-open transition includes every D-pad phone shortcut.
     // Borrow the phone only after an actual Start/Menu (or Escape) edge for
@@ -494,11 +896,17 @@ void native_match_panel(const Context& c,std::uint64_t now) {
         if(start_requested)s.panel_start_request.clear();
     }
     if(start_requested) {
+        if(owns_selected_match_panel(c)) {
+            close_match_panel(c,now);
+            return;
+        }
+        if(pending_match_panel_request(c,now))return; // One press owns this transition; repeats cannot extend it.
+        p.transition={};p.camera_fov_before=native_activity_camera_fov(c).value_or(0.f);
+        sync_custom_activity_ui_presence(true);
         p.requested_until=now+4000;
-        p.request_after=s.in_menu?0:now+80;
-        request_activity_details(c);
+        p.request_after=now+200; // Let the native activity observer initialize before selecting its page.
         logging::write(logging::Level::info,logging::Channel::ui,
-            "Throwdowns: Start/Menu pressed for this custom match; requesting its native Details panel.");
+            "Throwdowns: Start/Menu pressed for this custom match; requesting native ChallengeMenu.");
     }
     if(!p.prompt.handle) {
         auto& lease=match_panel_lease(c);
@@ -518,97 +926,53 @@ void native_match_panel(const Context& c,std::uint64_t now) {
     const auto prompt_action=match_panel_input_action(c,p.prompt);
     clear_value(c,c.field(prompt_action,0x9c76b86c));
     c.text(c.field(prompt_action,0xb1e14cd6),"");
-    c.set(c.path(p.prompt,{0x0fb0d794,0xa704272a,0xc52416ef,0xa704272a,0x85a0b4e8}),!s.in_menu);
-    // The official Start graph selects Activities_Details. The native state
-    // machine then owns the phone pose, input, Layer_Menu and Back teardown.
+    c.set_if_changed(c.path(p.prompt,{0x0fb0d794,0xa704272a,0xc52416ef,0xa704272a,0x85a0b4e8}),!s.in_menu);
+    // Gameplay Start is suppressed from the native poller. The separate
+    // challenge request owns its transition; ordinary pause stays untouched.
     if(p.requested_until) {
         if(now>=p.requested_until) {
             logging::log(logging::Level::warning,logging::Channel::ui,"Throwdowns: native details request expired; native menu open={}, last wait={}.",s.in_menu,match_panel_lease(c).wait_reason);
-            match_panel_lease(c).details.retire();match_panel_lease(c).selection={};
-            p.requested_until=0;p.request_after=0;
+            restore_match_panel(c);
         }
         else if(p.request_after && now>=p.request_after) {
-            // Our private action replaces the donor's navigation action.
-            // After a real button press, request the native phone transition
-            // explicitly if the global pause action has not already opened it.
-            const bool opening=s.in_menu || request_native_navigation(c,"ToggleMenu");
+            // Request the separate challenge flow once after the real edge.
+            const bool opening=request_native_challenge_menu(c);
             if(opening)p.request_after=0;
         }
     }
     if(now<p.retry_after) {restore_match_panel(c);return;}
     build_match_panel(c,view);
-    mount_match_panel_prompt(c);
-    if(!s.in_menu) {
-        match_panel_wait(c,now,"the native activity pause state");
+    refresh_match_panel(c,view);
+    auto& lease=match_panel_lease(c);
+    const auto layer=native_record_model(c,asset(c,"UI_Layer_Data/Layer_Menu"),0xd71ee0a1);
+    const auto selected=layer.handle?active_match_panel_layer_item(c,layer):Value{};
+    if(!selected.handle) {
+        // Do not try to mount a gameplay prompt during the pause transition:
+        // its parent HUD may already be hidden while InMenu is still cached.
+        if(!pending_match_panel_request(c,now))mount_match_panel_prompt(c);
+        match_panel_wait(c,now,"the native activity layer transition");
         if(pending_match_panel_request(c,now))restore_match_panel_mount(c);
         else restore_match_panel(c);
         return;
     }
-    plain_label(c,c.field(p.header,0x00f3b15e),view.title);
-    plain_label(c,c.field(p.notice,0x94703efc),view.description);
-    mode_art(c,std::array{c.field(p.badge,0x6e469d2a)},view.logo);
-    plain_label(c,p.setting_values[0],std::to_string(view.players.size()));
-    plain_label(c,c.field(p.setting_rows[1],0x58c9d354),view.timer_caption);
-    plain_label(c,p.setting_values[1],view.timer);
-    update_match_panel_quit(c,p.page,p.quit,view);
-    std::vector<Widget> rows;unsigned rank{};
-    for(const auto& player:view.players) {
-        auto& row=p.players[player.id];
-        if(!row.outcome.handle) {
-            row.outcome=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
-            label_styles(c,row.outcome,"TextStylesList/B52-SemiB_Black","TextStylesList/B52-SemiB_Black");
-        }
-        plain_label(c,row.outcome,std::to_string(++rank)+". "+player.name+"    "+player.value);
-        rows.push_back({asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget"),{0,row.outcome.handle}});
+    detach_match_panel_prompt(c);
+    if(s.match_panel_open.load() && owns_selected_match_panel(c))return;
+    if(!prepare_match_panel_body(c,now) && !match_panel_body_owned(c,lease.native_page))return;
+    const auto native_page=lease.native_page;
+    const bool selection_live=lease.selection.handle && c.type_of(lease.selection.handle)==lease.selection.type &&
+        read<std::int32_t>(c.address(lease.selection))==1;
+    const auto fov=native_activity_camera_fov(c);
+    const bool focused=fov && (*fov<=60.f || (p.camera_fov_before>0.f && *fov<p.camera_fov_before-3.f));
+    if(!p.transition.ready(native_page.handle,s.in_menu,selection_live,focused,now)) {
+        match_panel_wait(c,now,"confirmed native menu ownership and challenge camera focus");
+        return;
     }
-    // Publish handles matching the label blueprint, rather than feeding a
-    // profile/score model into the legacy scoreboard's cached bindings.
-    if(!hud_list_has_items(c,p.board,static_cast<unsigned>(rows.size())))hud_list(c,p.board,rows,false,72.f,12.f,0.f,1120.f);
-    const auto layer=native_record_model(c,asset(c,"UI_Layer_Data/Layer_Menu"),0xd71ee0a1);
-    if(!layer.handle) {match_panel_wait(c,now,"the native Layer_Menu model");return;}
-    const auto item=active_match_panel_layer_item(c,layer);
-    if(!item.handle) {match_panel_wait(c,now,"an active current native menu layer item");return;}
-    const auto slot=c.field(item,content);
-    const auto item_id=read<int>(c.address(c.field(item,0x1e95752c)));
-    const auto current=read<Widget>(c.address(slot));
-    // Foundation blueprints can have separate loaded instances in the
-    // gameplay and activity UI domains. The retained native slot supplies the
-    // actual instance; identify it by its validated asset type and exact name,
-    // then retain that same instance for the private page and ownership check.
-    auto& lease=match_panel_lease(c);
-    const auto page_blueprint=asset(c,"UI/Foundations/Templates/Page/Page_Widget");
-    // Never replace a live popup or another owner's transition. This request
-    // must come from the real pause opening during this exact custom match.
-    if(current.data.handle!=p.page.handle && !pending_match_panel_request(c,now))return;
-    if(!current.blueprint || read<Address>(current.blueprint+8)!=c.base+build::native_menu::widget_blueprint_type) {
-        match_panel_wait(c,now,"an initialized native phone page");return;
-    }
-    const auto current_name=string(read<Address>(current.blueprint+0x18),256);
-    if(current.data.handle!=p.page.handle &&
-       current_name!="UI/Foundations/Templates/Page/Page_Widget" &&
-       current_name!="UI/Foundations/Components/Stack/StackScreen") {
-        match_panel_wait(c,now,"the phone's native Page or StackScreen");return;
-    }
-    if(current.data.handle==p.page.handle && p.mounted_slot.handle!=slot.handle) {
-        // A native array relocation can give this same item a fresh field
-        // handle. Retain its original saved Content; never recapture our page.
-        if(lease.details.layer!=layer.handle || lease.details.item!=item_id)return;
-        p.mounted_slot=slot;
-    } else if(current.data.handle!=p.page.handle) {
-        restore_match_panel_mount(c);
-        if(!p.saved_slot.handle)p.saved_slot=make(c,presenter);
-        c.copy(p.saved_slot,c.address(slot));p.mounted_slot=slot;
-        // The phone's native ToggleMenu flow owns input/pose/close. The private
-        // footer alone owns Quit; no global ThrowdownDetailsBack interception.
-        const auto close=back(c,p.page);
-        clear_value(c,c.field(close,0x9c76b86c));c.text(c.field(close,0xb1e14cd6),"ToggleMenu");
-        lease.back_navigation="ToggleMenu";
-        c.set(slot,Widget{page_blueprint,{0,p.page.handle}});
-        logging::log(logging::Level::info,logging::Channel::ui,"{}: native activity details layer mounted with Quit and leaderboard.",view.title);
-    }
-    lease.details.mount(p.page.handle,layer.handle,item_id);lease.selection={};lease.page_blueprint=page_blueprint;
     lease.wait_reason.clear();lease.wait_logged=0;
-    // Publish only Content once. StackIndex, target/focus and every animation
-    // track remain exactly as the activity flow authored them.
-    p.requested_until=0;s.match_panel_open.store(true,std::memory_order_release);
+    p.requested_until=0;p.request_after=0;
+    s.match_panel_open.store(true,std::memory_order_release);
+    overlay::capture_challenge_menu_input(true,true,s.panel_key_down);
+    logging::log(logging::Level::info,logging::Channel::ui,
+        "{}: native activity details body mounted; native Page {:#x}, layer {:#x}, item {} identity and Back retained; private body {:#x}.",
+        view.title,native_page.handle,layer.handle,lease.details.item,p.outer_anchor.handle);
 }
+

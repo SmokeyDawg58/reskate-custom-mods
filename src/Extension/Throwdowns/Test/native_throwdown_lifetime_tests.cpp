@@ -152,15 +152,86 @@ void deferred_toolbox_cleanup() {
         check(!lifetime.menu_cleanup_pending(),"A multiplayer event must retain its native wheel behavior");
     }
 }
+void scoped_custom_ui_presence() {
+    using dingosdk::multiplayer::NativeActivityUiLease;
+    NativeActivityUiLease lease;
+    bool flag=false;unsigned writes{};
+    const auto write=[&](bool value){flag=value;++writes;return true;};
+    for(unsigned match=0;match<3;++match) {
+        lease.update(true,100,2,7,flag,false,write);
+        check(flag && lease.owned(),"Custom participant acquires only the absent client UI activity flag");
+        for(unsigned frame=0;frame<120;++frame)lease.update(true,100,2,7,flag,false,write);
+        check(writes==match*2+1,"Stable gameplay cannot repeatedly rewrite the native activity flag");
+        lease.update(false,100,2,7,flag,false,write);
+        check(!flag && !lease.owned(),"Results and Quit restore the original client activity state each match");
+    }
+    flag=true;lease.update(true,100,2,7,flag,false,write);
+    lease.update(false,100,2,7,flag,false,write);
+    check(flag && !lease.owned(),"An already active native client flag cannot be borrowed or reset");
+    flag=false;lease.update(true,100,2,7,flag,false,write);
+    const auto before=writes;
+    lease.update(false,200,2,7,true,false,write);
+    check(writes==before && !lease.owned(),"A replaced world/player object cannot receive an old flag restoration");
+    flag=false;lease.update(true,100,2,7,flag,false,write);
+    lease.update(false,100,2,8,true,false,write);
+    check(!lease.owned(),"A changed activity group releases ownership without changing native state");
+    flag=false;lease.update(true,100,2,7,flag,false,write);
+    lease.update(false,100,2,7,true,true,write);
+    check(flag && !lease.owned(),"A confirmed native activity can take over the same client flag");
+    flag=false;
+    lease.update(true,100,2,7,false,false,[](bool){return false;});
+    check(!lease.owned(),"A failed native flag write cannot acquire ownership");
+    lease.update(true,100,2,7,flag,false,write);
+    lease.update(false,100,2,7,true,false,[](bool){return false;});
+    check(lease.owned(),"A failed restoration retains ownership for cleanup retry");
+    lease.update(false,100,2,7,true,false,write);
+    check(!flag && !lease.owned(),"A later restoration retry releases the borrowed UI flag");
+}
 }
 int main() {
     try {
+        using dingosdk::multiplayer::custom_details_presence_needed;
+        check(custom_details_presence_needed(true,1,1,0,0),
+            "Captured custom Details exit must recognize its separate activity owner");
+        check(!custom_details_presence_needed(false,1,1,0,0),
+            "An official activity or unowned native page must keep its original exit result");
+        check(!custom_details_presence_needed(true,0,1,0,0) &&
+              !custom_details_presence_needed(true,2,1,0,0),
+            "Closed Details and a replacement Rewards page cannot inherit custom ownership");
+        check(!custom_details_presence_needed(true,1,1,1,0),
+            "Native Back and other authored close reasons must still exit");
+        check(!custom_details_presence_needed(true,1,0,0,1) &&
+              !custom_details_presence_needed(true,1,1,0,1),
+            "An existing native activity or inconsistent output cannot be altered");
+        check(!custom_details_presence_needed(true,1,0,0,0) &&
+              !custom_details_presence_needed(true,1,2,0,0) &&
+              !custom_details_presence_needed(true,1,1,2,0) &&
+              !custom_details_presence_needed(true,1,1,0,2),
+            "Nonboolean or stale graph registers must fail closed");
+        using dingosdk::multiplayer::native_activity_flag;
+        check(!native_activity_flag(0),"Native false remains false");
+        check(!native_activity_flag(0x200) && !native_activity_flag(0xffffffffffffff00ULL),
+            "Missing-player AL=false cannot inherit truth from undefined upper return-register bits");
+        check(native_activity_flag(1) && native_activity_flag(0xffffffffffffff01ULL),
+            "Native AL=true must remain active regardless of upper return-register bits");
+        using dingosdk::multiplayer::NativeActivityPlayerIds;
+        const NativeActivityPlayerIds offline{2,0};
+        check(offline.matches_menu_player(0) && offline.matches_participant(2),
+            "Native PlayerId zero must resolve the same local player as MP participant two");
+        check(!offline.matches_menu_player(2) && !offline.matches_participant(0),
+            "Participant and native UI player ids cannot be substituted for each other");
+        check(!NativeActivityPlayerIds{}.matches_menu_player(0),
+            "A missing participant must not match valid native player zero by default");
+        const NativeActivityPlayerIds replacement{7,1};
+        check(replacement.matches_menu_player(1) && !replacement.matches_menu_player(0) &&
+            !replacement.matches_participant(2),"Replacement identity cannot inherit a previous match's native player");
         solo_skate_leave();
         joined_and_teardown();
         solo_event_cleanup_scope();
         confirmed_solo_reset();
         native_marker_entries();
         deferred_toolbox_cleanup();
+        scoped_custom_ui_presence();
         std::puts("Native Throwdown ownership regression checks passed.");
         return 0;
     } catch (const std::exception& error) {

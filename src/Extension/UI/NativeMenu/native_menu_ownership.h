@@ -1,5 +1,6 @@
 #pragma once
 #include <cstddef>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <map>
@@ -54,6 +55,113 @@ template<class Presenter> std::optional<std::vector<std::byte>> remount_presente
 // Rebuilding the HUD array must not restart existing items' native fade/slide
 // tracks. Reuse the live item by id AND complete presenter identity, including
 // when a confirmation or countdown adds/removes another item beside it.
+// FullAspectRatioStack is authored with one active item. Appending HUD rows
+// without reserving their active budget makes StackComponent deactivate them
+// on every Items change. Borrow only our rows' extra budget, shared by both
+// publishers, and restore the exact native value when the last row leaves.
+class HudStackActiveBudget {
+    struct Lease { int original{}, published{}; };
+    std::map<std::uint64_t,Lease> leases_;
+public:
+    template<class Publish> void update(std::uint64_t stack,int live,unsigned owned,Publish&& publish) {
+        if(!stack || owned>1024)throw std::invalid_argument("Native HUD active budget differs.");
+        const auto found=leases_.find(stack);
+        if(!owned) {
+            if(found!=leases_.end()) {
+                if(live==found->second.published && live!=found->second.original)publish(found->second.original);
+                leases_.erase(found);
+            }
+            return;
+        }
+        // A native replacement of the field supersedes our prior lease.
+        const int original=found!=leases_.end() && live==found->second.published?found->second.original:live;
+        if(original<0 || original>1024-static_cast<int>(owned))
+            throw std::invalid_argument("Native HUD active budget is out of range.");
+        const int next=original+static_cast<int>(owned);
+        if(live!=next)publish(next); // Commit ownership only after publication succeeds.
+        leases_[stack]={original,next};
+    }
+    template<class PublishLimit,class PublishRows> void publish(std::uint64_t stack,int live,unsigned owned,
+            PublishLimit&& limit,PublishRows&& rows) {
+        const auto found=leases_.find(stack);
+        const int original=found!=leases_.end() && live==found->second.published?found->second.original:live;
+        if(!stack || owned>1024 || original<0 || original>1024-static_cast<int>(owned))
+            throw std::invalid_argument("Native HUD active budget differs.");
+        const int next=original+static_cast<int>(owned);
+        // Native observers may run synchronously: grow capacity BEFORE adding
+        // rows, but remove rows BEFORE shrinking it. No intermediate snapshot
+        // may make an existing row inactive and start its hide animation.
+        if(next>=live)update(stack,live,owned,limit);
+        rows();
+        if(next<live)update(stack,live,owned,limit);
+    }
+    std::vector<std::uint64_t> stacks() const {
+        std::vector<std::uint64_t> result;
+        for(const auto& [stack,lease]:leases_)result.push_back(stack);
+        return result;
+    }
+    void manager_replaced() noexcept { leases_.clear(); }
+};
+// Both publishers share this stack: 64 mode IDs plus 1-UP/prompt/strike IDs.
+inline constexpr unsigned custom_hud_stack_item_limit=128;
+inline bool custom_hud_item(std::int32_t id) noexcept {
+    return (id>=0x4d4f4400 && id<0x4d4f4440) ||
+           (id>=0x31555071 && id<=0x31555078) || (id>=0x31555800 && id<0x31555806);
+}
+
+// Empty presenters remain ACTIVE. Their private anchor Content is blank
+// until configured and requested; inactive native placeholders are pruned.
+inline constexpr auto custom_hud_slot_order=[] {
+    std::array<std::int32_t,78> result{};std::size_t used{};
+    const auto append=[&](std::int32_t id) {
+        for(std::size_t i=0;i<used;++i)if(result[i]==id)return;
+        result[used++]=id;
+    };
+    // Keep background panels behind captions, objectives and confirmation.
+    for(const int id:{43,57,60,4,0,40,7,1,59,2,3,5,6,41,61,62,63,42,58,44,45})append(0x4d4f4400+id);
+    for(int id=8;id<40;++id)append(0x4d4f4400+id);
+    for(int id=0;id<64;++id)append(0x4d4f4400+id);
+    for(const int id:{0x31555071,0x31555075,0x31555077,0x31555078,0x31555072,0x31555073,0x31555074})append(id);
+    for(int id=0;id<6;++id)append(0x31555800+id);
+    append(0x31555076); // The persistent Start prompt always paints last.
+    return result;
+}();
+// Native item contexts are created after the first list notification. Send
+// one complete active-state notification on a later tick, while content is
+// still blank. Visible content updates never schedule another handoff.
+class HudActivationHandoff {
+    std::uint64_t mounted_at_{};bool pending_{};
+public:
+    void remounted(std::uint64_t now) noexcept {mounted_at_=now;pending_=true;}
+    bool pending() const noexcept {return pending_;}
+    bool due(std::uint64_t now) const noexcept {return pending_ && now>=mounted_at_ && now-mounted_at_>=16;}
+    void published() noexcept {pending_=false;}
+};
+// Curve inputs and padding belong to the native authoring. Replace only the
+// sampled output in a detached copy, retaining key times and source ownership.
+template<class T> std::vector<std::byte> constant_hud_curve(std::span<const std::byte> points,
+        std::size_t stride,std::size_t output_offset,const T& output) {
+    static_assert(std::is_trivially_copyable_v<T>);
+    if(!stride || points.size()%stride || output_offset>stride || sizeof(T)>stride-output_offset)
+        throw std::invalid_argument("Native HUD curve layout differs.");
+    std::vector<std::byte> result(points.begin(),points.end());
+    for(std::size_t at=0;at<result.size();at+=stride)std::memcpy(result.data()+at+output_offset,&output,sizeof(T));
+    return result;
+}
+class HudSurfaceContentGate {
+    std::uint64_t since_{};bool observed_{},opened_{};
+public:
+    void reset() noexcept { observed_=opened_=false; }
+    bool allow(bool settled,std::uint64_t now) noexcept {
+        // Once shown, unrelated native item animation cannot hide every HUD.
+        // A real parent/menu/root transition calls reset explicitly.
+        if(opened_)return true;
+        if(!settled) {reset();return false;}
+        if(!observed_) {observed_=true;since_=now;}
+        return opened_=now>=since_ && now-since_>=16;
+    }
+};
+
 struct HudVisibilityField { std::size_t offset{}, size{}; };
 struct HudVisibilityContract {
     std::size_t active_offset{};

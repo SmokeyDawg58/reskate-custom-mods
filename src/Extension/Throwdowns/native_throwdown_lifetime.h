@@ -4,6 +4,23 @@
 #include <mutex>
 
 namespace dingosdk::multiplayer {
+// The retail bool getter guarantees AL only on its missing-player path;
+// higher return-register bits can still contain the last compared player id.
+constexpr bool native_activity_flag(std::uint64_t result) noexcept { return (result & 0xffu) != 0; }
+// Flow_ActivitiesMenus/B05F997 closes Details when its native activity owner
+// disappears. Custom matches have their own owner. Preserve every authored
+// close/navigation reason; supply only the missing custom-owner alternative.
+constexpr bool custom_details_presence_needed(bool owned_request,std::uint8_t selected,
+        std::uint8_t native_exit,std::uint8_t close_requested,std::uint8_t activity_present) noexcept {
+    return owned_request && selected==1 && native_exit==1 && close_requested==0 && activity_present==0;
+}
+// MP participant/UniqueId and the native PlayerId occupy different domains.
+// The sole offline participant can be 2 while native PlayerId 0 is valid.
+struct NativeActivityPlayerIds {
+    std::uint32_t participant{},menu_player{};
+    bool matches_participant(std::uint32_t id) const noexcept { return participant && participant==id; }
+    bool matches_menu_player(std::uint32_t id) const noexcept { return participant && menu_player==id; }
+};
 // Own the offline UIPlayerInfo flags from queue creation through the native
 // activity's confirmed end. Destroying its registration flag at Start is not
 // an end; removal of this player from this activity is.
@@ -11,6 +28,10 @@ class NativeThrowdownLifetime {
 public:
     bool active() const noexcept { return flags_.load(std::memory_order_acquire) != 0; }
     bool host() const noexcept { return (flags_.load(std::memory_order_acquire) & hosting) != 0; }
+    bool has_activity() {
+        std::lock_guard lock(mutex_);
+        return activity_ != 0;
+    }
 
     bool create(std::uint32_t player) {
         std::lock_guard lock(mutex_);
@@ -103,5 +124,28 @@ private:
     std::uint32_t completed_solo_{};
     bool menu_cleanup_{};
     std::uintptr_t activity_{};
+};
+
+// The native UI also observes ClientPlayerVars.IsInActivity directly. Query
+// adapters alone do not notify that observer. Borrow only that one verified
+// client flag for a custom participant; never borrow a backend activity/group
+// or MPActivityIdleState, and never restore into a replacement player/world.
+class NativeActivityUiLease {
+    std::uintptr_t variables_{};
+    std::uint32_t player_{},group_{};
+public:
+    bool owned() const noexcept { return variables_ != 0; }
+    template<class Write> void update(bool wanted,std::uintptr_t variables,std::uint32_t player,
+            std::uint32_t group,bool current,bool native_activity,Write&& write) {
+        if(owned() && (variables_!=variables || player_!=player || group_!=group || native_activity))
+            *this={}; // Retired identity or an actual native activity owns it.
+        if(owned() && !wanted) {
+            if(!current || write(false))*this={};
+            return;
+        }
+        if(wanted && !owned() && variables && player && !current && !native_activity && write(true)) {
+            variables_=variables;player_=player;group_=group;
+        }
+    }
 };
 }

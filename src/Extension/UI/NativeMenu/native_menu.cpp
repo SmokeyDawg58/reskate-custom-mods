@@ -757,7 +757,10 @@ void tick_native_menu(std::uintptr_t base, bool loading) noexcept {
     game_in_menu.store(!loading && sample_game_ui_state(base).in_menu, std::memory_order_relaxed);
     if (lifetime.blocked()) return;
     tick_native_one_up_menu(base, loading, game_in_menu.load(std::memory_order_relaxed));
-    if (native_one_up_match_panel_open()) return;
+    if (native_one_up_match_active()) {
+        page_seen.store(0,std::memory_order_relaxed);
+        return;
+    }
     for (unsigned slot = 0; slot < page_count; ++slot) {
         current_state = &page_state(slot);
         current_state->slot = slot;

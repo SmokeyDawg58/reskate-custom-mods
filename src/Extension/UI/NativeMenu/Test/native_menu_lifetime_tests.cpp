@@ -4,6 +4,7 @@
 #include "Extension/UI/NativeMenu/native_setup_roles.h"
 #include "Extension/UI/NativeMenu/native_hud_selection.h"
 #include "Extension/UI/NativeMenu/native_hud_values.h"
+#include "Engine/Game/Input/owned_menu_input.h"
 #include "Extension/Throwdowns/native_flag_preview.h"
 #include "Extension/Throwdowns/native_flag_bubble.h"
 #include <cstdio>
@@ -214,6 +215,158 @@ void native_activity_stack_selection() {
     check(!lease.owns(selected()->page,layer,selected()->id),
         "Retiring Back/end ownership prevents future closes even if native item identity is reused");
 }
+// Independent engine-side fixture: StackScreenController retains the Page
+// Blueprint/DataContext pair at show time and finds that same pair on end.
+// See native-stack-controller-review-20261014/destructor-nested-callmap-v2.txt.
+// This deliberately does not use the SDK lease or the selected Details enum
+// to find/remove a row: clearing either cannot repair a changed native Page.
+struct NativeDetailsStackFixture {
+    struct Presenter {
+        std::uint64_t blueprint{},page{};
+        bool operator==(const Presenter&) const = default;
+    };
+    struct Item {Presenter presenter;int id{};bool active{true};};
+    Presenter controller_pair;
+    std::vector<Item> items;
+    bool menu_active{},hud_active{true};
+    void show(Presenter presenter,int item_id) {
+        check(items.empty(),"A preceding native Details controller must finish before another show");
+        controller_pair=presenter;items.push_back({presenter,item_id});
+        menu_active=true;hud_active=false;
+    }
+    bool native_on_end() {
+        const auto found=std::find_if(items.begin(),items.end(),[&](const auto& item) {
+            return item.presenter==controller_pair;
+        });
+        if(found==items.end())return false;
+        items.erase(found);menu_active=!items.empty();hud_active=items.empty();return true;
+    }
+};
+void native_activity_page_identity_cleanup() {
+    using namespace dingosdk::multiplayer::menu_data;
+    constexpr NativeDetailsStackFixture::Presenter original{10,200},private_outer{10,900};
+    // Negative control for the captured failure: the custom lease may look
+    // valid and Back may clear selection, but the engine cannot remove its row.
+    {
+        NativeDetailsStackFixture broken;broken.show(original,7);
+        ActivityDetailsOwnership old_lease;old_lease.mount(private_outer.page,300,7);
+        broken.items.front().presenter=private_outer;
+        int selected=0;
+        check(old_lease.owns(private_outer.page,300,7) && selected==0 && !broken.native_on_end() &&
+              broken.menu_active && !broken.hud_active && broken.items.size()==1,
+              "Replacing the outer Page reproduces the retained Menu/HUD lock even after native Back clears selection");
+    }
+    struct Page {
+        std::uint64_t body{},quit_action{},back_action{};
+        unsigned native_revision{};
+    };
+    enum class Exit {back,quit,selection_deadline};
+    NativeDetailsStackFixture native;
+    Page page{40,50,60,0};
+    // Reuse the same native Page/layer/item across Back/reopen and consecutive
+    // matches. Only the private body/action generations change on each entry.
+    for(unsigned match=0;match<2;++match)for(const auto exit:{Exit::back,Exit::quit,Exit::selection_deadline}) {
+        const auto before=page;
+        const std::uint64_t private_body=1000+match*10+static_cast<unsigned>(exit);
+        const std::uint64_t private_quit=private_body+100;
+        ActivityDetailsOwnership lease;ActivityDetailsClose closing;
+        native.show(original,7);
+        page.body=private_body;page.quit_action=private_quit;
+        lease.mount(native.items.front().presenter.page,300,native.items.front().id);
+        check(native.items.front().presenter==original && page.back_action==before.back_action &&
+              lease.owns(original.page,300,7),
+              "Borrowing the body/actions keeps the controller's Page identity and native Back route");
+        int selected=1;bool match_available=exit!=Exit::quit;
+        closing.begin(10000);closing.back_queued(false);
+        check(closing.needs_back() && native.menu_active && !native.hud_active &&
+              lease.owns(original.page,300,7) && (match_available || exit==Exit::quit),
+              "Busy asynchronous Back keeps ownership even when Quit has already ended the match");
+        if(exit!=Exit::selection_deadline)closing.back_queued(true);
+        check(closing.pending() && (exit==Exit::selection_deadline || !closing.needs_back()),
+              "Accepted Back remains pending until native teardown, while a busy action can still retry");
+        if(exit==Exit::selection_deadline) {
+            check(!closing.needs_selection_recovery(11999,true,true) &&
+                   closing.needs_selection_recovery(12000,true,true),
+                  "An unconsumed native Back allows only bounded recovery of the owned Details selection");
+        }
+        selected=0; // Native Back, or withdrawal of our still-owned selection.
+        ++page.native_revision; // The native controller may update unrelated fields during close.
+        native.items.front().active=false;
+        check(native.native_on_end() && !native.menu_active && native.hud_active && native.items.empty(),
+              "The native controller removes its saved Page pair and restores the HUD for every exit path");
+        check(lease.retains(original.page) && page.body==private_body && selected==0,
+              "Native removal can precede SDK cleanup without losing the cached borrowed Page");
+        // Restore the borrowed fields after the native item has disappeared;
+        // a whole-Page restore would incorrectly roll back native_revision.
+        page.body=before.body;page.quit_action=before.quit_action;
+        lease.retire();closing.reset();
+        check(page.body==40 && page.quit_action==50 && page.back_action==60 &&
+              page.native_revision==before.native_revision+1 && !lease.requested && !closing.pending(),
+              "Cleanup restores cached body/actions once and preserves native changes before the next match");
+    }
+}
+void native_activity_foreign_page_replacement() {
+    using namespace dingosdk::multiplayer::menu_data;
+    constexpr NativeDetailsStackFixture::Presenter original{10,200};
+    // Same item id is insufficient when a different Page, Blueprint, or layer
+    // takes over. The retained old Page must not grant selection recovery.
+    for(const auto replacement:std::array<NativeDetailsStackFixture::Presenter,3>{
+            {{10,201},{11,200},{11,201}}}) {
+        NativeDetailsStackFixture native;native.show(original,7);
+        ActivityDetailsOwnership lease;lease.mount(original.page,300,7);
+        ActivityDetailsClose closing;closing.begin(10000);
+        native.items.front().presenter=replacement;
+        const bool exact=lease.owns(replacement.page,300,7) && replacement.blueprint==original.blueprint;
+        check(!exact && !closing.needs_selection_recovery(20000,exact,true),
+              "A replacement native Page/Blueprint keeps its shared Details selection even after the close deadline");
+        const auto foreign_before=native.items.front().presenter;
+        lease.retire();closing.reset();
+        check(native.items.front().presenter==foreign_before && native.menu_active && !native.hud_active,
+              "Retiring a lost custom lease leaves the replacement native menu and its presenter untouched");
+    }
+    ActivityDetailsOwnership lease;lease.mount(original.page,300,7);
+    ActivityDetailsClose closing;closing.begin(10000);
+    check(!closing.needs_selection_recovery(20000,lease.owns(original.page,301,7),true),
+          "A native Page reused by another layer cannot inherit the previous layer's selection cleanup");
+    // A different body inside the same Page also removes content ownership.
+    // Matching Page identity alone must never establish restoration proof.
+    const std::uint64_t private_body=1000,foreign_body=2000;
+    const bool content_owned=foreign_body==private_body;
+    check(lease.owns(original.page,300,7) && !content_owned &&
+          !closing.needs_selection_recovery(20000,content_owned,true),
+          "A foreign body in the original Page is not an owned panel and cannot authorize clearing selection");
+}
+void native_activity_first_frame_presentation() {
+    using namespace dingosdk::multiplayer::menu_data;
+    constexpr std::array<std::uint32_t,10> captured{112,288,1574,287,15,0,0,983055,2162688,16978432};
+    check(native_activity_page_publish_graph(0x64c856aa,captured),
+          "The captured native page publication graph prepares presentation before rendering");
+    for(unsigned field=0;field<captured.size();++field) {
+        auto foreign=captured;++foreign[field];
+        check(!native_activity_page_publish_graph(0x64c856aa,foreign),
+              "Every word of a changed native graph ABI rejects early presentation");
+    }
+    check(!native_activity_page_publish_graph(0x1fee6146,captured) &&
+          !native_activity_page_publish_graph(0x05edc9f8,captured),
+          "Native teardown and exit conditions cannot publish a new panel body");
+    // Engine-side saved-pair fixture is independent of presentation/focus:
+    // the first render needs our body while the native camera is still moving.
+    NativeDetailsStackFixture native;native.show({10,200},7);
+    ActivityMenuTransitionGate focus;
+    ActivityDetailsOwnership lease;lease.request();
+    unsigned body=1; // Placeholder Customize/Confirm body.
+    if(native_activity_page_publish_graph(0x64c856aa,captured)) {
+        body=2;lease.mount(200,300,7);
+    }
+    check(body==2 && lease.owns(200,300,7) && !focus.ready(200,false,true,false,1000),
+          "First render uses prepared contents without pretending native camera/input are ready");
+    check(!focus.ready(200,true,true,true,1100) && focus.ready(200,true,true,true,1250),
+          "Presentation preparation preserves stable native menu/camera confirmation");
+    check(native.native_on_end() && native.hud_active && !native.menu_active,
+          "An early native Back still removes its original Page and restores gameplay");
+    lease.retire();
+    check(!lease.requested,"Back before the next full UI tick cannot retain a pending panel lease");
+}
 void window_close() {
     MenuLifetime lifetime;
     lifetime.before_transition(13, [] {});
@@ -374,7 +527,7 @@ void native_hud_clock_and_penalties() {
     using dingosdk::multiplayer::menu_data::native_hud_name_width;
     check(native_hud_name_width("Smokey")==224,"Short names use a compact padded native frame");
     check(native_hud_name_width("WWWWWWWW")>native_hud_name_width("IIIIIIII"),"Name sizing accounts for wide and narrow lettering");
-    check(native_hud_name_width(std::string(80,'W'))==640,"Long gamertags stay inside a bounded HUD frame");
+    check(native_hud_name_width(std::string(80,'W'))==1280,"Long gamertags can expand into a bounded wide HUD frame");
     check(native_hud_name_width("éééééé")==256,"UTF-8 continuation bytes do not enlarge a name twice");
     check(native_hud_seconds(28000) == 28,
           "Match the captured native Spot Battle timer's 28-second value");
@@ -968,6 +1121,115 @@ void start_only_match_panel_input() {
     check(!input.sample(0,false,true,false),"Release arms keyboard pause");
     check(input.sample(0,true,true,false),"Keyboard Escape requests the same panel");
 }
+void paused_hud_and_challenge_back() {
+    using namespace dingosdk::multiplayer::menu_data;
+    // Reproduce the pause transition: native parent becomes inactive before
+    // InMenu updates, then resumes before the custom request is cleared.
+    unsigned publications{};
+    for(const auto [active,menu,pending]:std::vector<std::array<bool,3>>{
+        {true,false,false},{false,false,true},{false,true,true},
+        {true,false,true},{true,false,false}})
+        if(hud_publication_allowed(active,menu,pending))++publications;
+    check(publications==2,"HUD publication waits across native parent and challenge-menu transitions");
+    MatchPanelStartInput input;
+    input.sample(0,false,true,false);
+    check(input.sample(0x10,false,true,false),"Real Start requests challenge details");
+    for(unsigned frame=0;frame<120;++frame)
+        check(!input.sample(0x10,false,true,true,true),"Opening Start stays latched throughout native camera transition");
+    input.sample(0,false,true,true,true);
+    check(input.sample(0x10,false,true,true,true),"Released then pressed Start requests Back from our owned native page");
+    input.sample(0,false,true,true,false);
+    check(!input.sample(0x10,false,true,true,false),"Start cannot take over an unrelated native page");
+}
+void consecutive_details_close_and_picker_retirement() {
+    using namespace dingosdk::multiplayer::menu_data;
+    ActivityDetailsOwnership lease;
+    ActivityDetailsClose closing;
+    // The same native layer/item is reused in the next match. Back first
+    // deactivates the old item, so cached restoration cannot require focus.
+    for(std::uint64_t match=1;match<=3;++match) {
+        const auto private_page=1000+match;
+        lease.mount(private_page,200,7);
+        closing.begin(match*10000);
+        closing.back_queued(false); // Native navigation still processing.
+        check(closing.pending() && closing.needs_back() && lease.owns(private_page,200,7),
+              "Busy Back retains the current panel and retries before the next match");
+        closing.back_queued(true);
+        check(closing.pending() && !closing.needs_back(),
+              "Queued Back remains owned until the native page actually leaves");
+        check(!closing.needs_selection_recovery(match*10000+1999,true,true) &&
+               closing.needs_selection_recovery(match*10000+2000,true,true),
+              "A stuck native Back has a bounded owned-selection recovery");
+        check(!closing.needs_selection_recovery(match*10000+9000,false,true) &&
+              !closing.needs_selection_recovery(match*10000+9000,true,false),
+              "Recovery cannot withdraw a foreign page or selection");
+        const bool item_active=false;
+        check(!active_activity_stack_item(0,1,item_active) && lease.retains(private_page),
+              "The deactivated cached presenter must still be restored before reuse");
+        check(!lease.retains(private_page+100),"A replacement native presenter must survive cleanup");
+        lease.retire();closing.reset();
+        check(!lease.retains(private_page) && !closing.pending(),
+              "Each completed close releases ownership for the next match");
+    }
+    struct Model {std::uint64_t handle,type;};
+    OwnedMenuModels<Model> owned;
+    owned.track({1,10});owned.track({2,20});owned.track({3,30});
+    MatchPanelStartInput input;std::string request;
+    input.sample(0,false,true,false);input.sample(0x10,false,true,false);
+    request="mode-throwdown-panel:2";
+    reset_match_panel_input(input,request,true);
+    check(owned.checkpoint()==3 && request=="mode-throwdown-panel:2",
+          "Picker retirement retains live HUD models, label donors, delegates and the Start request");
+    unsigned destroyed{};
+    owned.release([]{},[&](Model){++destroyed;});
+    check(destroyed==3 && owned.empty(),"Real world cleanup still releases every retained generation");
+}
+void native_camera_transition_confirmation() {
+    using namespace dingosdk::multiplayer::menu_data;
+    ActivityMenuTransitionGate gate;
+    check(!gate.ready(1,false,true,false,1000),"An active cached native page cannot take ownership of the HUD");
+    check(hud_publication_allowed(true,false,false),
+          "An unconfirmed Start request must keep the active gameplay HUD visible");
+    check(!gate.ready(1,true,true,false,1017),"Menu activity without the native camera is an incomplete transition");
+    check(!gate.ready(1,true,false,true,1100),"A reset selection rejects the previous frame's page and camera");
+    check(!gate.ready(1,true,true,true,1200) && !gate.ready(1,true,true,true,1349) &&
+          gate.ready(1,true,true,true,1350),"A settled native menu/camera is confirmed once before panel publication");
+    check(!gate.ready(1,false,true,true,1400) && !gate.ready(1,true,true,true,1450),
+          "A one-frame native menu flash cannot leave a custom panel in a cached slot");
+    check(!gate.ready(2,true,true,true,1600) && gate.ready(2,true,true,true,1750),
+          "A replacement page requires its own transition confirmation");
+}
+void hud_entry_settles_and_deadline_clock() {
+    using namespace dingosdk::multiplayer::menu_data;
+    HudPublicationGate gate;
+    check(!gate.allow(1,99,false,1000) && !gate.allow(1,99,true,1001) &&
+          !gate.allow(1,99,true,1100) && gate.allow(1,99,true,1101),
+          "A valid HUD parent appears after a short 100 ms check instead of the old 800 ms fade wait");
+    check(!gate.allow(1,99,false,1200) && !gate.allow(1,99,true,1220) &&
+          !gate.allow(1,99,true,1319) && gate.allow(1,99,true,1320),
+          "Actual parent inactivity still restarts the readiness check");
+    check(gate.allow(1,99,true,3000),"Ordinary clock updates and confirmation insertion do not delay a settled HUD");
+    check(!gate.allow(2,99,true,3000) && !gate.allow(2,99,true,3099) && gate.allow(2,99,true,3100),
+          "A new map gets its own bounded 100 ms parent check");
+    check(!gate.allow(2,100,true,4000) && !gate.allow(2,100,true,4099) && gate.allow(2,100,true,4100),
+          "A new challenge cannot inherit an old parent check or remain latched hidden");
+    check(native_hud_race_remaining(120000,1000,1016,true)==119984 &&
+          native_hud_race_remaining(9,1000,1016,true)==0 &&
+          native_hud_race_remaining(120000,1000,5000,false)==120000,
+          "Full deadline clock advances every frame, saturates at zero and pauses outside racing");
+    check(native_hud_race_time(native_hud_race_remaining(120000,1000,61000,true))=="01:00.000",
+          "Finish countdown retains minutes, seconds and milliseconds throughout the race");
+    for(std::uint64_t now=1000;now<=63000;now+=16) {
+        const auto display=native_hud_race_clocks(60000,1000,now,true,60000);
+        check(display.time_to_beat==60000,"Time to Beat remains the chosen limit on every rendered frame");
+        check(display.countdown==(now>=61000?0:61000-now),"Only the top countdown moves and cannot underflow");
+    }
+    const auto stopped=native_hud_race_clocks(27000,1000,2000,false,60000);
+    check(stopped.countdown==27000 && stopped.time_to_beat==60000,
+          "A paused or completed race retains the countdown while the target remains fixed");
+    check(native_hud_race_time(native_hud_race_clocks(60000,1000,1016,true,60000).time_to_beat)=="01:00.000",
+          "A sixty-second target is a stationary normalized minute, second and millisecond time");
+}
 void hud_items_keep_native_animation_state() {
     using dingosdk::multiplayer::menu_data::reconcile_hud_items;
     struct Ref {std::uint64_t record{},handle{};};
@@ -1053,15 +1315,169 @@ void start_request_survives_picker_replacement() {
     input.sample(0,false,true,false);
     check(input.sample(0x10,false,true,false),"A fresh Start works after the world is rebuilt");
 }
+void exclusive_start_release() {
+    using namespace dingosdk::game;
+    bool latched=false;
+    latched=owned_menu_release_latch(latched,true,true);
+    check(latched,"Gameplay captures the opening Start press");
+    for(unsigned frame=0;frame<120;++frame) {
+        latched=owned_menu_release_latch(latched,false,true);
+        check(latched && owned_menu_buttons(0xf31f,true)==0xf30f,
+              "Opening the panel cannot replay held Start; D-pad and face buttons remain intact");
+    }
+    latched=owned_menu_release_latch(latched,false,false);
+    check(!latched && owned_menu_buttons(0xf31f,false)==0xf31f,
+          "After release the native panel receives the next fresh Start normally");
+    check(!owned_menu_release_latch(latched,false,true),
+          "A fresh closing Start cannot acquire opening ownership");
+    latched=owned_menu_release_latch(latched,true,true);
+    latched=owned_menu_release_latch(latched,false,true);
+    check(latched,"A second match independently suppresses its opening held press");
+    check(!owned_menu_release_latch(latched,false,false),
+          "Physical release restores normal pause input after a match ends");
+    check(owned_menu_countdown_capture(true,false) && !owned_menu_countdown_capture(true,true) &&
+          !owned_menu_countdown_capture(false,false) && !owned_menu_countdown_capture(false,true),
+          "Countdown blocks skating while the exact owned native panel keeps Quit and Back input");
+}
+void stable_hud_surface_presenters() {
+    using namespace dingosdk::multiplayer::menu_data;
+    check(custom_hud_slot_order.size()==78 && custom_hud_slot_order.back()==0x31555076,
+          "A single stable catalog owns all mode/1-UP rows with the Start prompt last");
+    for(std::size_t i=0;i<custom_hud_slot_order.size();++i) {
+        check(custom_hud_item(custom_hud_slot_order[i]),"Every catalog slot belongs to a custom HUD");
+        for(std::size_t j=0;j<i;++j)check(custom_hud_slot_order[i]!=custom_hud_slot_order[j],"HUD identities are unique across both publishers");
+    }
+    const auto where=[](int id){return std::find(custom_hud_slot_order.begin(),custom_hud_slot_order.end(),0x4d4f4400+id);};
+    check(where(43)<where(0) && where(57)<where(61) && where(60)<where(5) && where(44)<where(45),
+          "Editor, race, results and confirmation backgrounds remain behind their text");
+    struct Ref {std::uint64_t record{},handle{};};
+    struct Presenter {std::uint64_t blueprint{};Ref data{};};
+    struct Item {int id{};bool active{};float animation{};Presenter presenter;};
+    std::vector<Item> desired;
+    for(const auto id:custom_hud_slot_order)desired.push_back({id,true,1,{10,{0,static_cast<std::uint64_t>(id)}}});
+    const auto bytes=[](const auto& items){return std::as_bytes(std::span(items));};
+    auto live=desired;
+    // The prior capture had 4 editor rows, 6 with confirmation, then intro,
+    // countdown, race and results. Those visual changes keep this same catalog.
+    for(const unsigned visible:{4u,6u,4u,6u,4u,5u,10u,9u,2u}) {
+        live[0].animation=visible/10.f;
+        check(!reconcile_hud_items<Presenter>(bytes(live),bytes(desired),sizeof(Item),offsetof(Item,id),offsetof(Item,presenter)),
+              "A new visible element or active animation cannot republish stable HUD presenters");
+    }
+    HudActivationHandoff handoff;handoff.remounted(1000);
+    check(handoff.pending() && !handoff.due(1000) && !handoff.due(1015) && handoff.due(1016),
+          "Native construction gets a later-tick active-state handoff before content is revealed");
+    check(handoff.due(1300),"A failed handoff remains pending for a safe retry");
+    handoff.published();check(!handoff.pending() && !handoff.due(2000),"Content changes cannot repeatedly bootstrap the native list");
+    handoff.remounted(3000);check(!handoff.due(2999) && !handoff.due(3015) && handoff.due(3016),"Only a new mount starts another native activation handoff");
+    HudSurfaceContentGate gate;
+    check(!gate.allow(true,0) && !gate.allow(false,16) && !gate.allow(true,250) &&
+          !gate.allow(true,265) && gate.allow(true,266),
+          "Blank active presenters must finish native initial activation before content appears");
+    check(gate.allow(true,500),"Content-only changes do not restart the native activation gate");
+    check(gate.allow(false,525) && gate.allow(false,550),
+          "Captured sibling opacity resets cannot blank an already visible HUD");
+    gate.reset();check(!gate.allow(true,600) && !gate.allow(true,615) && gate.allow(true,616),"A real parent/menu transition requires fresh native readiness");
+    struct AlphaKey {float input,output;};
+    const std::array<AlphaKey,2> authored{{{0,0},{1,1}}};
+    const auto frozen=constant_hud_curve<float>(std::as_bytes(std::span(authored)),sizeof(AlphaKey),offsetof(AlphaKey,output),1.f);
+    std::array<AlphaKey,2> opaque;std::memcpy(opaque.data(),frozen.data(),frozen.size());
+    check(authored[0].output==0 && opaque[0].input==0 && opaque[1].input==1,
+          "Private transition changes preserve authored source and native key times");
+    for(const float progress:{0.f,.16667f,.53333f,1.f})
+        check(opaque[0].output+(opaque[1].output-opaque[0].output)*progress==1.f,
+              "Captured opacity trajectories remain fully visible at every progress value");
+    struct TransformKey {float input;std::array<float,3> padding;std::array<float,16> output;};
+    const std::array<float,16> identity{1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,0};
+    std::array<TransformKey,2> transforms{};transforms[1].input=1;transforms[0].output[0]=1.5f;
+    const auto fixed=constant_hud_curve(std::as_bytes(std::span(transforms)),sizeof(TransformKey),offsetof(TransformKey,output),identity);
+    std::array<TransformKey,2> stationary;std::memcpy(stationary.data(),fixed.data(),fixed.size());
+    check(stationary[0].output==identity && stationary[1].output==identity && transforms[0].output[0]==1.5f,
+          "HUD transform stays at authored final geometry without changing the stock zoom curve");
+    bool rejected=false;try {constant_hud_curve<float>(frozen,8,7,1.f);}catch(const std::invalid_argument&){rejected=true;}
+    check(rejected,"Reject a changed native curve ABI before publishing any values");
+}
+
+void native_hud_active_budget() {
+    using dingosdk::multiplayer::menu_data::HudStackActiveBudget;
+    using dingosdk::multiplayer::menu_data::custom_hud_item;
+    HudStackActiveBudget budget;int live=1;unsigned writes{};
+    const auto publish=[&](int value){live=value;++writes;};
+    // Captured stock stack: one native item, four editor rows, then two
+    // confirmation rows. Native activation may rerun after every publication.
+    for(const auto own:std::array<unsigned,7>{4,4,6,6,4,36,4}) {
+        budget.update(100,live,own,publish);
+        check(live==static_cast<int>(1+own),"Every published HUD row has native active capacity");
+    }
+    check(writes==5,"Steady HUD frames cannot notify the active limit again");
+    budget.update(100,live,0,publish);check(live==1 && budget.stacks().empty(),"Quit restores the native one-item limit");
+    budget.update(100,live,4,publish);budget.update(100,live,6,publish);
+    check(live==7,"A second HUD publisher changes the shared total without accumulating capacity");
+    live=3;budget.update(100,live,4,publish);check(live==7,"A native limit replacement supersedes the old lease");
+    budget.update(100,live,0,publish);check(live==3,"Cleanup retains the replacement native limit");
+    live=1;budget.update(100,live,4,publish);live=9;budget.update(100,live,0,publish);
+    check(live==9,"Cleanup cannot overwrite a foreign limit change");
+    live=1;budget.update(100,live,4,publish);budget.manager_replaced();
+    check(budget.stacks().empty(),"Manager replacement drops retired stack handles");
+    int other=2;budget.update(200,other,6,[&](int value){other=value;});
+    check(other==8 && live==5,"A new map has an independent native budget");
+    HudStackActiveBudget ordered;int limit=1,items=1;
+    const auto capacity=[&](int value){limit=value;check(items<=limit,"Capacity contraction cannot hide existing rows");};
+    for(const auto own:std::array<unsigned,5>{4,6,4,36,0}) {
+        ordered.publish(500,limit,own,capacity,[&] {
+            items=1+static_cast<int>(own);
+            check(items<=limit,"New HUD rows cannot be published before their active budget");
+        });
+        check(items==limit,"After either native notification, all intended rows stay active");
+    }
+    bool failed{};
+    try {budget.update(300,1,4,[](int){throw std::runtime_error("publish failed");});}catch(const std::runtime_error&){failed=true;}
+    check(failed && budget.stacks().size()==1,"Failed publication does not claim native field ownership");
+    check(custom_hud_item(0x4d4f442b) && custom_hud_item(0x31555076) && custom_hud_item(0x31555805) &&
+          !custom_hud_item(static_cast<std::int32_t>(0x80001b91)) && !custom_hud_item(0x31555806),
+          "Only the custom HUD ID ranges consume borrowed active capacity");
+}
+
 int main() {
     try {
-        start_only_match_panel_input();hud_items_keep_native_animation_state();
-        hud_hidden_owned_items_recover();start_request_survives_picker_replacement();
+        using namespace dingosdk::multiplayer::menu_data;
+        HudCountdownLifecycle countdown_lifecycle;
+        check(countdown_lifecycle.update(1,true,false,4000,1000).intro,
+              "Challenge intro owns only its countdown phase");
+        check(countdown_lifecycle.update(1,true,false,1000,4000).countdown,
+              "Countdown remains visible before the race starts");
+        check(countdown_lifecycle.update(1,false,true,120000,5000).go,
+              "GO appears once at the countdown-to-race transition");
+        // Optional scoreboard failure skips rendering, while phase cleanup
+        // still executes on every tick and retires the preceding GO.
+        check(countdown_lifecycle.update(1,false,true,119000,6000).countdown==false,
+              "GO expires independently of optional scoreboard availability");
+        check(!countdown_lifecycle.update(1,false,true,110000,15000).go &&
+              !countdown_lifecycle.update(2,false,true,110000,16000).go &&
+              !countdown_lifecycle.update(0,false,false,0,16000).countdown,
+              "Late refresh, replacement game, and Quit cannot resurrect GO");
+        check(native_hud_race_time(0)=="00:00.000" && native_hud_race_time(59999)=="00:59.999" &&
+              native_hud_race_time(60000)=="01:00.000" && native_hud_race_time(6000000)=="100:00.000",
+              "Race clock preserves all three millisecond digits across minute rollovers");
+        check(native_hud_race_elapsed(2000,10000,10016,true,120000)==2016 &&
+              native_hud_race_elapsed(2000,10000,9999,true,120000)==2000 &&
+              native_hud_race_elapsed(2000,10000,11000,false,120000)==2000 &&
+              native_hud_race_elapsed(119990,10000,10016,true,120000)==120000,
+              "Frame clocks advance between samples, freeze finish/DNF, and respect the deadline");
+        check(native_hud_value_width("DNF  120:59.999")>native_hud_value_width("00:04.150") &&
+              native_hud_name_width("VeryLongGamertagWWWWWWWWWWWW")>640,
+              "DNF times and long names receive larger native frames");
+        exclusive_start_release();start_only_match_panel_input();paused_hud_and_challenge_back();hud_entry_settles_and_deadline_clock();hud_items_keep_native_animation_state();
+        stable_hud_surface_presenters();native_hud_active_budget();hud_hidden_owned_items_recover();start_request_survives_picker_replacement();
         activity_details_ownership();
+        consecutive_details_close_and_picker_retirement();
+        native_camera_transition_confirmation();
         private_flag_preview_invocation();
         exact_flag_bubble_owner();
         reused_waiting_card_controls();
         native_activity_stack_selection();
+        native_activity_page_identity_cleanup();native_activity_foreign_page_replacement();
+        native_activity_first_frame_presentation();
         map_transition(); interrupted_cleanup(); partial_build_rollback(); interrupted_build_rollback(); window_close(); native_transition_without_load_request(); action_slots(); live_hud_binding(); native_hud_clock_and_penalties(); native_one_up_slider_values(); wrapped_waiting_notification(); private_throwdown_graphs(); native_setup_body_reentry(); native_setup_capability_rows(); native_setup_action_ownership(); native_setup_owned_tiles(); native_array_source_retention(); native_store_and_hub_snapshot_lifetimes();
         std::puts("Native menu lifetime: transitions, cleanup, rollback, action slots, HUD binding, setup presenter reentry, and native array source retention passed.");
         return 0;

@@ -1,13 +1,74 @@
 #pragma once
 #include <cstdint>
+#include <array>
 #include <optional>
 #include <span>
 
 namespace dingosdk::multiplayer::menu_data {
+// Compiled native StackScreenController.ShowStackItemWithContent. Completion
+// runs before rendering; only this exact ABI may prepare a pending Page body.
+inline bool native_activity_page_publish_graph(std::uint32_t hash,const std::array<std::uint32_t,10>& layout) noexcept {
+    constexpr std::array<std::uint32_t,10> expected{112,288,1574,287,15,0,0,983055,2162688,16978432};
+    return hash==0x64c856aa && layout==expected;
+}
 struct HudRootCandidate {
     std::uint64_t handle{};
     bool active{};
     unsigned gameplay_stacks{};
+};
+// An inactive parent is a native transition, not a hidden custom item. Its
+// bindings can already be retired; do not repair children until it resumes.
+inline bool hud_publication_allowed(bool parent_active,bool menu_open,bool panel_owned) noexcept {
+    // An unconfirmed request leaves gameplay visible. Actual native menu or
+    // parent inactivity still prevents unsafe publication during transitions.
+    return parent_active && !menu_open && !panel_owned;
+}
+// A cached active Page is not proof that the native menu owns gameplay.
+// Confirm its menu state and camera focus continuously before borrowing it.
+class ActivityMenuTransitionGate {
+    std::uint64_t page_{},since_{};
+    bool observed_{};
+public:
+    bool ready(std::uint64_t page_handle,bool menu_open,bool selection_owned,bool camera_focused,std::uint64_t now) noexcept {
+        if(!page_handle || !menu_open || !selection_owned || !camera_focused) {
+            page_=0;observed_=false;return false;
+        }
+        if(!observed_ || page_!=page_handle) {page_=page_handle;since_=now;observed_=true;}
+        return now>=since_ && now-since_>=150;
+    }
+};
+// Wait briefly for a valid native parent on entry or after a real transition.
+// Custom HUD curves are opaque, so no stock fade duration needs to elapse.
+class HudPublicationGate {
+    std::uint64_t root_{},generation_{},since_{};
+    bool waiting_{true},observed_{};
+public:
+    bool allow(std::uint64_t root,std::uint64_t generation,bool ready,std::uint64_t now) noexcept {
+        if(root_!=root || generation_!=generation) {root_=root;generation_=generation;observed_=false;waiting_=true;}
+        if(!root || !ready) {observed_=false;waiting_=true;return false;}
+        if(!observed_) {since_=now;observed_=true;}
+        if(waiting_ && now-since_<100)return false;
+        waiting_=false;return true;
+    }
+};
+struct HudCountdownVisibility { bool countdown{},intro{},go{}; };
+// Timing belongs to the challenge phase, independently of optional artwork.
+// A failed scoreboard build must not prevent the preceding GO from expiring.
+class HudCountdownLifecycle {
+    std::uint64_t game_{},go_until_{};
+    bool was_counting_{};
+public:
+    HudCountdownVisibility update(std::uint64_t game,bool counting,bool playing,
+            std::uint64_t remaining,std::uint64_t now) noexcept {
+        if(game_!=game) {game_=game;go_until_=0;was_counting_=false;}
+        if(!game) {go_until_=0;was_counting_=false;return {};}
+        if(playing && was_counting_)go_until_=now+900;
+        if(!counting && !playing)go_until_=0;
+        was_counting_=counting;
+        const bool intro=counting && remaining>3000;
+        const bool go=playing && now<go_until_;
+        return {(counting && !intro)||go,intro,go};
+    }
 };
 struct NotificationMountNode {
     std::uint64_t model{};

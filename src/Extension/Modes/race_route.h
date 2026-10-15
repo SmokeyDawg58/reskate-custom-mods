@@ -19,6 +19,22 @@ inline std::array<float,16> race_spawn_transform(const Vec3& at, float heading) 
     const float yaw=heading*3.14159265f/180.f, co=std::cos(yaw), si=std::sin(yaw);
     return {co,0,-si,0,0,1,0,0,si,0,co,0,at[0],at[1]+.3f,at[2],1};
 }
+// Restoring a saved route replaces the native flag's facing, but its existing
+// gates still define the race direction. Spawn facing the first distinct point
+// down that course; retain the authored facing only for an incomplete route.
+inline float race_start_heading(const Settings& route) noexcept {
+    if(!route.points.empty())for(std::size_t i=1;i<route.points.size();++i) {
+        const float x=route.points[i][0]-route.points[0][0],z=route.points[i][2]-route.points[0][2];
+        if(std::hypot(x,z)>.1f)return std::atan2(x,z)*180.f/3.14159265f;
+    }
+    return route.yaws.empty()?0.f:route.yaws.front();
+}
+inline void align_race_start(Settings& route) {
+    if(route.mode!=Mode::race || route.points.size()<2)return;
+    const auto heading=race_start_heading(route);
+    if(route.yaws.empty())route.yaws.resize(1);
+    route.yaws[0]=heading;
+}
 // A course belongs to a map, independently of any lobby, player or match.
 class RaceCourseMemory {
     std::map<std::string,Settings> courses;

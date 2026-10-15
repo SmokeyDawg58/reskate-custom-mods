@@ -50,6 +50,7 @@ struct NativeView {
     bool active{}, leading{}, placing{};
     bool pending_flag{}, flag_placed{}, waiting{};
     std::uint64_t local{}, leader{}, world{};
+    std::uint64_t state_sampled_ms{};
     std::uint32_t game{};
     unsigned capacity=6;
     bool route_finish{},cursor_valid{};

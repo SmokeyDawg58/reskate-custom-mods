@@ -1,6 +1,115 @@
 // Use native Rime fills and label bindings, without the BasicNotice menu
 // icon, conditional padding or width constraints. Keep the complete picker.
 bool run_deathrace_hud_assets(int count,const char* const* args) {
+    if(std::string_view(args[1])=="deathrace-clock-board-assets") {
+        if(count!=5)throw std::runtime_error("deathrace-clock-board-assets <game-root> <input.fbproject> <output.fbproject>");
+        namespace sdk=reskate::sdk;namespace ui=reskate::modding::maps::ui;
+        namespace ebx=reskate::modding::maps::ebx;namespace projects=reskate::modding::projects;
+        const auto db=sdk::assets::FrostbiteAssetManager::load_sync(args[2]);
+        auto project=projects::load_project(args[3]);const auto contract=require_deathrace_picker_contract(project);
+        const std::string prefix="UI/ReSkate/Throwdowns/";
+        const auto source=[&](const std::string& suffix) {
+            const auto found=std::ranges::find(project.resources,prefix+suffix,&projects::ProjectResource::name);
+            if(found==project.resources.end())throw std::runtime_error("HUD template missing: "+suffix);
+            return *found;
+        };
+        const auto tint=[](sdk::ebx::Object& object,std::array<double,3> rgb) {
+            for(const auto* key:{"Color","ColorValue"})if(auto* field=sdk::ebx::find_field(object,key)) {
+                auto* value=&ui::require_object(field->value,key);
+                if(std::string_view(key)=="ColorValue") {
+                    for(const auto* asset:{"Asset","AccessibleAsset"})ui::require_field(*value,asset).value.data=sdk::ebx::PointerReference{};
+                    ui::require_field(*value,"SelectedColorId").value.data=std::string{};
+                    value=&ui::require_object(ui::require_field(*value,"RawColor").value,"RawColor");
+                }
+                for(unsigned axis=0;axis<3;++axis)ui::require_field(*value,axis==0?"x":axis==1?"y":"z").value.data=rgb[axis];
+            }
+        };
+        unsigned added{};
+        const auto clone=[&](const std::string& donor,const std::string& suffix,double width,double height,
+                             bool text_only=false,double point_size=0.,std::array<double,3> rgb={1.,1.,1.}) {
+            if(std::ranges::find(project.resources,prefix+suffix,&projects::ProjectResource::name)!=project.resources.end())return;
+            auto resource=source(donor);auto doc=sdk::ebx::read_document(resource.payload);
+            sdk::ebx::decode_boxed_values(doc,resource.payload);ebx::Partition part(doc);
+            auto* widget=part.find_instance("RimeWidgetEntityData");
+            if(!widget)throw std::runtime_error("HUD widget missing");
+            const auto old_width=sdk::ebx::number(ui::require_field(*widget->object,"Width").value).value();
+            const auto old_height=sdk::ebx::number(ui::require_field(*widget->object,"Height").value).value();
+            auto& document=part.document();
+            for(auto& instance:document.instances)if(instance.object) {
+                const auto type=sdk::ebx::type_name(document,instance);
+                if(type=="RimeWidgetEntityData" || type=="RimeContainerElementData" || type=="RimeFillElementData" || type=="RimeLabelElementData") {
+                    for(const auto [key,old_value,new_value]:{std::tuple{"Width",old_width,width},std::tuple{"Height",old_height,height}})
+                        if(auto* field=sdk::ebx::find_field(*instance.object,key)) {
+                            const auto value=sdk::ebx::number(field->value);
+                            if(value && *value==old_value)field->value.data=new_value;
+                            else if(type=="RimeLabelElementData" && std::string_view(key)=="Width" && value && *value==old_value-24.)field->value.data=width-24.;
+                        }
+                }
+                if(type=="RimeLabelElementData") {
+                    tint(*instance.object,rgb);
+                    ui::require_field(*instance.object,"WordWrap").value.data=false;
+                    if(point_size>0)ui::require_field(*instance.object,"PointSize").value.data=point_size;
+                }
+                if(text_only && type=="RimeContainerElementData") {
+                    auto& children=ui::require_array(ui::require_field(*instance.object,"Elements").value,"caption children");
+                    std::erase_if(children,[&](const auto& value) {
+                        const auto* pointer=sdk::ebx::pointer(value);
+                        const auto* child=pointer?sdk::ebx::resolve_internal(document,*pointer):nullptr;
+                        return child && sdk::ebx::type_name(document,*child)=="RimeFillElementData";
+                    });
+                }
+            }
+            if(point_size>0) {
+                // Font family still comes from the native text style, while
+                // the three-times position size belongs to this private glyph.
+                auto& links=ui::require_array(ui::require_field(*part.root()->object,"PropertyConnections").value,"position font bindings");
+                std::erase_if(links,[&](auto& value) {
+                    auto& link=ui::require_object(value,"font binding");
+                    const auto* pointer=sdk::ebx::pointer(ui::require_field(link,"Target").value);
+                    const auto* target=pointer?sdk::ebx::resolve_internal(document,*pointer):nullptr;
+                    return target && sdk::ebx::type_name(document,*target)=="RimeLabelElementData" &&
+                        std::uint32_t(sdk::ebx::integer(ui::require_field(link,"TargetFieldId").value).value_or(0))==1834692108U;
+                });
+            }
+            const auto name=prefix+suffix;ui::require_field(*part.root()->object,"Name").value.data=name;
+            auto authored=ui::emit(name,part);resource.name=name;resource.assetGuid=authored.partitionGuid;
+            resource.payload=authored.bytes;resource.added=true;project.resources.push_back(std::move(resource));++added;
+        };
+        const std::array keys{"oneup","jam","meat","race","domination","graffiti","tag","infection","hide"};
+        for(unsigned width=224;width<=1280;width+=32) {
+            clone("RaceName_640_Widget","RaceName_"+std::to_string(width)+"_Widget",width,76.);
+            clone("OneUpName_640_Widget","OneUpName_"+std::to_string(width)+"_Widget",width,76.);
+            clone("OneUpEliminated_640_Widget","OneUpEliminated_"+std::to_string(width)+"_Widget",width,76.);
+            clone("RaceTime_Widget","Caption_"+std::to_string(width)+"_Widget",width,52.,true);
+            for(const auto* key:keys)clone(std::string("HUD_")+key+"_Name_640_Widget",std::string("HUD_")+key+"_Name_"+std::to_string(width)+"_Widget",width,76.);
+        }
+        clone("RaceTime_Widget","Caption_100_Widget",100.,52.,true);
+        for(unsigned width=224;width<=640;width+=32) {
+            clone("RaceTime_Widget","RaceTime_"+std::to_string(width)+"_Widget",width,76.);
+            for(const auto* key:keys)clone(std::string("HUD_")+key+"_Value_Widget",std::string("HUD_")+key+"_Value_"+std::to_string(width)+"_Widget",width,76.);
+        }
+        for(unsigned width=564;width<=2036;width+=32)
+            clone("RaceTime_Widget","Heading_"+std::to_string(width)+"_64_Widget",width,64.,true);
+        for(unsigned width=1184;width<=2240;width+=32) {
+            clone("RaceTime_Widget","Heading_"+std::to_string(width-232)+"_144_Widget",width-232,144.,true);
+            for(unsigned rows=1;rows<=6;++rows)clone("ResultsPanel"+std::to_string(rows)+"_Widget",
+                "ResultsPanel"+std::to_string(rows)+"_"+std::to_string(width)+"_Widget",width,432.+84.*rows);
+            for(const auto* key:keys)clone(std::string("HUD_")+key+"_Results_Widget",
+                std::string("HUD_")+key+"_Results_"+std::to_string(width-64)+"_Widget",width-64,96.);
+        }
+        clone("RacePosition_Widget","RacePosition_Gold_Widget",480.,300.,false,216.,{1.,.78,.19});
+        clone("RacePosition_Widget","RacePosition_Silver_Widget",480.,300.,false,216.,{.78,.82,.88});
+        clone("RacePosition_Widget","RacePosition_Bronze_Widget",480.,300.,false,216.,{.80,.49,.27});
+        clone("RacePosition_Widget","RacePosition_White_Widget",480.,300.,false,216.);
+        clone("RaceTime_Widget","RaceElapsed_Widget",384.,100.,false,62.);
+        const std::filesystem::path output(args[4]);std::filesystem::create_directories(output.parent_path());
+        projects::save_project(project,output);
+        if(require_deathrace_picker_contract(projects::load_project(output))!=contract)throw std::runtime_error("picker identities changed");
+        auto mod=output;mod.replace_extension(".fbmod");reskate::modding::mods::write_fbmod(project,mod,args[2],&db);
+        std::cout<<"clock_board_variants="<<added<<" existing_assets=unchanged picker_contract=preserved\n";
+        return true;
+    }
+
     if(std::string_view(args[1])=="deathrace-results-layout") {
         if(count!=5)throw std::runtime_error("deathrace-results-layout <game-root> <input.fbproject> <output.fbproject>");
         namespace sdk=reskate::sdk;namespace ui=reskate::modding::maps::ui;namespace projects=reskate::modding::projects;

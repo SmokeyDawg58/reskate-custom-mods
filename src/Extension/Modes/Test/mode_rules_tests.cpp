@@ -212,7 +212,27 @@ void race_builder_flow() {
     check(std::abs(pose[8]-1)<.0001f && std::abs(pose[10])<.0001f && std::abs(pose[2]+1)<.0001f,
         "east-facing flag produces an east-facing native spawn, not identity rotation");
     check(pose[12]==10 && std::abs(pose[13]-2.3f)<.0001f && pose[14]==30,"lineup retains native placement position");
+    for(const auto heading:{-170.f,-90.f,0.f,45.f,90.f,179.f}) {
+        const float rad=heading*3.14159265f/180.f;
+        Settings course;course.mode=Mode::race;
+        course.points={{10,2,30},{10,8,30},{10+50*std::sin(rad),2,30+50*std::cos(rad)}};
+        course.yaws={heading+180.f,0.f,heading};
+        RaceCourseMemory memory;memory.save("first-map",course);
+        Settings other=course;other.yaws[0]=0;memory.save("second-map",other);
+        auto loaded=*memory.restore("first-map");
+        loaded.yaws[0]=90; // Native flag re-placement on the saved map.
+        const auto aligned=race_spawn_transform(loaded.points[0],race_start_heading(loaded));
+        check(std::abs(aligned[8]-std::sin(rad))<.0001f && std::abs(aligned[10]-std::cos(rad))<.0001f,
+            "Saved-route lineup faces the course despite flag re-placement and duplicate start points");
+        check(loaded.yaws[0]==90 && loaded.points==course.points,
+            "Lineup does not rotate or discard saved gates");
+    }
     Settings s;s.mode=Mode::race;bool finish{};
+    Settings restored;restored.mode=Mode::race;restored.points={{0,0,0},{0,0,50},{0,0,100}};
+    restored.yaws={90,0,15};align_race_start(restored);
+    check(race_gate_crossing(restored,0,{0,0,-1.5f},{0,0,1.5f}).inside,
+        "A restored race's corrected spawn crosses its corrected start plane");
+    check(restored.yaws==std::vector<float>{0,0,15},"Start alignment preserves other gate rotations");
     const Vec3 start{0,0,0},gate{20,0,0},end{60,0,0},replacement{80,0,0};
     check(!edit_race_route(s,finish,RaceObject::checkpoint,gate,90,6),"cannot place a checkpoint before the flag");
     check(accept_race_flag(s,finish,start,90,6)==RaceFlagTransition::edit_route,"first native flag opens the route editor");

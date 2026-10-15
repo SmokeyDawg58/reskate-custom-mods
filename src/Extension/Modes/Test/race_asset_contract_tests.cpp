@@ -146,7 +146,19 @@ int main() {
         check(!detail::checkpoint_resident(skater,skater,base,read), "resident skater accepted as native checkpoint");
         parent_bus_checks();
         group_reconciliation_checks();
-        std::cout << "Deathrace native asset/source/reconciliation contract: 37 checks passed\n";
+        detail::CheckpointWorldLifetime lifetime;
+        check(!lifetime.can_publish(17),"Gates created before an active world");
+        lifetime.before_transition(13,0);
+        check(lifetime.can_publish(17),"Active world rejected a new route");
+        check(lifetime.before_transition(14,17),"Map exit did not retire gates before teardown");
+        check(!lifetime.can_publish(17) && !lifetime.can_publish(18),"Gates created during map loading");
+        check(!lifetime.before_transition(22,17),"Nested transition requested late duplicate cleanup");
+        lifetime.before_transition(13,0);
+        check(!lifetime.can_publish(17) && lifetime.can_publish(18),"Reused world context accepted stale race ownership");
+        check(lifetime.before_transition(24,18),"Shutdown did not retire gates");
+        lifetime.before_transition(13,0);
+        check(!lifetime.can_publish(19),"Shutdown ownership resumed on a stale active transition");
+        std::cout << "Deathrace native asset/source/reconciliation and world lifetime contracts passed\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
         return 1;

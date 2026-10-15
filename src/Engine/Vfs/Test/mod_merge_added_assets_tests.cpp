@@ -449,6 +449,12 @@ void deathrace_runtime_roots_survive_core_replacement(bool map_first,bool correc
     unsigned seed = 40;
     for(const auto name : mods::detail::race_core_roots)
         assets.push_back({std::string(name),0,ebx_document(guid(static_cast<std::uint8_t>(seed++)),{})});
+    constexpr std::array hud_roots{"ui/reskate/throwdowns/racetime_352_widget",
+        "ui/reskate/throwdowns/raceelapsed_widget","ui/reskate/throwdowns/caption_352_widget",
+        "ui/reskate/throwdowns/raceposition_gold_widget","ui/reskate/throwdowns/resultspanel1_1184_widget"};
+    for(const auto name:hud_roots)
+        assets.push_back({name,0,ebx_document(guid(static_cast<std::uint8_t>(seed++)),{})});
+    assets.push_back({"ui/foreign/throwdowns/unrelated_widget",0,ebx_document(guid(71),{})});
     assets.push_back({"world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate_backup",0,ebx_document(guid(70),{})});
     const std::vector<Resource> materials{{
         "world/reskate/deathrace/checkpoints_win32_shaderstate/shaderblockdepot_12937733901070835605",
@@ -459,7 +465,8 @@ void deathrace_runtime_roots_survive_core_replacement(bool map_first,bool correc
     const auto report = mods::merge_mods(fixture.catalog);
     expect(report.issue.empty() && report.built,"Deathrace native roots: merge builds\n"+describe(report));
     const auto files = fixture.merged_files(map_toc,bundle);
-    const auto expected = 3 + (correct_owner && correct_bundle ? static_cast<int>(mods::detail::race_core_roots.size())+1 : 0);
+    const auto expected = 3 + (correct_owner && correct_bundle ?
+        static_cast<int>(mods::detail::race_core_roots.size()+hud_roots.size())+1 : 0);
     expect(files == expected,"Deathrace native roots: map gets only scoped roots/material ("+
         std::to_string(files)+" files vs "+std::to_string(expected)+")\n"+describe(report));
 }

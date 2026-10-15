@@ -21,6 +21,13 @@ inline bool race_core_root(std::string_view mod,std::string_view bundle,std::str
     return mod == race_core_mod && bundle == race_core_bundle &&
         std::find(race_core_roots.begin(),race_core_roots.end(),name) != race_core_roots.end();
 }
+inline bool race_core_resident_root(std::string_view mod,std::string_view bundle,std::string_view name) {
+    // Measured HUD variants, captions and clocks are selected by the DLL at
+    // runtime and have no authored import from the picker. Retain them when
+    // a custom map replaces the core bundle, just like the checkpoint roots.
+    return mod == race_core_mod && bundle == race_core_bundle &&
+        (race_core_root(mod,bundle,name) || name.starts_with("ui/reskate/throwdowns/"));
+}
 inline bool race_core_shader(std::string_view mod,std::string_view bundle,std::string_view name,std::uint32_t type) {
     return mod == race_core_mod && bundle == race_core_bundle && type == 0x73312045 &&
         name == "world/reskate/deathrace/checkpoints_win32_shaderstate/shaderblockdepot_12937733901070835605";

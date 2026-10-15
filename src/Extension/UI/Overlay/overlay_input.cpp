@@ -7,6 +7,7 @@
 #include "cursor.h"
 #include "Extension/Throwdowns/one_up_runtime.h"
 #include "Extension/Modes/game_modes.h"
+#include "Engine/Game/Input/owned_menu_input.h"
 
 using namespace dingosdk::overlay::detail;
 namespace dingosdk::overlay::detail {
@@ -150,6 +151,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         else window_cursor_input(window, message, wp);
         const bool key = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
         const bool release = message == WM_KEYUP || message == WM_SYSKEYUP;
+        if((key || release) && challenge_menu_key(static_cast<int>(wp)))return 0;
         if (console_character(message) && s.console_character_pending.exchange(false)) return 0;
         if (console_character(message) && s.chat_character_pending.exchange(false)) return 0;
         if (console_character(message) && s.item_search_character_pending.exchange(false)) return 0;
@@ -283,7 +285,8 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
                 s.input.push_back({window, message, wp, lp});
             }
         }
-        const bool countdown = dingosdk::multiplayer::one_up::countdown_locks_input() || dingosdk::modes::countdown_locks_input();
+        const bool countdown = game::owned_menu_countdown_capture(
+            dingosdk::multiplayer::one_up::countdown_locks_input() || dingosdk::modes::countdown_locks_input(),challenge_panel_owns_input());
         const bool freecam_capture = s.freecam_controller_active.load(std::memory_order_relaxed) ||
                                      s.prompt_input_active.load(std::memory_order_relaxed);
         if (countdown || freecam_capture) release_game_buttons(window, previous);

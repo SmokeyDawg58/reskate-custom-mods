@@ -211,11 +211,10 @@ ModRead read_mod(const Mod& mod, const RelativeFiles& files, const CasStore& sto
             addition.file = document.fileGuid;
             for (const auto& reference : document.imports) addition.names.push_back(reference.fileGuid);
             addedIn[candidates[index].first].insert(addition.file);
-            // Deathrace instantiates these nine private native ObjectBlueprints
-            // directly from the DLL. No typed UI import can retain them. A map
-            // replaces this core bundle, so retain these exact runtime roots
-            // from our embedded core package as well as imported additions.
-            if(race_core_root(mod.name,candidates[index].first,lower(addition.asset.name)))
+            // Native gates and dynamically sized HUD variants are selected
+            // directly by the DLL. A replacement map's core bundle must keep
+            // these private runtime roots as well as imported additions.
+            if(race_core_resident_root(mod.name,candidates[index].first,lower(addition.asset.name)))
                 imported.insert(addition.file);
         } catch (const std::exception&) { unreadable[index] = true; }
     }

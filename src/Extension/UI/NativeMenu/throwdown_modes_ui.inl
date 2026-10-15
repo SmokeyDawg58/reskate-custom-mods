@@ -321,205 +321,231 @@ void mode_action(const Context& c,const Action& a) {
 }
 void mode_hud_publish(const Context& c,bool show,bool countdown,bool intro,bool blind,bool results,bool race) {
     auto& h=state().mode_hud;if(!h.stack.handle || c.type_of(h.stack.handle)!=h.stack.type)return;
-    const auto target=c.field(h.stack,items);unsigned count{},stride{};const auto old=c.array(target,64,count,stride);
-    require(stride==stack_item.size,"Native mode HUD stack ABI differs.");
-    const auto offset=c.member(c.type(stack_item),0x1e95752c).offset;std::vector<std::byte> next;
-    for(unsigned i=0;i<count;++i) {
-        std::int32_t id{};std::memcpy(&id,old.data()+i*stride+offset,4);
-        if(id<mode_hud_id || id>=mode_hud_id+64)next.insert(next.end(),old.begin()+i*stride,old.begin()+(i+1)*stride);
+    const bool ready=hud_publication_allowed(read<bool>(c.address(c.field(h.stack,0x369babfe))),state().in_menu,
+        (show || countdown || intro || blind || results || race) && state().match_panel_open.load());
+    const bool settled=h.publication.allow(h.stack.handle,h.game,ready,GetTickCount64());
+    if(!ready || ((show || countdown || intro || blind || results || race) && !settled)) {
+        if(const auto found=state().hud_surfaces.find(h.stack.handle);found!=state().hud_surfaces.end()) {
+            if(!ready)found->second.suspended=true;
+            hide_hud_surface_content(c,found->second);
+        }
+        return;
     }
-    const auto append=[&](Value item) {
-        if(!item.handle)return;
-        const auto at=next.size();next.resize(at+stride);require(memory::peek_bytes(c.address(item),next.data()+at,stride),"Native mode HUD item unavailable.");
-    };
-    if(show && h.placing_layout) {
-        append(h.editor_panel_item);
-    }
+    std::vector<Value> visible;
+    const auto append=[&](Value item) {if(item.handle)visible.push_back(item);};
+    if(show && h.placing_layout)append(h.editor_panel_item);
     if(show && h.race_layout && !h.placing_layout)append(h.race_header_item);
     if(results)append(h.results_panel_item);
-    if(results) {append(h.results_logo_item);append(h.results_notice_item);append(h.results_columns_item);}
-    for(const auto item:{blind?h.blind_item:Value{},show?h.item:Value{},show?h.badge_item:Value{},show && h.placing_layout?h.placement_item:Value{},show && !h.placing_layout && h.clock_visible?h.clock_item:Value{},show && !h.placing_layout && !h.race_layout?h.score_item:Value{},countdown?h.countdown_item:Value{},intro?h.intro_item:Value{},results?h.results_item:Value{},(race || results)?h.race_item:Value{},race?h.race_position_item:Value{},show && h.race_warning_visible?h.race_warning_item:Value{},show && h.placing_layout && h.clear_ring_visible?h.clear_ring_item:Value{},show && h.exit_visible?h.exit_panel_item:Value{},show && h.exit_visible?h.exit_item:Value{}})if(item.handle) {
-        const auto at=next.size();next.resize(at+stride);require(memory::peek_bytes(c.address(item),next.data()+at,stride),"Native mode HUD item unavailable.");
-    }
-    if(show && !blind && !results)for(const auto item:h.world_items) {
-        const auto at=next.size();next.resize(at+stride);require(memory::peek_bytes(c.address(item),next.data()+at,stride),"Native objective marker unavailable.");
-    }
-    const auto presenter_offset=c.member(c.type(stack_item),content).offset;
-    std::vector<std::int32_t> owned_ids;
-    for(int id=mode_hud_id;id<mode_hud_id+64;++id)owned_ids.push_back(id);
-    const auto visibility_fields=hud_visibility_fields(c);
-    const HudVisibilityContract visibility{c.member(c.type(stack_item),0x369babfe).offset,owned_ids,visibility_fields};
-    if(const auto stable=reconcile_hud_items<Widget>(old,next,stride,offset,presenter_offset,&visibility))
-        c.array(target,*stable,static_cast<unsigned>(stable->size()/stride));
+    for(const auto item:{blind?h.blind_item:Value{},show?h.item:Value{},show?h.badge_item:Value{},show && h.placing_layout?h.placement_item:Value{},show && !h.placing_layout && h.clock_visible?h.clock_item:Value{},show && !h.placing_layout && !h.race_layout?h.score_item:Value{},countdown?h.countdown_item:Value{},intro?h.intro_item:Value{},results?h.results_item:Value{},race?h.race_item:Value{},race?h.race_position_item:Value{},race?h.race_elapsed_item:Value{},race?h.race_deadline_item:Value{},race?h.race_deadline_caption_item:Value{},show && h.race_warning_visible?h.race_warning_item:Value{},show && h.placing_layout && h.clear_ring_visible?h.clear_ring_item:Value{},show && h.exit_visible?h.exit_panel_item:Value{},show && h.exit_visible?h.exit_item:Value{}})append(item);
+    if(show && !blind && !results)for(const auto item:h.world_items)append(item);
+    publish_hud_surface(c,h.stack,visible,true);
 }
 Address mode_hud_art(const Context& c,modes::Mode mode,const char* part) {
     return asset(c,(std::string("UI/ReSkate/Throwdowns/HUD_")+std::string(modes::mode_key(mode))+"_"+part+"_Widget").c_str());
 }
-// Fixed-size notice panels keep names and ranks inside their backgrounds;
-// the donor ContentPresenterTile measures a thin menu strip above its origin.
+std::uint64_t mode_racer_elapsed(const modes::NativeView& v,const modes::Standing& row,std::uint64_t now) {
+    const bool running=v.state && v.state->phase==modes::Phase::playing && !row.out &&
+        static_cast<std::size_t>(std::max<std::int64_t>(0,row.score))<v.settings.points.size();
+    return native_hud_race_elapsed(static_cast<std::uint64_t>(std::max(0,row.aux)),
+        v.state_sampled_ms,now,running,static_cast<std::uint64_t>(v.settings.duration_s)*1000);
+}
+std::string mode_racer_time(const modes::NativeView& v,const modes::Standing& row,std::uint64_t now) {
+    return (row.out?"DNF  ":"")+native_hud_race_time(mode_racer_elapsed(v,row,now));
+}
+void mode_race_clocks(const Context& c,const modes::NativeView& v,std::uint64_t now) {
+    auto& h=state().mode_hud;
+    if(v.settings.mode!=modes::Mode::race || !v.state || h.game!=v.game)return;
+    const auto clocks=native_hud_race_clocks(v.state->remaining_ms,v.state_sampled_ms,now,
+        v.state->phase==modes::Phase::playing,static_cast<std::uint64_t>(v.settings.duration_s)*1000);
+    if(h.race_deadline.handle && c.type_of(h.race_deadline.handle)==h.race_deadline.type)
+        plain_label(c,c.field(h.race_deadline,0x94703efc),native_hud_race_time(clocks.time_to_beat));
+    for(const auto& row:v.state->standings) {
+        const auto found=h.race_players.find(row.player);
+        if(found!=h.race_players.end() && found->second.timer.handle &&
+           c.type_of(found->second.timer.handle)==found->second.timer.type)
+            plain_label(c,c.field(found->second.timer,0x94703efc),mode_racer_time(v,row,now));
+        if(row.player==v.local && h.race_elapsed.handle && c.type_of(h.race_elapsed.handle)==h.race_elapsed.type)
+            plain_label(c,c.field(h.race_elapsed,0x94703efc),native_hud_race_time(clocks.countdown));
+    }
+}
+void mode_hud_cell(const Context& c,Value value,const std::string& text,float width,float height,const char* font) {
+    match_panel_table_style(c,value);
+    c.set_if_changed(c.field(value,0x13be0d51),std::array<float,2>{width,height});
+    // The donor notice carries its own label constraint. Retaining it clips
+    // narrow position cells even when the surrounding frame is wide enough.
+    match_panel_notice_width(c,value,std::max(1.f,width-24.f));
+    c.set_if_changed(c.field(value,0x54258200),false);
+    const auto label=c.field(value,0x94703efc);plain_label(c,label,text);
+    label_styles(c,label,font,font);c.set_if_changed(c.field(label,0xc13ba637),false);c.set_if_changed(c.field(label,0xfc53d427),false);
+    c.set_if_changed(c.field(label,0x3d8639d0),2);c.set_if_changed(c.field(label,0x87ad624c),2);
+}
+void mode_hud_list_cell_size(const Context& c,Value list,unsigned i,float width,float height,Widget display={}) {
+    const auto handle=read<Handle>(c.address(c.element(c.field(list,0xf2c90867),i)));
+    const Value anchor{handle,c.type_of(handle)};
+    c.set_if_changed(c.field(anchor,0x1cff7243),std::array<float,2>{width,height});
+    // Weight 1 retains the explicit measured bounds. Zero collapsed the list
+    // cells and separated the rendered frames from their labels.
+    for(const auto axis:{0xde7d30c7U,0x185a5736U})c.set_if_changed(c.path(anchor,{axis,0xd01f4a21}),1.f);
+    c.set_if_changed(c.field(anchor,0x6efc1a61),false);
+    c.set_if_changed(c.field(anchor,0xbe5683d9),false);
+    if(display.blueprint) {
+        const auto slot=c.field(anchor,widget);const auto old=read<Widget>(c.address(slot));
+        if(old.blueprint!=display.blueprint || old.data.handle!=display.data.handle)c.set_if_changed(slot,display);
+    }
+}
+Address mode_hud_caption_art(const Context& c,float width) {
+    return asset(c,("UI/ReSkate/Throwdowns/Caption_"+std::to_string(static_cast<unsigned>(width))+"_Widget").c_str());
+}
+Address mode_hud_heading_art(const Context& c,float width,unsigned height) {
+    return asset(c,("UI/ReSkate/Throwdowns/Heading_"+std::to_string(static_cast<unsigned>(width))+"_"+std::to_string(height)+"_Widget").c_str());
+}
+void mode_board_columns(const Context& c,Value& list,std::array<Value,3>& labels,const std::array<float,3>& widths,bool race) {
+    std::vector<Widget> cells;
+    for(unsigned i=0;i<3;++i) {
+        if(!labels[i].handle)labels[i]=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+        mode_hud_cell(c,labels[i],i==0?"POS":i==1?"NAME":race?"TIME":"SCORE",widths[i],52.f,"TextStylesList/H52-XBold_White");
+        cells.push_back({mode_hud_caption_art(c,widths[i]),{0,labels[i].handle}});
+    }
+    if(!hud_list_has_items(c,list,3))hud_list(c,list,cells,true,52.f,8.f);
+    for(unsigned i=0;i<3;++i)mode_hud_list_cell_size(c,list,i,widths[i],52.f,cells[i]);
+}
 void mode_race_standings(const Context& c,const modes::NativeView& v,const overlay::ModesHud& feed) {
     auto& h=state().mode_hud;
     const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
-    const bool is_race=v.settings.mode==modes::Mode::race;
-    float name_width=224.f;
+    const bool race=v.settings.mode==modes::Mode::race;
+    float name_width=224.f,value_width=race?320.f:224.f;
+    const auto now=GetTickCount64();
     for(const auto& row:feed.rows)name_width=std::max(name_width,float(native_hud_name_width(row.name)));
-    const float value_width=is_race?280.f:184.f;
-    const float width=100.f+name_width+value_width+16.f;
+    for(unsigned i=0;v.state && i<v.state->standings.size() && i<feed.rows.size();++i)
+        value_width=std::max(value_width,float(native_hud_value_width(race?mode_racer_time(v,v.state->standings[i],now):feed.rows[i].value)));
+    // Reserve DNF/deadline width before a running clock reaches that state.
+    if(race)value_width=std::max(value_width,float(native_hud_value_width("DNF  "+native_hud_race_time(static_cast<std::uint64_t>(v.settings.duration_s)*1000))));
+    h.race_widths={100.f,name_width,value_width};const float width=116.f+name_width+value_width;
     constexpr float height=76.f,pitch=84.f;
-    const auto cell_art=[&](const char* part) {
-        if(is_race && std::string_view(part)=="Name")return asset(c,"UI/ReSkate/Throwdowns/RaceName_Widget");
-        if(is_race && std::string_view(part)=="Value")return asset(c,"UI/ReSkate/Throwdowns/RaceTime_Widget");
-        return mode_hud_art(c,v.settings.mode,part);
-    };
-    std::vector<Widget> refs;std::vector<Handle> order;
-    unsigned local_place{};
+    std::vector<Widget> refs;std::vector<Handle> order;unsigned local_place{};
     for(unsigned i=0;v.state && i<v.state->standings.size() && i<feed.rows.size() && i<6;++i) {
         const auto& player=v.state->standings[i];auto& row=h.race_players[player.player];
-        const float player_name_width=feed.results?name_width:float(native_hud_name_width(feed.rows[i].name));
-        if(player.player==v.local)local_place=i+1;
-        if(!row.list.handle) {
-            for(const auto [value,cell_width]:std::array{std::pair{&row.rank,100.f},std::pair{&row.name,name_width},std::pair{&row.timer,value_width}}) {
-                *value=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-                c.set(c.field(*value,0x13be0d51),std::array<float,2>{cell_width,height});
-                const auto label=c.field(*value,0x94703efc);
-                label_styles(c,label,"TextStylesList/SP38-SemiB_White","TextStylesList/SP38-SemiB_White");
-                c.set(c.field(label,0xc13ba637),false);c.set(c.field(label,0xfc53d427),false);
-                c.set(c.field(label,0x87ad624c),2);c.set(c.field(label,0x3d8639d0),2);
-            }
-            hud_list(c,row.list,{{cell_art("Rank"),{0,row.rank.handle}},{cell_art("Name"),{0,row.name.handle}},
-                {cell_art("Value"),{0,row.timer.handle}}},true,height,8.f,0.f,width,100.f);
-            const auto columns=c.field(row.list,0xf2c90867);
-            for(unsigned col=0;col<3;++col) {
-                const auto ref=read<Handle>(c.address(c.element(columns,col)));
-                c.set(c.field({ref,c.type_of(ref)},0x1cff7243),std::array<float,2>{col==0?100.f:col==1?name_width:value_width,height});
-            }
+        if(player.player==v.local && !player.out)local_place=i+1;
+        std::array<Value*,3> values{&row.rank,&row.name,&row.timer};std::vector<Widget> cells;
+        for(unsigned column=0;column<3;++column) {
+            if(!values[column]->handle)*values[column]=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+            const std::string text=column==0?(player.out?"--":std::to_string(i+1)+(i==0?"st":i==1?"nd":i==2?"rd":"th")):
+                column==1?feed.rows[i].name:race?mode_racer_time(v,player,now):player.out?"OUT":feed.rows[i].value;
+            mode_hud_cell(c,*values[column],text,h.race_widths[column],height,"TextStylesList/H52-XBold_White");
+            std::string art;
+            if(column==0)art="UI/ReSkate/Throwdowns/"+std::string(race?"RaceRank":"HUD_"+std::string(modes::mode_key(v.settings.mode))+"_Rank")+"_Widget";
+            else if(column==1)art="UI/ReSkate/Throwdowns/"+std::string(race?"RaceName":"HUD_"+std::string(modes::mode_key(v.settings.mode))+"_Name")+"_"+std::to_string(static_cast<unsigned>(name_width))+"_Widget";
+            else art="UI/ReSkate/Throwdowns/"+std::string(race?"RaceTime":"HUD_"+std::string(modes::mode_key(v.settings.mode))+"_Value")+"_"+std::to_string(static_cast<unsigned>(value_width))+"_Widget";
+            cells.push_back({asset(c,art.c_str()),{0,values[column]->handle}});
         }
-        const auto cells=c.field(row.list,0xf2c90867);
-        unsigned column{};
-        for(const auto& [part,value]:std::array{std::pair{"Rank",row.rank},std::pair{"Name",row.name},std::pair{"Value",row.timer}}) {
-            const auto handle=read<Handle>(c.address(c.element(cells,column++)));
-            const auto slot=c.field({handle,c.type_of(handle)},widget);
-            const auto name_art=is_race?"UI/ReSkate/Throwdowns/RaceName_"+std::to_string(static_cast<unsigned>(player_name_width))+"_Widget":
-                std::string("UI/ReSkate/Throwdowns/HUD_")+std::string(modes::mode_key(v.settings.mode))+"_Name_"+std::to_string(static_cast<unsigned>(player_name_width))+"_Widget";
-            const auto blueprint=std::string_view(part)=="Name"?asset(c,name_art.c_str()):cell_art(part);
-            if(std::string_view(part)=="Name") {
-                c.set(c.field(value,0x13be0d51),std::array<float,2>{player_name_width,height});
-                c.set(c.field({handle,c.type_of(handle)},0x1cff7243),std::array<float,2>{player_name_width,height});
-            }
-            if(read<Widget>(c.address(slot)).blueprint!=blueprint)c.set(slot,Widget{blueprint,{0,value.handle}});
-        }
-        plain_label(c,c.field(row.rank,0x94703efc),player.out?"--":std::to_string(i+1)+(i==0?"st":i==1?"nd":i==2?"rd":"th"));
-        plain_label(c,c.field(row.name,0x94703efc),feed.rows[i].name);
-        const bool race=v.settings.mode==modes::Mode::race;
-        const auto elapsed=static_cast<unsigned>(std::max(0,player.aux));
-        const auto time=std::format("{}:{:02}.{:02}",elapsed/60000,(elapsed/1000)%60,(elapsed/10)%100);
-        plain_label(c,c.field(row.timer,0x94703efc),race?(player.out?"DNF  "+time:time):player.out?"OUT":feed.rows[i].value);
-
-        label_styles(c,c.field(row.rank,0x94703efc),"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-        const auto rank_style=record_ref(c,i==0 && !player.out?"NoticeStylesList/BasicNotice_Attention":i==1 && !player.out?"NoticeStylesList/BasicNotice_Bright":"NoticeStylesList/BasicNotice_Dark_Rough");
-        for(const auto key:{0x8cc042efU,0xa1e84eb1U})c.set(c.field(row.rank,key),rank_style);
-        const auto rank_text="TextStylesList/SP38-SemiB_White";
-        label_styles(c,c.field(row.rank,0x94703efc),rank_text,rank_text);
-        const bool self=player.player==v.local;
-        const auto name_style=record_ref(c,self?"NoticeStylesList/BasicNotice_Attention":"NoticeStylesList/BasicNotice_Dark_Rough");
-        for(const auto key:{0x8cc042efU,0xa1e84eb1U})c.set(c.field(row.name,key),name_style);
-        const auto name_text="TextStylesList/H52-XBold_White";
-        label_styles(c,c.field(row.name,0x94703efc),name_text,name_text);
+        if(!hud_list_has_items(c,row.list,3))hud_list(c,row.list,cells,true,height,8.f);
+        for(unsigned col=0;col<3;++col)mode_hud_list_cell_size(c,row.list,col,h.race_widths[col],height,cells[col]);
         order.push_back(player.player);refs.push_back({list_widget,{0,row.list.handle}});
     }
     if(h.race_player_order!=order || !hud_list_has_items(c,h.race_rows,static_cast<unsigned>(refs.size())))
         hud_list(c,h.race_rows,refs,false,height,8.f,0.f,width);
     h.race_player_order=order;
-    mount_hud(c,h.race_rows,list_widget,h.race_anchor,h.race_item,mode_hud_id+6,false);
-    c.set(c.field(h.race_anchor,0x1cff7243),std::array<float,2>{width,pitch*static_cast<float>(refs.size())});
+    for(unsigned i=0;i<refs.size();++i)mode_hud_list_cell_size(c,h.race_rows,i,width,height);
+    if(feed.results)return; // Results owns these rows inside its single board.
+    if(!h.race_title.handle)h.race_title=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+    mode_hud_cell(c,h.race_title,"LEADERBOARD",width,64.f,"TextStylesList/H52-XBold_White");
+    mode_board_columns(c,h.race_columns,h.race_captions,h.race_widths,race);
+    const auto heading=mode_hud_heading_art(c,width,64);
+    if(!hud_list_has_items(c,h.race_board,3))hud_list(c,h.race_board,{{heading,{0,h.race_title.handle}},
+        {list_widget,{0,h.race_columns.handle}},{list_widget,{0,h.race_rows.handle}}},false,64.f,12.f,0.f,width);
+    const float rows_height=pitch*static_cast<float>(refs.size());
+    mode_hud_list_cell_size(c,h.race_board,0,width,64.f,{heading,{0,h.race_title.handle}});
+    mode_hud_list_cell_size(c,h.race_board,1,width,52.f);
+    mode_hud_list_cell_size(c,h.race_board,2,width,rows_height);
+    mount_hud(c,h.race_board,list_widget,h.race_anchor,h.race_item,mode_hud_id+6,false);
+    c.set_if_changed(c.field(h.race_anchor,0x1cff7243),std::array<float,2>{width,140.f+rows_height});
     for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
-        const bool y=axis==0x185a5736U;
-        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set(c.path(h.race_anchor,{axis,field}),y?.60f:.95f);
-        c.set(c.path(h.race_anchor,{axis,0xfec5e0b1}),y?.5f:1.f);
-        for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.path(h.race_anchor,{axis,key}),0.f);
-        c.set(c.path(h.race_anchor,{axis,0xd01f4a21}),.85f);
+        const bool vertical=axis==0x185a5736U;
+        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.race_anchor,{axis,field}),vertical?.60f:.95f);
+        c.set_if_changed(c.path(h.race_anchor,{axis,0xfec5e0b1}),vertical?.5f:1.f);
+        c.set_if_changed(c.path(h.race_anchor,{axis,0xd01f4a21}),1.f);
+        for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(h.race_anchor,{axis,field}),0.f);
     }
-    if(v.settings.mode!=modes::Mode::race)return;
+    if(!race)return;
     if(!h.race_position.handle)h.race_position=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-    for(const auto key:{0x8cc042efU,0xa1e84eb1U})c.set(c.field(h.race_position,key),record_ref(c,"NoticeStylesList/BasicNotice_Alert"));
-    const auto position=c.field(h.race_position,0x94703efc);
-    plain_label(c,position,local_place?std::to_string(local_place)+(local_place==1?"ST":local_place==2?"ND":local_place==3?"RD":"TH"):"--");
-    label_styles(c,position,"TextStylesList/D94-Caps-Bold_White","TextStylesList/D94-Caps-Bold_White");
-    c.set(c.field(h.race_position,0x13be0d51),std::array<float,2>{240.f,100.f});
-    mount_hud(c,h.race_position,asset(c,"UI/ReSkate/Throwdowns/RacePosition_Widget"),h.race_position_anchor,h.race_position_item,mode_hud_id+41,false);
-    c.set(c.field(h.race_position_anchor,0x1cff7243),std::array<float,2>{240.f,100.f});
-    for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
-        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set(c.path(h.race_position_anchor,{axis,field}),axis==0xde7d30c7U?.03f:.08f);
-        c.set(c.path(h.race_position_anchor,{axis,0xfec5e0b1}),0.f);
-        for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.path(h.race_position_anchor,{axis,key}),axis==0xde7d30c7U?24.f:198.f);
-    }
-}
-void mode_results(const Context& c,const modes::NativeView& v,const overlay::ModesHud& feed,const throwdowns::Definition& d) {
-    auto& h=state().mode_hud;
-    if(!h.results_title.handle)h.results_title=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
-    plain_label(c,h.results_title,d.name+" RESULTS");
-    label_styles(c,h.results_title,"TextStylesList/D94-Caps-Bold_White","TextStylesList/D94-Caps-Bold_White");
-    c.set(c.field(h.results_title,0x3d8639d0),0);
-    c.set(c.field(h.results_title,0x87ad624c),2);
-    c.set(c.field(h.results_title,0xc13ba637),false);
-    if(!h.results_notice.handle)h.results_notice=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-    plain_label(c,c.field(h.results_notice,0x94703efc),feed.winner.empty()?(v.settings.mode==modes::Mode::race?"NO FINISHERS / DNF":"MATCH COMPLETE"):feed.winner+" WINS!");
-    c.set(c.field(h.results_notice,0x13be0d51),std::array<float,2>{1100.f,96.f});
-    mode_race_standings(c,v,feed);
-    const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
-    float name_width=224.f;
-    for(const auto& row:feed.rows)name_width=std::max(name_width,float(native_hud_name_width(row.name)));
-    const std::array widths{100.f,name_width,v.settings.mode==modes::Mode::race?280.f:184.f};
-    if(!hud_list_has_items(c,h.results_columns,3)) {
-        std::vector<Widget> columns;
-        for(unsigned i=0;i<3;++i) {
-            auto& label=h.results_captions[i];
-            if(!label.handle)label=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
-            label_styles(c,label,"TextStylesList/SP38-SemiB_White","TextStylesList/SP38-SemiB_White");
-            c.set(c.field(label,0xc13ba637),false);c.set(c.field(label,0xfc53d427),false);
-            c.set(c.field(label,0x3d8639d0),2);
-            columns.push_back({asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget"),{0,label.handle}});
-        }
-        hud_list(c,h.results_columns,columns,true,48.f,8.f,0.f,1100.f,100.f);
-    }
-    for(unsigned i=0;i<3;++i) {
-        plain_label(c,h.results_captions[i],i==0?"POS":i==1?"PLAYER":v.settings.mode==modes::Mode::race?"TIME":"SCORE");
-        const auto handle=read<Handle>(c.address(c.element(c.field(h.results_columns,0xf2c90867),i)));
-        c.set(c.field({handle,c.type_of(handle)},0x1cff7243),std::array<float,2>{widths[i],48.f});
-    }
-    const auto row_count=std::clamp<unsigned>(static_cast<unsigned>(feed.rows.size()),1,6);
-    const float panel_height=400.f+84.f*row_count;
-    const float rows_height=84.f*static_cast<float>(std::min<std::size_t>(6,feed.rows.size()));
-    // Every section shares the panel's top-left origin and explicit padding.
-    // The native LinearList's measured title must not shift the entire board.
-    const auto place=[&](Value anchor,float width,float height,float x,float y) {
-        c.set(c.field(anchor,0x1cff7243),std::array<float,2>{width,height});
+    mode_hud_cell(c,h.race_position,local_place?std::to_string(local_place)+(local_place==1?"ST":local_place==2?"ND":local_place==3?"RD":"TH"):"--",480.f,300.f,"TextStylesList/D94-Caps-Bold_White");
+    c.set_if_changed(c.path(h.race_position,{0x94703efc,0x3d8639d0}),2);
+    const auto position_art=asset(c,("UI/ReSkate/Throwdowns/RacePosition_"+std::string(local_place==1?"Gold":local_place==2?"Silver":local_place==3?"Bronze":"White")+"_Widget").c_str());
+    mount_hud(c,h.race_position,position_art,h.race_position_anchor,h.race_position_item,mode_hud_id+41,false);
+    c.set_if_changed(c.field(h.race_position_anchor,widget),Widget{position_art,{0,h.race_position.handle}});
+    if(!h.race_elapsed.handle)h.race_elapsed=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+    constexpr float clock_width=384.f;
+    mode_hud_cell(c,h.race_elapsed,native_hud_race_time(native_hud_race_remaining(
+        v.state->remaining_ms,v.state_sampled_ms,now,v.state->phase==modes::Phase::playing)),clock_width,100.f,"TextStylesList/H64-XBold_White");
+    mount_hud(c,h.race_elapsed,asset(c,"UI/ReSkate/Throwdowns/RaceElapsed_Widget"),h.race_elapsed_anchor,h.race_elapsed_item,mode_hud_id+61,false);
+    if(!h.race_deadline.handle)h.race_deadline=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+    mode_hud_cell(c,h.race_deadline,native_hud_race_time(static_cast<std::uint64_t>(v.settings.duration_s)*1000),clock_width,100.f,"TextStylesList/H64-XBold_White");
+    mount_hud(c,h.race_deadline,asset(c,"UI/ReSkate/Throwdowns/RaceElapsed_Widget"),h.race_deadline_anchor,h.race_deadline_item,mode_hud_id+62,false);
+    if(!h.race_deadline_caption.handle)h.race_deadline_caption=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
+    plain_label(c,h.race_deadline_caption,"TIME TO BEAT");
+    label_styles(c,h.race_deadline_caption,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
+    c.set_if_changed(c.field(h.race_deadline_caption,0x3d8639d0),2);
+    mount_hud(c,h.race_deadline_caption,asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget"),h.race_deadline_caption_anchor,h.race_deadline_caption_item,mode_hud_id+63,false);
+    const auto place=[&](Value anchor,float w,float height,float x,float y) {
+        c.set_if_changed(c.field(anchor,0x1cff7243),std::array<float,2>{w,height});
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
             const bool vertical=axis==0x185a5736U;
-            for(const auto field:{0x99bbed5aU,0x49943bedU})c.set(c.path(anchor,{axis,field}),.5f);
-            c.set(c.path(anchor,{axis,0xfec5e0b1}),0.f);
-            for(const auto field:{0x40bfbff4U,0x1d233266U})
-                c.set(c.path(anchor,{axis,field}),vertical?-panel_height*.5f+y:-582.f+x);
-            c.set(c.path(anchor,{axis,0xd01f4a21}),1.f);
+            for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(anchor,{axis,field}),vertical?.08f:.03f);
+            c.set_if_changed(c.path(anchor,{axis,0xfec5e0b1}),0.f);
+            c.set_if_changed(c.path(anchor,{axis,0xd01f4a21}),1.f);
+            for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(anchor,{axis,field}),vertical?y:x);
         }
     };
-    const auto panel=asset(c,("UI/ReSkate/Throwdowns/ResultsPanel"+std::to_string(row_count)+"_Widget").c_str());
-    mount_hud(c,{},panel,h.results_panel_anchor,h.results_panel_item,mode_hud_id+60,true);
-    c.set(c.field(h.results_panel_anchor,widget),Widget{panel,{}});
-    place(h.results_panel_anchor,1164.f,panel_height,0.f,0.f);
+    place(h.race_position_anchor,480.f,300.f,24.f,198.f);
+    place(h.race_elapsed_anchor,clock_width,100.f,520.f,198.f);
+    place(h.race_deadline_caption_anchor,clock_width,56.f,520.f,308.f);
+    place(h.race_deadline_anchor,clock_width,100.f,520.f,370.f);
+    mode_race_clocks(c,v,now);
+}
+void mode_results(const Context& c,const modes::NativeView& v,const overlay::ModesHud& feed,const throwdowns::Definition& d) {
+    auto& h=state().mode_hud;mode_race_standings(c,v,feed);
+    const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
+    const float row_width=h.race_widths[0]+h.race_widths[1]+h.race_widths[2]+16.f;
+    const auto panel_width=static_cast<unsigned>(std::ceil(std::max(1164.f,row_width+64.f)/32.f))*32u;
+    const float inside_width=static_cast<float>(panel_width)-64.f;
+    const float title_width=inside_width-168.f;
+    const auto count=std::clamp<unsigned>(static_cast<unsigned>(feed.rows.size()),1,6);
+    const float panel_height=432.f+84.f*count,rows_height=84.f*static_cast<float>(count);
+    if(!h.results_title.handle)h.results_title=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+    mode_hud_cell(c,h.results_title,d.name+" RESULTS",title_width,144.f,"TextStylesList/D94-Caps-Bold_White");
+    c.set_if_changed(c.path(h.results_title,{0x94703efc,0x3d8639d0}),0);
+    const auto heading=mode_hud_heading_art(c,title_width,144);
     const auto logo=mode_hud_art(c,v.settings.mode,"Logo");
-    mount_hud(c,{},logo,h.results_logo_anchor,h.results_logo_item,mode_hud_id+61,true);
-    c.set(c.field(h.results_logo_anchor,widget),Widget{logo,{}});
-    place(h.results_logo_anchor,144.f,144.f,32.f,32.f);
-    mount_hud(c,h.results_title,asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget"),h.results_anchor,h.results_item,mode_hud_id+5,true);
-    place(h.results_anchor,932.f,144.f,200.f,32.f);
-    const auto notice=mode_hud_art(c,v.settings.mode,"Results");
-    mount_hud(c,h.results_notice,notice,h.results_notice_anchor,h.results_notice_item,mode_hud_id+62,true);
-    c.set(c.field(h.results_notice_anchor,widget),Widget{notice,{0,h.results_notice.handle}});
-    place(h.results_notice_anchor,1100.f,96.f,32.f,192.f);
-    mount_hud(c,h.results_columns,list_widget,h.results_columns_anchor,h.results_columns_item,mode_hud_id+63,true);
-    place(h.results_columns_anchor,1100.f,48.f,32.f,304.f);
-    place(h.race_anchor,widths[0]+widths[1]+widths[2]+16.f,rows_height,32.f,368.f);
+    if(!hud_list_has_items(c,h.results_header,2))hud_list(c,h.results_header,{{logo,{}},{heading,{0,h.results_title.handle}}},true,144.f,24.f);
+    mode_hud_list_cell_size(c,h.results_header,0,144.f,144.f,{logo,{}});
+    mode_hud_list_cell_size(c,h.results_header,1,title_width,144.f,{heading,{0,h.results_title.handle}});
+    if(!h.results_notice.handle)h.results_notice=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+    mode_hud_cell(c,h.results_notice,feed.winner.empty()?(v.settings.mode==modes::Mode::race?"NO FINISHERS / DNF":"MATCH COMPLETE"):feed.winner+" WINS!",inside_width,96.f,"TextStylesList/H52-XBold_White");
+    const auto notice=asset(c,("UI/ReSkate/Throwdowns/HUD_"+std::string(modes::mode_key(v.settings.mode))+"_Results_"+std::to_string(panel_width-64)+"_Widget").c_str());
+    mode_board_columns(c,h.results_columns,h.results_captions,h.race_widths,v.settings.mode==modes::Mode::race);
+    if(!hud_list_has_items(c,h.results,4))hud_list(c,h.results,{{list_widget,{0,h.results_header.handle}},
+        {notice,{0,h.results_notice.handle}},{list_widget,{0,h.results_columns.handle}},{list_widget,{0,h.race_rows.handle}}},false,144.f,24.f,0.f,inside_width);
+    mode_hud_list_cell_size(c,h.results,0,inside_width,144.f);
+    mode_hud_list_cell_size(c,h.results,1,inside_width,96.f,{notice,{0,h.results_notice.handle}});
+    mode_hud_list_cell_size(c,h.results,2,row_width,52.f);
+    mode_hud_list_cell_size(c,h.results,3,row_width,rows_height);
+    const auto panel=asset(c,("UI/ReSkate/Throwdowns/ResultsPanel"+std::to_string(count)+"_"+std::to_string(panel_width)+"_Widget").c_str());
+    mount_hud(c,{},panel,h.results_panel_anchor,h.results_panel_item,mode_hud_id+60,true);
+    c.set_if_changed(c.field(h.results_panel_anchor,widget),Widget{panel,{}});
+    mount_hud(c,h.results,list_widget,h.results_anchor,h.results_item,mode_hud_id+5,true);
+    const auto place=[&](Value anchor,float width,float height,float padding) {
+        c.set_if_changed(c.field(anchor,0x1cff7243),std::array<float,2>{width,height});
+        for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
+            const bool vertical=axis==0x185a5736U;
+            for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(anchor,{axis,field}),.5f);
+            c.set_if_changed(c.path(anchor,{axis,0xfec5e0b1}),0.f);
+            c.set_if_changed(c.path(anchor,{axis,0xd01f4a21}),1.f);
+            for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(anchor,{axis,field}),
+                (vertical?-panel_height*.5f:-static_cast<float>(panel_width)*.5f)+padding);
+        }
+    };
+    place(h.results_panel_anchor,static_cast<float>(panel_width),panel_height,0.f);
+    place(h.results_anchor,inside_width,panel_height-64.f,32.f);
     h.results_game=v.game;h.results_theme=static_cast<unsigned>(v.settings.mode);
 }
 
@@ -573,6 +599,20 @@ void mode_world_markers(const Context& c,const overlay::ModesHud& feed) {
     for(const auto& player:feed.players)if(!player.self && player.it)mark(player.at,player.name+(feed.infection?"  INFECTED":"  IT"));
     for(const auto& tag:feed.tags)if(!tag.path.empty())mark(tag.path[tag.path.size()/2],"TAGGED");
 }
+void mode_hud_transients(const Context& c,const modes::NativeView& view,std::uint64_t now) {
+    auto& h=state().mode_hud;
+    const auto* challenge=view.active && view.state?&*view.state:nullptr;
+    h.transients=h.countdown_lifecycle.update(view.active?view.game:0,
+        challenge && challenge->phase==modes::Phase::countdown,
+        challenge && challenge->phase==modes::Phase::playing,challenge?challenge->remaining_ms:0,now);
+    if(!h.stack.handle || c.type_of(h.stack.handle)!=h.stack.type ||
+       !read<bool>(c.address(c.field(h.stack,0x369babfe))))return;
+    for(const auto [item,keep]:std::array<std::pair<Value,bool>,2>{{
+        {h.countdown_item,h.transients.countdown},{h.intro_item,h.transients.intro}}}) {
+        if(!keep && item.handle && c.type_of(item.handle)==item.type)
+            c.set_if_changed(c.field(item,0x369babfe),false);
+    }
+}
 void mode_hud(const Context& c) {
     auto& s=state();auto& h=s.mode_hud;const auto v=modes::native_view();const auto feed=modes::hud();
     const auto* d=v.active?throwdowns::registry().mode(static_cast<unsigned>(v.settings.mode)):nullptr;
@@ -592,9 +632,9 @@ void mode_hud(const Context& c) {
         h.target=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
         h.current=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
         for(const auto value:{h.target,h.current}) {
-            c.set(c.field(value,0x13be0d51),std::array<float,2>{480.f,72.f});
+            c.set_if_changed(c.field(value,0x13be0d51),std::array<float,2>{480.f,72.f});
             const auto label=c.field(value,0x94703efc);label_styles(c,label,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-            c.set(c.field(label,0x3d8639d0),0);c.set(c.field(label,0x87ad624c),2);c.set(c.field(label,0xc13ba637),false);
+            c.set_if_changed(c.field(label,0x3d8639d0),0);c.set_if_changed(c.field(label,0x87ad624c),2);c.set_if_changed(c.field(label,0xc13ba637),false);
         }
         h.clock=record_model(c,"Activities_HudElementData_ContentResource/A_ActivityCountdown");
     }
@@ -605,25 +645,25 @@ void mode_hud(const Context& c) {
     label_styles(c,h.status,"TextStylesList/SP38-SemiB_White",
                  "TextStylesList/SP38-SemiB_White");
     for(const auto value:{h.title,h.status}) {
-        c.set(c.field(value,0xc13ba637),false);c.set(c.field(value,0xfc53d427),false);
-        c.set(c.field(value,0x87ad624c),2);
+        c.set_if_changed(c.field(value,0xc13ba637),false);c.set_if_changed(c.field(value,0xfc53d427),false);
+        c.set_if_changed(c.field(value,0x87ad624c),2);
     }
     h.placing_layout=feed.placing && race;
     h.exit_visible=h.placing_layout && v.exit_confirm;
     if(h.placing_layout) {
         mount_hud(c,{},asset(c,"UI/ReSkate/Throwdowns/EditorPanel_Widget"),h.editor_panel_anchor,h.editor_panel_item,mode_hud_id+43,false);
-        c.set(c.field(h.editor_panel_anchor,0x1cff7243),std::array<float,2>{880.f,1150.f});
+        c.set_if_changed(c.field(h.editor_panel_anchor,0x1cff7243),std::array<float,2>{880.f,1150.f});
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
-            for(const auto key:{0x99bbed5aU,0x49943bedU})c.set(c.path(h.editor_panel_anchor,{axis,key}),axis==0xde7d30c7U?.03f:.08f);
-            for(const auto key:{0x40bfbff4U,0x1d233266U,0xfec5e0b1U})c.set(c.path(h.editor_panel_anchor,{axis,key}),0.f);
+            for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.editor_panel_anchor,{axis,key}),axis==0xde7d30c7U?.03f:.08f);
+            for(const auto key:{0x40bfbff4U,0x1d233266U,0xfec5e0b1U})c.set_if_changed(c.path(h.editor_panel_anchor,{axis,key}),0.f);
         }
     }
     if(race && !h.placing_layout) {
         mount_hud(c,{},asset(c,"UI/ReSkate/Throwdowns/RaceHeaderPanel_Widget"),h.race_header_anchor,h.race_header_item,mode_hud_id+57,false);
-        c.set(c.field(h.race_header_anchor,0x1cff7243),std::array<float,2>{880.f,180.f});
+        c.set_if_changed(c.field(h.race_header_anchor,0x1cff7243),std::array<float,2>{880.f,180.f});
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
-            for(const auto key:{0x99bbed5aU,0x49943bedU})c.set(c.path(h.race_header_anchor,{axis,key}),axis==0xde7d30c7U?.03f:.08f);
-            for(const auto key:{0x40bfbff4U,0x1d233266U,0xfec5e0b1U})c.set(c.path(h.race_header_anchor,{axis,key}),0.f);
+            for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.race_header_anchor,{axis,key}),axis==0xde7d30c7U?.03f:.08f);
+            for(const auto key:{0x40bfbff4U,0x1d233266U,0xfec5e0b1U})c.set_if_changed(c.path(h.race_header_anchor,{axis,key}),0.f);
         }
     }
     if(feed.placing && race) {
@@ -669,13 +709,13 @@ void mode_hud(const Context& c) {
                 const auto interact=c.path(candidate,{0x0fb0d794,0xa704272a,0xc52416ef,0xa704272a});
                 // DingoInteractable reflection fields, checked against the
                 // game's native type map; graph property hashes differ.
-                c.set(c.field(interact,0x38f7355f),true);
-                c.set(c.field(interact,0x4b3146e9),false);
+                c.set_if_changed(c.field(interact,0x38f7355f),true);
+                c.set_if_changed(c.field(interact,0x4b3146e9),false);
                 label_styles(c,c.field(candidate,0x58c9d354),"TextStylesList/SP48-SemiB_White_DropShadow75","TextStylesList/SP48-SemiB_White_DropShadow75");
                 plain_label(c,c.field(candidate,0x58c9d354),"");
                 const auto prompt_input=asset(c,(std::string("Configurations/Input/UI/")+actions[i].first).c_str());
-                c.set(c.field(action,0x3d00de27),prompt_input);
-                c.set(c.field(action,0x0169c2db),prompt_input);
+                c.set_if_changed(c.field(action,0x3d00de27),prompt_input);
+                c.set_if_changed(c.field(action,0x0169c2db),prompt_input);
                 prompt=candidate;created=true; // Publish only a complete prompt.
                 } catch(...) {
                     s.owned.rollback(checkpoint,[&](Value value){c.destroy(value);});
@@ -688,7 +728,7 @@ void mode_hud(const Context& c) {
             const auto action=c.path(prompt,{0x0fb0d794,0xa704272a,0xc52416ef,0xa704272a,0xa2b71c93});
             const auto prompt_input=asset(c,(std::string("Configurations/Input/UI/")+actions[i].first).c_str());
             for(const auto key:{0x3d00de27U,0x0169c2dbU})
-                if(read<Address>(c.address(c.field(action,key)))!=prompt_input)c.set(c.field(action,key),prompt_input);
+                if(read<Address>(c.address(c.field(action,key)))!=prompt_input)c.set_if_changed(c.field(action,key),prompt_input);
             prompts.push_back({asset(c,"UI/ReSkate/Throwdowns/EditorGlyph_Widget"),{0,prompt.handle}});
         }
         std::vector<Widget> lines;
@@ -709,8 +749,8 @@ void mode_hud(const Context& c) {
             if(!label.handle) {
                 label=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
                 label_styles(c,label,"TextStylesList/SP48-SemiB_White_DropShadow75","TextStylesList/SP48-SemiB_White_DropShadow75");
-                c.set(c.field(label,0xc13ba637),false);c.set(c.field(label,0xfc53d427),false);
-                c.set(c.field(label,0x87ad624c),2);c.set(c.field(label,0x3d8639d0),0);
+                c.set_if_changed(c.field(label,0xc13ba637),false);c.set_if_changed(c.field(label,0xfc53d427),false);
+                c.set_if_changed(c.field(label,0x87ad624c),2);c.set_if_changed(c.field(label,0x3d8639d0),0);
             }
             std::string dynamic_caption=caption;
             if(i==1)dynamic_caption=std::string("Gate types: ")+(v.route_object==2?"Finish":v.route_object==3?"Guide":"Required");
@@ -727,7 +767,7 @@ void mode_hud(const Context& c) {
                 for(unsigned cell=0;cell<cells.size();++cell) {
                     const auto handle=read<Handle>(c.address(c.element(refs,cell)));
                     const float width=cell+1==cells.size()?500.f:pair>=0?120.f:56.f;
-                    c.set(c.field({handle,c.type_of(handle)},0x1cff7243),std::array<float,2>{width,56.f});
+                    c.set_if_changed(c.field({handle,c.type_of(handle)},0x1cff7243),std::array<float,2>{width,56.f});
                 }
             }
             lines.push_back({list_widget,{0,line.handle}});
@@ -739,17 +779,17 @@ void mode_hud(const Context& c) {
             const auto refs=c.field(h.placement_lines[lines.size()-1],0xf2c90867);
             const auto handle=read<Handle>(c.address(c.element(refs,0)));
             const auto slot=c.field({handle,c.type_of(handle)},widget);
-            c.set(slot,Widget{ring,{0,h.placement_prompts.back().handle}});
+            c.set_if_changed(slot,Widget{ring,{0,h.placement_prompts.back().handle}});
         } else if(!lines.empty()) {
             const auto refs=c.field(h.placement_lines[lines.size()-1],0xf2c90867);
             const auto handle=read<Handle>(c.address(c.element(refs,0)));
-            c.set(c.field({handle,c.type_of(handle)},widget),prompts.back());
+            c.set_if_changed(c.field({handle,c.type_of(handle)},widget),prompts.back());
         }
         if(h.exit_visible) {
             mount_hud(c,{},asset(c,"UI/ReSkate/Throwdowns/ConfirmationPanel_Widget"),h.exit_panel_anchor,h.exit_panel_item,mode_hud_id+44,true);
             if(!h.exit_text.handle){h.exit_text=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");label_styles(c,h.exit_text,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");}
             plain_label(c,h.exit_text,"LEAVE THE EDITOR?\nYour course is saved.");
-            c.set(c.field(h.exit_text,0xc13ba637),true);
+            c.set_if_changed(c.field(h.exit_text,0xc13ba637),true);
             std::vector<Widget> modal{{label_widget,{0,h.exit_text.handle}}};
             for(unsigned i=0;i<2;++i) {
                 auto& caption=h.exit_captions[i];
@@ -762,29 +802,29 @@ void mode_hud(const Context& c) {
             if(!hud_list_has_items(c,h.exit_list,3))hud_list(c,h.exit_list,modal,false,76.f,10.f,0.f,820.f);
             const auto modalRows=c.field(h.exit_list,0xf2c90867);
             const auto header=read<Handle>(c.address(c.element(modalRows,0)));
-            c.set(c.field({header,c.type_of(header)},0x1cff7243),std::array<float,2>{820.f,120.f});
+            c.set_if_changed(c.field({header,c.type_of(header)},0x1cff7243),std::array<float,2>{820.f,120.f});
             mount_hud(c,h.exit_list,list_widget,h.exit_anchor,h.exit_item,mode_hud_id+45,true);
             for(const auto anchor:{h.exit_panel_anchor,h.exit_anchor}) {
-                c.set(c.field(anchor,0x1cff7243),std::array<float,2>{880.f,300.f});
+                c.set_if_changed(c.field(anchor,0x1cff7243),std::array<float,2>{880.f,300.f});
                 for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
-                    for(const auto key:{0x99bbed5aU,0x49943bedU})c.set(c.path(anchor,{axis,key}),.5f);
-                    c.set(c.path(anchor,{axis,0xfec5e0b1}),.5f);
-                    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.path(anchor,{axis,key}),0.f);
+                    for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(anchor,{axis,key}),.5f);
+                    c.set_if_changed(c.path(anchor,{axis,0xfec5e0b1}),.5f);
+                    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(anchor,{axis,key}),0.f);
                 }
             }
         }
         if(created || !hud_list_has_items(c,h.placement_list,static_cast<unsigned>(lines.size())))
             hud_list(c,h.placement_list,lines,false,56.f,6.f,0.f,820.f);
         mount_hud(c,h.placement_list,list_widget,h.placement_anchor,h.placement_item,mode_hud_id+7,false);
-        c.set(c.field(h.placement_anchor,0x1cff7243),std::array<float,2>{820.f,930.f});
+        c.set_if_changed(c.field(h.placement_anchor,0x1cff7243),std::array<float,2>{820.f,930.f});
         for(const auto field:{0x99bbed5aU,0x49943bedU}) {
-            c.set(c.path(h.placement_anchor,{0xde7d30c7,field}),.03f);
-            c.set(c.path(h.placement_anchor,{0x185a5736,field}),.08f);
+            c.set_if_changed(c.path(h.placement_anchor,{0xde7d30c7,field}),.03f);
+            c.set_if_changed(c.path(h.placement_anchor,{0x185a5736,field}),.08f);
         }
-        c.set(c.path(h.placement_anchor,{0xde7d30c7,0xfec5e0b1}),0.f);
-        c.set(c.path(h.placement_anchor,{0x185a5736,0xfec5e0b1}),0.f);
+        c.set_if_changed(c.path(h.placement_anchor,{0xde7d30c7,0xfec5e0b1}),0.f);
+        c.set_if_changed(c.path(h.placement_anchor,{0x185a5736,0xfec5e0b1}),0.f);
         for(const auto axis:{0xde7d30c7U,0x185a5736U})for(const auto field:{0x40bfbff4U,0x1d233266U})
-            c.set(c.path(h.placement_anchor,{axis,field}),axis==0xde7d30c7U?24.f:200.f);
+            c.set_if_changed(c.path(h.placement_anchor,{axis,field}),axis==0xde7d30c7U?24.f:200.f);
 
     }
     if(!feed.blind.empty())plain_label(c,h.status,"Hiding time: "+feed.blind);
@@ -795,7 +835,7 @@ void mode_hud(const Context& c) {
         const auto cells=c.field(h.content,0xf2c90867);
         for(unsigned i=0;i<2;++i) {
             const auto ref=read<Handle>(c.address(c.element(cells,i)));
-            c.set(c.field({ref,c.type_of(ref)},0x1cff7243),std::array<float,2>{680.f,i==0?96.f:48.f});
+            c.set_if_changed(c.field({ref,c.type_of(ref)},0x1cff7243),std::array<float,2>{680.f,i==0?96.f:48.f});
         }
         hud_list(c,h.score,{{mode_hud_art(c,v.settings.mode,"Score"),{0,h.target.handle}},
             {mode_hud_art(c,v.settings.mode,"Score"),{0,h.current.handle}}},false,72.f,8.f,0.f,480.f);
@@ -804,25 +844,25 @@ void mode_hud(const Context& c) {
     const auto logo=mode_hud_art(c,v.settings.mode,"Logo");
     mount_hud(c,h.badge,logo,h.badge_anchor,h.badge_item,mode_hud_id+40,false);
     const auto logoSlot=c.field(h.badge_anchor,widget);
-    if(read<Widget>(c.address(logoSlot)).blueprint!=logo)c.set(logoSlot,Widget{logo,{0,h.badge.handle}});
-    c.set(c.field(h.badge_anchor,0x1cff7243),std::array<float,2>{144.f,144.f});
+    if(read<Widget>(c.address(logoSlot)).blueprint!=logo)c.set_if_changed(logoSlot,Widget{logo,{0,h.badge.handle}});
+    c.set_if_changed(c.field(h.badge_anchor,0x1cff7243),std::array<float,2>{144.f,144.f});
     for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
         const auto layout=c.field(h.badge_anchor,axis);
-        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set(c.field(layout,field),axis==0xde7d30c7U?.03f:.08f);
-        for(const auto field:{0x40bfbff4U,0x1d233266U})c.set(c.field(layout,field),24.f);
-        c.set(c.field(layout,0xfec5e0b1),0.f);
+        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.field(layout,field),axis==0xde7d30c7U?.03f:.08f);
+        for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.field(layout,field),24.f);
+        c.set_if_changed(c.field(layout,0xfec5e0b1),0.f);
     }
     h.race_warning_visible=race && v.missed_gate>0;
     if(h.race_warning_visible) {
         if(!h.race_warning.handle)h.race_warning=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-        for(const auto key:{0x8cc042efU,0xa1e84eb1U})c.set(c.field(h.race_warning,key),record_ref(c,"NoticeStylesList/BasicNotice_Alert"));
+        for(const auto key:{0x8cc042efU,0xa1e84eb1U})c.set_if_changed(c.field(h.race_warning,key),record_ref(c,"NoticeStylesList/BasicNotice_Alert"));
         const auto label=c.field(h.race_warning,0x94703efc);
         plain_label(c,label,"MISSED GATE "+std::to_string(v.missed_gate)+(v.recovering?" - RETURNING TO CHECKPOINT":" - CHECKPOINT RECOVERY"));
         label_styles(c,label,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-        c.set(c.field(h.race_warning,0x13be0d51),std::array<float,2>{1000.f,96.f});
+        c.set_if_changed(c.field(h.race_warning,0x13be0d51),std::array<float,2>{1000.f,96.f});
         mount_hud(c,h.race_warning,asset(c,"UI/ReSkate/Throwdowns/RaceWarning_Widget"),h.race_warning_anchor,h.race_warning_item,mode_hud_id+42,true);
-        c.set(c.field(h.race_warning_anchor,0x1cff7243),std::array<float,2>{1000.f,96.f});
-        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set(c.path(h.race_warning_anchor,{0x185a5736,field}),.3f);
+        c.set_if_changed(c.field(h.race_warning_anchor,0x1cff7243),std::array<float,2>{1000.f,96.f});
+        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.race_warning_anchor,{0x185a5736,field}),.3f);
     }
     const auto state=v.state;std::int32_t best{},mine{};
     if(state)for(const auto& standing:state->standings) {best=std::max(best,standing.score);if(standing.player==v.local)mine=standing.score;}
@@ -830,38 +870,38 @@ void mode_hud(const Context& c) {
     plain_label(c,c.field(h.current,0x94703efc),"SCORE   "+std::to_string(mine));
     if(!race) {
         mount_hud(c,h.score,list_widget,h.score_anchor,h.score_item,mode_hud_id+59,false);
-        c.set(c.field(h.score_anchor,0x1cff7243),std::array<float,2>{480.f,152.f});
+        c.set_if_changed(c.field(h.score_anchor,0x1cff7243),std::array<float,2>{480.f,152.f});
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
             const bool y=axis==0x185a5736U;
-            for(const auto key:{0x99bbed5aU,0x49943bedU})c.set(c.path(h.score_anchor,{axis,key}),y?.40f:.95f);
-            c.set(c.path(h.score_anchor,{axis,0xfec5e0b1}),y?1.f:1.f);
-            for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.path(h.score_anchor,{axis,key}),0.f);
-            c.set(c.path(h.score_anchor,{axis,0xd01f4a21}),.85f);
+            for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.score_anchor,{axis,key}),y?.40f:.95f);
+            c.set_if_changed(c.path(h.score_anchor,{axis,0xfec5e0b1}),y?1.f:1.f);
+            for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(h.score_anchor,{axis,key}),0.f);
+            c.set_if_changed(c.path(h.score_anchor,{axis,0xd01f4a21}),.85f);
         }
     }
     mount_hud(c,h.content,list_widget,h.anchor,h.item,mode_hud_id,false);
     if(h.stack.handle!=s.hud_stack.handle) {mode_hud_publish(c,false);h.stack=s.hud_stack;}
-    c.set(c.field(h.anchor,0x1cff7243),std::array<float,2>{720.f,168.f});
+    c.set_if_changed(c.field(h.anchor,0x1cff7243),std::array<float,2>{720.f,168.f});
     // This anchor is reused after the editor closes. Reconcile both layouts
     // so another mode cannot inherit the editor's compact header position.
     for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
         const bool vertical=axis==0x185a5736U;
         const float at=vertical?.08f:.03f;
         const float offset=vertical?24.f:190.f;
-        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set(c.path(h.anchor,{axis,field}),at);
-        for(const auto field:{0x40bfbff4U,0x1d233266U})c.set(c.path(h.anchor,{axis,field}),offset);
-        c.set(c.path(h.anchor,{axis,0xfec5e0b1}),0.f);
+        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.anchor,{axis,field}),at);
+        for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(h.anchor,{axis,field}),offset);
+        c.set_if_changed(c.path(h.anchor,{axis,0xfec5e0b1}),0.f);
     }
     mount_hud(c,h.clock,asset(c,"UI/Foundations/Components/Countdown/Countdown_Widget"),h.clock_anchor,h.clock_item,mode_hud_id+1,false);
-    c.set(c.field(h.clock_anchor,0x1cff7243),std::array<float,2>{320.f,90.f});
+    c.set_if_changed(c.field(h.clock_anchor,0x1cff7243),std::array<float,2>{320.f,90.f});
     const auto vertical=c.field(h.clock_anchor,0x185a5736);
-    c.set(c.field(vertical,0x99bbed5a),race?.9f:.83f);c.set(c.field(vertical,0x49943bed),race?.9f:.83f);
+    c.set_if_changed(c.field(vertical,0x99bbed5a),race?.9f:.83f);c.set_if_changed(c.field(vertical,0x49943bed),race?.9f:.83f);
     const auto horizontal=c.field(h.clock_anchor,0xde7d30c7);
-    for(const auto key:{0x99bbed5aU,0x49943bedU})c.set(c.field(horizontal,key),race?.5f:0.f);
-    c.set(c.field(horizontal,0xfec5e0b1),race?.5f:0.f);
-    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set(c.field(horizontal,key),race?0.f:110.f);
-    c.set(c.field(h.clock,0x703c4d93),false);c.set(c.field(h.clock,0x167131bb),true);c.set(c.field(h.clock,0x6186003c),true);c.set(c.field(h.clock,0xc11082ee),true);
-    h.clock_visible=!feed.clock.empty() && (!race || (state && state->phase==modes::Phase::playing));
+    for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.field(horizontal,key),race?.5f:0.f);
+    c.set_if_changed(c.field(horizontal,0xfec5e0b1),race?.5f:0.f);
+    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.field(horizontal,key),race?0.f:110.f);
+    c.set_if_changed(c.field(h.clock,0x703c4d93),false);c.set_if_changed(c.field(h.clock,0x167131bb),true);c.set_if_changed(c.field(h.clock,0x6186003c),true);c.set_if_changed(c.field(h.clock,0xc11082ee),true);
+    h.clock_visible=!race && !feed.clock.empty();
     native_timer_seconds(c,h.clock,0x4cc5ec89,race?modes::race_warning_ms:static_cast<std::uint64_t>(v.settings.duration_s)*1000);
     auto remaining=state?state->remaining_ms:0;
     if(race && state && state->phase==modes::Phase::playing) {
@@ -870,40 +910,39 @@ void mode_hud(const Context& c) {
     }
     native_timer_seconds(c,h.clock,0x0ec4a8c0,remaining);
     const bool counting=state && state->phase==modes::Phase::countdown;
-    const bool intro=counting && state->remaining_ms>3000;
-    const auto now=GetTickCount64();if(v.game!=h.game) {h.game=v.game;h.go_until=0;}
-    if(counting && !intro)h.go_until=now+900;
-    const bool go=state && state->phase==modes::Phase::playing && now<h.go_until;
+    const bool intro=h.transients.intro;
+    if(v.game!=h.game)h.game=v.game;
+    const bool go=h.transients.go;
     const bool blind=!feed.blind.empty();
     if(blind) {
         mount_hud(c,{},asset(c,"UI/ReSkate/Throwdowns/SeekerBlackout_Widget"),h.blind_anchor,h.blind_item,mode_hud_id+4,true);
-        c.set(c.field(h.blind_anchor,0x1cff7243),std::array<float,2>{1920.f,1080.f});
+        c.set_if_changed(c.field(h.blind_anchor,0x1cff7243),std::array<float,2>{1920.f,1080.f});
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
             const auto layout=c.field(h.blind_anchor,axis);
-            c.set(c.field(layout,0x99bbed5a),0.f);c.set(c.field(layout,0x49943bed),1.f);
-            c.set(c.field(layout,0x40bfbff4),0.f);c.set(c.field(layout,0x1d233266),0.f);
-            c.set(c.field(layout,0xfec5e0b1),.5f);
+            c.set_if_changed(c.field(layout,0x99bbed5a),0.f);c.set_if_changed(c.field(layout,0x49943bed),1.f);
+            c.set_if_changed(c.field(layout,0x40bfbff4),0.f);c.set_if_changed(c.field(layout,0x1d233266),0.f);
+            c.set_if_changed(c.field(layout,0xfec5e0b1),.5f);
         }
     }
     if(intro) {
         if(!h.intro.handle) {
             h.intro=record_model(c,"TD_Hud_ContentResources/TD_ActivityBanner");
-            c.set(c.field(h.intro,0xf79313be),record_ref(c,"ActivityBannerStylesList/ActivityBannerCenterFullWidthStyle.Throwdown.Default"));
+            c.set_if_changed(c.field(h.intro,0xf79313be),record_ref(c,"ActivityBannerStylesList/ActivityBannerCenterFullWidthStyle.Throwdown.Default"));
             c.copy(c.field(h.intro,0xcbc57608),c.address(record_model(c,"TD_Hud_ContentResources/TD_ActivityBanner_ContentWithTitle")));
-            h.intro_badge=make(c,texture_schema);c.set(c.field(h.intro_badge,0xf524c836),256.f);c.set(c.field(h.intro_badge,0x6fbd254e),256.f);
-            c.set(c.path(h.intro,{0xcbc57608,content}),Widget{asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget"),{0,h.intro_badge.handle}});
+            h.intro_badge=make(c,texture_schema);c.set_if_changed(c.field(h.intro_badge,0xf524c836),256.f);c.set_if_changed(c.field(h.intro_badge,0x6fbd254e),256.f);
+            c.set_if_changed(c.path(h.intro,{0xcbc57608,content}),Widget{asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget"),{0,h.intro_badge.handle}});
         }
         plain_label(c,c.path(h.intro,{0xcbc57608,0x44688629}),d->name);plain_label(c,c.path(h.intro,{0xcbc57608,0x00f3b15e}),d->description);
         mode_art(c,std::array{c.field(h.intro_badge,0x6e469d2a)},d->logo);
         mount_hud(c,h.intro,asset(c,"UI/Features/Activities/Blueprints/ActivityBanner_CenterFullWidth_Widget"),h.intro_anchor,h.intro_item,mode_hud_id+3,true);
-        c.set(c.field(h.intro_anchor,0x1cff7243),std::array<float,2>{1920.f,600.f});
+        c.set_if_changed(c.field(h.intro_anchor,0x1cff7243),std::array<float,2>{1920.f,600.f});
     }
     if((counting && !intro) || go) {
         if(!h.countdown.handle)h.countdown=record_model(c,"Activities_HudElementData_ContentResource/Activities_CountdownItemHUD");
         plain_label(c,c.field(h.countdown,0x58c9d354),go?"GO!":std::to_string(native_hud_seconds(state->remaining_ms)));
-        c.set(c.field(h.countdown,1698918111U),go?0.f:std::clamp(static_cast<float>(state->remaining_ms)/3000.f,0.f,1.f));
+        c.set_if_changed(c.field(h.countdown,1698918111U),go?0.f:std::clamp(static_cast<float>(state->remaining_ms)/3000.f,0.f,1.f));
         mount_hud(c,h.countdown,asset(c,"UI/Features/Activities/Widgets/System/ActivityCountdown_Widget"),h.countdown_anchor,h.countdown_item,mode_hud_id+2,true);
-        c.set(c.field(h.countdown_anchor,0x1cff7243),std::array<float,2>{512.f,512.f});
+        c.set_if_changed(c.field(h.countdown_anchor,0x1cff7243),std::array<float,2>{512.f,512.f});
     }
     mode_world_markers(c,feed);
     if(state && state->phase==modes::Phase::playing && !feed.results && !feed.placing)mode_race_standings(c,v,feed);
