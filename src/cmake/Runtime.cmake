@@ -10,7 +10,7 @@ add_library(dingosdk_runtime SHARED
     Runtime/menu_entry_hook.cpp
     Engine/Game/Abi/native_data.cpp
     Extension/Console/commands.cpp
-    Extension/Console/perf_commands.cpp
+    $<IF:$<BOOL:${DINGOSDK_LEAN_PLAYTEST}>,Extension/Console/perf_commands_disabled.cpp,Extension/Console/perf_commands.cpp>
     Extension/Skater/console_commands.cpp
     Extension/Multiplayer/console_commands.cpp
     Extension/Customization/console_commands.cpp
@@ -26,7 +26,7 @@ add_library(dingosdk_runtime SHARED
     Extension/UI/NativeMenu/native_menu_rows.cpp
     Extension/UI/NativeMenu/native_menu_multiplayer.cpp
     Extension/UI/NativeMenu/ui_sound.cpp
-    Extension/UI/NativeMenu/native_menu_dump.cpp
+    $<IF:$<BOOL:${DINGOSDK_LEAN_PLAYTEST}>,Extension/UI/NativeMenu/native_menu_dump_disabled.cpp,Extension/UI/NativeMenu/native_menu_dump.cpp>
     Extension/UI/NativeMenu/native_hub.cpp
     Extension/UI/NativeMenu/native_menu_data.cpp
     Extension/Multiplayer/Remote/native_skater.cpp
@@ -249,10 +249,12 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
 # package. Change the resource source itself when the bytes change so MSBuild
 # cannot silently reuse a resource compiled with the previous artwork bundle.
 file(SHA256 "${PROJECT_SOURCE_DIR}/assets/one_up/native_assets.bin" dingosdk_native_asset_sha256)
+if(NOT DINGOSDK_LEAN_PLAYTEST)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/one_up_native_assets.rc"
     "// Native asset SHA256: ${dingosdk_native_asset_sha256}\n"
     "ONE_UP_NATIVE_ASSETS RCDATA \"${PROJECT_SOURCE_DIR}/assets/one_up/native_assets.bin\"\n")
 target_sources(dingosdk_runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/one_up_native_assets.rc")
+endif()
 
 # The startup window's picture (PNG or JPEG), built into ReSkate.dll when the
 # repository has one. ReSkate.Splash.png/.jpg beside the DLL still takes

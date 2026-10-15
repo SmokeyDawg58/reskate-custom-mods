@@ -1,10 +1,9 @@
 {
-  "generated_at_utc": "2026-10-15T21:23:17.127350+00:00",
+  "generated_at_utc": "2026-10-15T22:19:19.728625+00:00",
   "verdict": "READY_FOR_CONTROLLED_MULTIPLAYER_PLAYTEST",
-  "live_multi_pc_validation": "NOT_YET_PERFORMED",
-  "tested_dll_sha256": "e2d9626b49be3d8659c1e27a4c4ba5798c6461de65837e7a35253a0c5057e3a8",
+  "live_multi_pc_validation": "PENDING",
   "automated_tests": {
-    "passed": 78,
+    "passed": 79,
     "failed": 0,
     "names": [
       "launcher_mod_manager",
@@ -33,7 +32,8 @@
       "ebx_merge",
       "mod_merge_audit",
       "store_copies",
-      "backtrace",
+      "lean_native_asset_package",
+      "lean_diagnostics_disabled",
       "throwdown_mode_rules_and_wire",
       "deathrace_native_asset_contract",
       "throwdown_challenge_registry",
@@ -87,97 +87,80 @@
       "discord_presence"
     ]
   },
-  "protocol": {
-    "session": 50,
-    "game_modes": 12,
-    "one_up": 5,
-    "throwdown_payload_limit_bytes": 4096
-  },
-  "protocol_malformed_mutated_inputs_tested": 40000,
   "load_simulations": [
     {
-      "case": "load-16-players",
-      "simulated_players": 16,
-      "simulated_seconds": 30,
-      "players_connected_at_end": 16,
+      "case": "load-4-players",
+      "clients_retained": 4,
+      "simulated_seconds": 20,
+      "simulated_stall_seconds": 0,
       "failed_sends": 0,
       "skipped_sends": 0,
       "dropped_sends": 0,
-      "simulated_server_stall_seconds": 0,
-      "performance_line": "busy 5.1% of one core; 0.26 ms a pass on average, longest 0.6 ms; 1454 KB/s out",
-      "transport": "simulated; no live Steam clients"
+      "transport": "fake Steam; production server Host; simulated time"
+    },
+    {
+      "case": "load-16-players",
+      "clients_retained": 16,
+      "simulated_seconds": 30,
+      "simulated_stall_seconds": 0,
+      "failed_sends": 0,
+      "skipped_sends": 0,
+      "dropped_sends": 0,
+      "transport": "fake Steam; production server Host; simulated time"
     },
     {
       "case": "load-16-players-stall",
-      "simulated_players": 16,
+      "clients_retained": 16,
       "simulated_seconds": 30,
-      "players_connected_at_end": 16,
+      "simulated_stall_seconds": 2,
       "failed_sends": 0,
       "skipped_sends": 0,
       "dropped_sends": 0,
-      "simulated_server_stall_seconds": 2,
-      "performance_line": "busy 4.8% of one core; 0.26 ms a pass on average, longest 20.1 ms; 1363 KB/s out",
-      "transport": "simulated; no live Steam clients"
-    },
-    {
-      "case": "load-4-players",
-      "simulated_players": 4,
-      "simulated_seconds": 20,
-      "players_connected_at_end": 4,
-      "failed_sends": 0,
-      "skipped_sends": 0,
-      "dropped_sends": 0,
-      "simulated_server_stall_seconds": 0,
-      "performance_line": "busy 0.5% of one core; 0.03 ms a pass on average, longest 0.2 ms; 75 KB/s out",
-      "transport": "simulated; no live Steam clients"
+      "transport": "fake Steam; production server Host; simulated time"
     }
   ],
-  "local_preflight": {
-    "created_at_utc": "2026-10-15T21:17:38.471919+00:00",
-    "files": {
-      "Skate.exe": {
-        "sha256": "fbce74d5e28ef525dbba2cb4adbebc13405bdbd88f31bc940bca45e4ae88b8f9",
-        "matches_supported_build": true
-      },
-      "steam_api64.dll": {
-        "sha256": "88b55dc33bfe9d8f998b72bf7074ebe0d21318a0b6dfdcca3530cb1e0c102a39",
-        "matches_supported_build": true
-      },
-      "ReSkate.dll": {
-        "sha256": "e2d9626b49be3d8659c1e27a4c4ba5798c6461de65837e7a35253a0c5057e3a8",
-        "matches_playtest_build": true
-      },
-      "ReSkateLauncher.exe": {
-        "sha256": "26e45668f8f850f4e2635995df987a881d4633b3b414541e2fb1ae61986b63e1",
-        "matches_playtest_build": true
-      }
+  "runtime_files": {
+    "ReSkate.dll": {
+      "sha256": "4e6a767d4252e7f02ee4bf17d2dddfe07bd790cd681ffa49799f0af6bc5c7163",
+      "bytes": 13967872
     },
-    "launcher_auto_updates_enabled": false,
-    "launcher_offline_mode": false,
-    "enabled_mod_entries": 120,
-    "latest_game_log_scoring_check_stock": true,
-    "scoring_evidence": "Latest game startup reports stock trick scoring and physics across 129 checked mods.",
-    "architecture": "x64",
-    "installed_files_changed": false
+    "ReSkateLauncher.exe": {
+      "sha256": "55411938ebe0a363fea40962ad3b3d17c03b554c9ba479faaa845c887cc43e21",
+      "bytes": 4974592
+    }
   },
-  "human_confirmed": [
-    "Prompt and steady custom HUD in editor, confirmation and race flow.",
-    "Native challenge camera/movement/menu entry and normal menus after Quit in two matches.",
-    "Custom logos, gates and HUD survived repeated saved-course map changes in earlier manual checks."
-  ],
-  "not_proven": [
-    "Steam relay and invitations between separate PCs/accounts.",
-    "Native gate creation, racer spawn facing and time/standings agreement on multiple PCs.",
-    "Guest Quit, challenge-leader departure, lobby-host departure and reconnect recovery in live play.",
-    "Custom-map package parity and native asset lifetime on each guest PC.",
-    "Very large route transfers under real shared throwdown message-rate limits."
-  ],
-  "readiness_scope": "Use 2-4 players, one shared stock map and a short route first. Increase route/map/connection stress after the baseline passes.",
-  "sandbox_first_run": {
-    "passed": 72,
-    "failed": 6,
-    "reason": "Temporary-file rename/publish and localhost operations were denied by the sandbox. The unchanged suite passed 78/78 with normal access."
+  "asset_files_unchanged": 17,
+  "native_assets": {
+    "sha256": "d6364defe09be71447108a204d5470771e7444a85d6220f4989bc7ab0226a3f4",
+    "bytes": 405097123,
+    "file_count": 17,
+    "deployment": "Mods/SmokeyDawg58-ReSkate_Throwdown_Assets",
+    "asset_mod_version": "1.0.0",
+    "embedded": false
   },
-  "game_programs_controlled": false,
-  "installed_game_files_changed": false
+  "diagnostics_compiled_out": [
+    "file/debugger/console log sinks",
+    "automatic official panel/expression/model traces",
+    "native UI model dumps",
+    "profiler workers and memory trace commands",
+    "crash capture/helper/upload",
+    "pose recording and trainer telemetry"
+  ],
+  "symbol_check": "No CodeView/COFF symbols or PDB files in client payload; small linker optimization records retained.",
+  "installer_checks": {
+    "workspace_fixture_install": "PASS",
+    "backups": "PASS",
+    "unrelated_mods_and_settings_preserved": "PASS",
+    "running_program_guard": "PASS",
+    "missing_asset_preflight": "PASS",
+    "copy_failure_rollback": "PASS"
+  },
+  "game_or_launcher_controlled": false,
+  "installed_game_files_changed": false,
+  "rendering_validation": "Native asset bytes and functional HUD/menu source retained; this lean packaging variant has not been launched for visual confirmation.",
+  "pending_live_checks": [
+    "Two separate Steam accounts/PCs: host/invite/join, shared gates/spawn facing, finish order/time and remote identity.",
+    "Two consecutive races, native Start/Back/Quit, leader/guest departure and reconnect.",
+    "Matching custom maps, map changes, larger route transfer and latency."
+  ]
 }

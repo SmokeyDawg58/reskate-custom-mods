@@ -297,7 +297,11 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
     try {
         if(auto core=one_up_core_assets(data_root)) {
             result.mods.push_back(std::move(*core));result.present=true;
+#if defined(DINGOSDK_LEAN_PLAYTEST)
+            result.notes.push_back("Required Throwdown asset mod loaded and checksum verified");
+#else
             result.notes.push_back("1-Up native assets loaded from ReSkate.dll");
+#endif
         }
     }catch(const std::exception& e) {result.issue=e.what();return result;}
     if (!result.present) return result;
@@ -373,6 +377,11 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
             }
         }
         for (auto& entry : list.entries) {
+#if defined(DINGOSDK_LEAN_PLAYTEST)
+            // This required mod is already mounted first. Do not merge it twice
+            // when the ordinary mod scan discovers the same visible folder.
+            if(!result.mods.empty() && entry.mod.directory==result.mods.front().directory)continue;
+#endif
             if (!entry.enabled) {
                 if (std::find(result.set_aside.begin(), result.set_aside.end(), entry.mod.name) == result.set_aside.end()) {
                     result.notes.push_back("Mod disabled in mods.json: " + entry.mod.name);

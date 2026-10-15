@@ -1,0 +1,54 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "vs2022-x64",
+      "displayName": "Visual Studio 2022 x64",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/vs2022-x64",
+      "environment": {
+        "VCLibPackagePath": "${sourceDir}/build/no-vcpkg/vcpkg.user"
+      },
+      "toolset": "v143"
+    },
+    {
+      "name": "linux-x64",
+      "displayName": "Linux x64 (dedicated server only)",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/linux",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "lean-playtest-x64",
+      "displayName": "Lean multiplayer playtest (external asset mod, diagnostics disabled)",
+      "inherits": "vs2022-x64",
+      "binaryDir": "${sourceDir}/build/lean-playtest-x64",
+      "cacheVariables": {
+        "DINGOSDK_LEAN_PLAYTEST": "ON",
+        "DINGOSDK_VERSION": "2.0.7",
+        "DINGOSDK_BUILD_LAUNCHER_TESTS": "ON",
+        "DINGOSDK_BUILD_MULTIPLAYER_TESTS": "ON",
+        "DINGOSDK_BUILD_BACKTRACE_TESTS": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "release",
+      "configurePreset": "vs2022-x64",
+      "configuration": "Release"
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-x64"
+    },
+    {
+      "name": "lean-playtest-release",
+      "configurePreset": "lean-playtest-x64",
+      "configuration": "Release"
+    }
+  ]
+}

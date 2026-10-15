@@ -2511,6 +2511,7 @@ void native_results_hud(const Context& c) {
     s.hud_results_visible=true;
 }
 #include "one_up_match_panel.inl"
+#if !defined(DINGOSDK_LEAN_PLAYTEST)
 void trace_official_panel_models(const Context& c,std::uint64_t now) noexcept {
     try {
         const auto mode=modes::native_view();
@@ -2564,6 +2565,7 @@ void trace_official_panel_models(const Context& c,std::uint64_t now) noexcept {
         }
     } catch(const std::exception& e) {logging::log(logging::Level::info,logging::Channel::ui,"PanelTrace snapshot unavailable: {}.",e.what());}
 }
+#endif
 void gameplay_hud(const Context& c,std::uint64_t now) {
     auto& s=state();
     // Retire expired countdown/intro before any optional HUD builder can fail.
@@ -2763,6 +2765,7 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
     // Escape. PromptKeys explicitly samples Escape from the foreground game.
     const bool escape=(DingoSDKOverlayReadPromptKeys() & 8u)!=0;
     s.panel_key_down=(panel_input.buttons & 0x0010u)!=0 || escape;
+#if !defined(DINGOSDK_LEAN_PLAYTEST)
     tick_official_panel_trace(s.panel_key_down,now);
     static std::uint64_t next_panel_trace{};
     if((official_panel_trace_active() || panel_view.available || s.match_panel_open.load()) &&
@@ -2772,6 +2775,7 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
         const auto manager=ui?read<Address>(ui+0x140):0;
         if(manager) {const Context c(base,manager);game::ModelWriteLock lock(manager);trace_official_panel_models(c,now);}
     }
+#endif
     DWORD foreground_process{};
     GetWindowThreadProcessId(GetForegroundWindow(),&foreground_process);
     const bool input_allowed=!loading && panel_view.available && foreground_process==GetCurrentProcessId() && !overlay::interface_open();

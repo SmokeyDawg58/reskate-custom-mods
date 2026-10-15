@@ -37,21 +37,29 @@ target_include_directories(dingosdk_json SYSTEM PRIVATE External)
 
 
 if(WIN32)
-    add_library(dingosdk_logging STATIC
+    if(DINGOSDK_LEAN_PLAYTEST)
+        add_library(dingosdk_logging STATIC Engine/Core/Log/disabled.cpp)
+    else()
+        add_library(dingosdk_logging STATIC
         Engine/Core/Log/logger.cpp
         Engine/Core/Log/banner.cpp
         Engine/Core/Log/events.cpp
         Engine/Core/Log/paths.cpp
         Engine/Core/Log/crash.cpp)
+    endif()
     target_link_libraries(dingosdk_logging PUBLIC dingosdk_console_core PRIVATE shell32 ole32)
     target_include_directories(dingosdk_logging SYSTEM PRIVATE External/spdlog/include External)
     target_compile_definitions(dingosdk_logging PRIVATE SPDLOG_USE_STD_FORMAT SPDLOG_WCHAR_FILENAMES)
 
     # The performance profiler: zones, frame timing, thread CPU use and the stack sampler
     # (Engine/Core/Profiling/profiler.h). Shared by the overlay and the runtime.
-    add_library(dingosdk_profiler STATIC
+    if(DINGOSDK_LEAN_PLAYTEST)
+        add_library(dingosdk_profiler STATIC Engine/Core/Profiling/disabled.cpp)
+    else()
+        add_library(dingosdk_profiler STATIC
         Engine/Core/Profiling/profiler.cpp
         Engine/Core/Profiling/sampler.cpp)
+    endif()
     target_link_libraries(dingosdk_profiler PUBLIC dingosdk_logging PRIVATE dbghelp)
 
     add_library(dingosdk_storage STATIC Engine/Core/Storage/save_database.cpp)
@@ -98,6 +106,7 @@ if(WIN32)
     add_library(dingosdk_mods STATIC
         Engine/Vfs/mod_catalog.cpp
         Engine/Vfs/one_up_core_assets.cpp
+        Engine/Vfs/native_asset_mod.cpp
         Engine/Vfs/mod_merge.cpp
         Engine/Vfs/mod_merge_files.cpp
         Engine/Vfs/mod_merge_stamp.cpp
@@ -109,7 +118,7 @@ if(WIN32)
         Engine/Vfs/mod_music.cpp
         Engine/Vfs/mod_scoring.cpp
         Engine/Vfs/mod_store_copies.cpp)
-    target_link_libraries(dingosdk_mods PUBLIC dingosdk_json dingosdk_mod_list PRIVATE dingosdk_game_archives dingosdk_native_db dingosdk_frostbite dingosdk_content_cache shell32 bcrypt)
+    target_link_libraries(dingosdk_mods PUBLIC dingosdk_json dingosdk_mod_list PRIVATE dingosdk_launcher_support dingosdk_game_archives dingosdk_native_db dingosdk_frostbite dingosdk_content_cache shell32 bcrypt)
 
     add_library(dingosdk_custom_scripts STATIC Engine/Scripting/custom_scripts.cpp)
     target_link_libraries(dingosdk_custom_scripts PUBLIC dingosdk_json PRIVATE dingosdk_initfs)

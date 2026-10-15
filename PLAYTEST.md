@@ -1,49 +1,30 @@
-# Multiplayer playtest
+# Lean multiplayer playtest
 
-Use the client ZIP attached to this release on every test PC. The DLL already contains its native assets. Keep the source-only native_assets.bin download for rebuilding, not installation.
+Everyone needs the same **complete client ZIP**, including its Mods folder. The DLL alone is insufficient. The asset mod supplies the custom logos, flags, gates, menus and HUD artwork; assets are no longer embedded in the lean DLL.
 
-## Before launching
+## Install
 
-1. Prepare a normal ReSkate 2.0.7 installation using the supported game build. Extract the playtest ZIP to its own folder.
-2. Fully close ReSkate and its launcher yourself. Backups are automatic when using Install-Playtest.ps1. Alternatively, back up the existing DLL/launcher and copy only the two matching files beside Skate.exe.
-3. Run: powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-Playtest.ps1 -GameDirectory "E:\Games\ReSkate"
-4. In the launcher, keep automatic updates OFF and offline mode OFF for this pinned test. The installer preserves your mods/settings and never starts or stops programs.
-5. Run: powershell -NoProfile -ExecutionPolicy Bypass -File .\Preflight-Playtest.ps1 -GameDirectory "E:\Games\ReSkate"
-6. Every participant should get PASS. Compare the release name, DLL hash and chosen custom-map package/version before testing. Changing scoring/physics mods can exclude a player from challenges; the owner's current startup eligibility check passed.
+1. Start with a normal supported ReSkate 2.0.7 installation. Extract the complete client ZIP to its own folder.
+2. Fully close ReSkate and its launcher yourself.
+3. Run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Install-Playtest.ps1 -GameDirectory "E:\Games\ReSkate"`, replacing the game path with yours. The installer backs up files it replaces, adds the required mod and preserves other mods/settings. ModData installations use ModData/Default/Mods automatically.
+4. Keep launcher automatic updates OFF and offline mode OFF for this pinned build.
+5. Run `powershell -NoProfile -ExecutionPolicy Bypass -File .\Preflight-Playtest.ps1 -GameDirectory "E:\Games\ReSkate"`. Every player must get PASS.
+6. Launch ReSkate yourself. First check the custom Throwdown grid, gate editor and native Start panel for artwork and steady HUD visibility.
 
-Substitute each person's actual game directory. Keep the extracted scripts beside release-manifest.json and the two binaries. No game executable, third-party cosmetics/maps, saved settings or credentials are distributed.
+Manual folder layout: ReSkate.dll and ReSkateLauncher.exe beside Skate.exe; `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets/layout.toc`, `Win32`, `initfs_win32` and metadata inside the active Mods directory. Keep the mod folder name unchanged. No separate native_assets.bin installation is needed. The standalone Thunderstore-format asset ZIP can be installed through the launcher's mod manager, but the matching custom runtime is still required.
 
-## First session: two players, stock map
+## First session
 
-| Step | Action | Pass condition |
-| --- | --- | --- |
-| Connect | One player hosts in-game; the other joins by Steam invite/code | Both see each other and the same map |
-| Set up | Host places a short route: start, 3-5 Required gates, a Guide and a Finish | Guest sees the same route and joins the queue |
-| Race 1 | Start together; cross gates in order; deliberately skip the Guide | Correct spawn facing, Guide optional, Required/Finish count and no stuck GO |
-| HUD | Open/close Start and Back once while racing on each PC | Native camera/movement transition, steady HUD and responsive menus |
-| Finish | Finish at different times | Everyone sees matching final order and times; names/photos/medals are correct |
-| Race 2 | Immediately start another race; one player DNFs | No soft lock; long DNF time fits; countdown moves and Time to Beat stays fixed |
-| Quit | Guest quits, then host quits via the native panel | Guest leaves cleanly; challenge-leader Quit ends the challenge; normal Start/Map menus recover on each PC |
+| Step | Action and pass condition |
+| --- | --- |
+| Connect | Two separate PCs/Steam accounts; host a session and join via Steam. Both see the same stock map and each other. |
+| Build | Place a short route with 3–5 Required gates, one Guide and one Finish. Guest sees the same route and joins. |
+| Race | Check start facing, GO clearing, checkpoints, optional Guide and matching final order/time. |
+| Menus | On both PCs, use Start → Back → Start → Quit. Native camera/movement behavior works and normal menus recover. |
+| Repeat | Start a second race immediately. Let one player DNF; verify readable results and no soft lock/HUD loss. |
+| Expand | Add a third player; verify gold/silver/bronze, remote names/photos and leaderboard times. |
+| Stress | Try leader/guest departures, reconnect, two matching custom maps with saved routes, then a larger course and poorer connection. |
 
-Treat the results as a shared verdict. Per-frame countdown digits may differ slightly with network transit; final host-owned finish times/order should agree.
+Per-frame clocks can differ slightly with transit; final host-owned finish times/order should agree. Start small: very large route transfers still share a bounded message budget. The server's 16-client simulation is not a promise of 16-player custom challenge UI support.
 
-## Expand after the first session passes
-
-- Add a third player for gold/silver/bronze and a long name.
-- Swap the challenge leader; reconnect a guest; leave during countdown and during the race.
-- Check 1-UP turn/score/strikes and native Quit on both PCs, then Spot Battle/Skate Jam compatibility.
-- Switch between two custom maps, using identical package versions on every PC. Reopen each saved route and run two matches.
-- Test a larger route and late joining. Do not begin with thousands of gates: uncapped editing still uses bounded network transfers and a shared message budget.
-- Repeat a short race on a poorer connection. Record ping, visible stalls and any disagreement. Only a live session validates Steam relay behavior.
-
-## If something fails
-
-Leave the affected screen as-is if practical. Note the release, host/guest role, map, challenge, player count and exact steps. Record a short clip/screenshot.
-
-Run: powershell -NoProfile -ExecutionPolicy Bypass -File .\Collect-PlaytestLogs.ps1 -GameDirectory "E:\Games\ReSkate"
-
-The collector copies the latest local log and build/mod inventory into a new folder. It does not upload anything, copy login/settings files, collect crash memory, or control the game. Review logs for player names/Steam IDs before sharing. Gather reports from host and affected guest, using the same approximate timestamp.
-
-## Scope
-
-All 78 automated checks and simulated server runs passed. The local HUD/menu flow is owner-confirmed. This is a playtest candidate; live host/guest native gates, timing, maps and teardown are the next acceptance gate. Do not call it fully online-validated until those steps pass.
+This build deliberately records no diagnostic log. If something fails, gather a short recording/screenshots, both preflight reports, map/mod versions, host/guest roles and exact reproduction steps. Do not expect the old ReSkate.log to describe this lean session.

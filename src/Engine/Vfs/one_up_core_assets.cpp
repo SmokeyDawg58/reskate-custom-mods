@@ -1,4 +1,7 @@
 #include "one_up_core_assets.h"
+#if defined(DINGOSDK_LEAN_PLAYTEST)
+#include "native_asset_mod.h"
+#endif
 #include <Windows.h>
 #include <array>
 #include <cstring>
@@ -9,6 +12,7 @@
 
 namespace dingosdk::mods {
 namespace {
+#if !defined(DINGOSDK_LEAN_PLAYTEST)
 template<class T> T take(std::span<const std::byte>& data) {
     if(data.size()<sizeof(T))throw std::runtime_error("ReSkate core asset bundle is truncated");
     T value;std::memcpy(&value,data.data(),sizeof(T));data=data.subspan(sizeof(T));return value;
@@ -24,6 +28,7 @@ bool equal_file(const std::filesystem::path& path,std::span<const std::byte> exp
     }
     return true;
 }
+#endif
 }
 std::optional<Mod> one_up_core_assets(const std::filesystem::path& data_root) {
     // Unit-test roots and tools without a game installation have no native layout.
@@ -34,6 +39,10 @@ std::optional<Mod> one_up_core_assets(const std::filesystem::path& data_root) {
     static std::optional<Mod> verified;
     std::lock_guard lock(mutex);
     if(verified && verified_root==data_root)return verified;
+#if defined(DINGOSDK_LEAN_PLAYTEST)
+    auto core=required_throwdown_asset_mod(data_root);
+    verified_root=data_root;verified=std::move(core);return verified;
+#else
     HMODULE module=GetModuleHandleW(L"ReSkate.dll");
     bool borrowed=module!=nullptr;
     if(!module) {
@@ -85,5 +94,6 @@ std::optional<Mod> one_up_core_assets(const std::filesystem::path& data_root) {
     Mod core;core.name="ReSkate Core 1-Up";core.directory=patch;core.provides_layout=true;
     core.title="1-Up native assets";core.author="ReSkate";core.version="1";
     verified_root=data_root;verified=std::move(core);return verified;
+#endif
 }
 }

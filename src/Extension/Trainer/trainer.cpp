@@ -1264,6 +1264,9 @@ void set_logging(bool on) {
     auto &s = state();
     if (s.log.is_open()) s.log.close();
     s.logging = false;
+#if defined(DINGOSDK_LEAN_PLAYTEST)
+    (void)on;
+#else
     if (!on) return;
     const auto directory = data_directory() / L"telemetry";
     std::error_code error;
@@ -1280,6 +1283,7 @@ void set_logging(bool on) {
     s.log << "seconds,x,y,z,speed_mps,vertical_mps,heading_deg,airborne,physics_state,board_turn_dps\n";
     s.log_start = clock_now();
     s.logging = true;
+#endif
 }
 void shortcuts() {
     auto &s = state();

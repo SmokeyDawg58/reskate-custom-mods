@@ -324,8 +324,10 @@ extern "C" __declspec(dllexport) BOOL WINAPI DingoSDKDebugInitialize() {
         (void)dingosdk::mesh_unload_guard::install(r.base);
         (void)dingosdk::load_error_guard::install(r.base);
         (void)dingosdk::texture_handle_limit::install(r.base);
+#if !defined(DINGOSDK_LEAN_PLAYTEST)
         (void)dingosdk::stack_check_report::install(r.base);
         dingosdk::console::start_memory_trace_from_environment();
+#endif
         const bool fixed_stop_provider = (global_offline_hook && progression_guard_armed) &&
             dingosdk::prepare_fixed_stop_entitlement_provider(r.base);
         record("{\"event\":\"fixed_stop_entitlement_provider_initialized\",\"prepared\":" +

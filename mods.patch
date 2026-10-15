@@ -1,8 +1,26 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 4d820c3..e6a8c1b 100644
+index 4d820c3..1c83e5d 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -46,6 +46,9 @@ if(DINGOSDK_BUILD_PARK_EDITOR_TESTS AND WIN32)
+@@ -26,6 +26,17 @@ if(WIN32)
+ endif()
+ 
+ option(DINGOSDK_BUILD_TESTS "Build logging regression tests" OFF)
++if(WIN32 AND DINGOSDK_LEAN_PLAYTEST)
++    set(DINGOSDK_PLAYTEST_PACKAGE_ROOT "${CMAKE_CURRENT_BINARY_DIR}/playtest-package" CACHE PATH "Packaged client root containing the required Mods asset folder for regression checks")
++    enable_testing()
++    add_executable(dingosdk_native_asset_package_tests Engine/Vfs/Test/native_asset_package_tests.cpp)
++    target_link_libraries(dingosdk_native_asset_package_tests PRIVATE dingosdk_mods dingosdk_launcher_support)
++    add_test(NAME lean_native_asset_package COMMAND dingosdk_native_asset_package_tests
++        "${DINGOSDK_PLAYTEST_PACKAGE_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/lean-asset-fixtures")
++    add_executable(dingosdk_disabled_diagnostics_tests Engine/Core/Log/Test/disabled_diagnostics_tests.cpp)
++    target_link_libraries(dingosdk_disabled_diagnostics_tests PRIVATE dingosdk_logging dingosdk_profiler)
++    add_test(NAME lean_diagnostics_disabled COMMAND dingosdk_disabled_diagnostics_tests "${CMAKE_CURRENT_BINARY_DIR}/lean-log-fixtures")
++endif()
+ option(DINGOSDK_BUILD_PARK_EDITOR_TESTS "Build park editor regression tests" OFF)
+ option(DINGOSDK_BUILD_TRAINER_TESTS "Build the trainer's tools and regression tests" OFF)
+ if(DINGOSDK_BUILD_PARK_EDITOR_TESTS)
+@@ -46,6 +57,9 @@ if(DINGOSDK_BUILD_PARK_EDITOR_TESTS AND WIN32)
      add_executable(dingosdk_park_editor_transaction_tests Extension/Objects/ParkEditor/Test/park_editor_transaction_tests.cpp)
      target_link_libraries(dingosdk_park_editor_transaction_tests PRIVATE dingosdk_local_profile dingosdk_logging)
      add_test(NAME park_editor_transactions COMMAND dingosdk_park_editor_transaction_tests)
@@ -12,7 +30,7 @@ index 4d820c3..e6a8c1b 100644
      add_executable(dingosdk_profile_migration_tests Extension/Profile/Test/profile_migration_tests.cpp)
      target_link_libraries(dingosdk_profile_migration_tests PRIVATE dingosdk_local_profile)
      add_test(NAME profile_migration COMMAND dingosdk_profile_migration_tests)
-@@ -62,6 +65,36 @@ endif()
+@@ -62,6 +76,36 @@ endif()
  option(DINGOSDK_BUILD_MULTIPLAYER_TESTS "Build multiplayer protocol regression tests" OFF)
  if(DINGOSDK_BUILD_MULTIPLAYER_TESTS)
      enable_testing()
@@ -49,7 +67,7 @@ index 4d820c3..e6a8c1b 100644
      if(WIN32)
          add_executable(dingosdk_voice_tests Extension/Multiplayer/Test/voice_chat_tests.cpp Extension/Multiplayer/Net/protocol.cpp
              Extension/Multiplayer/Net/delta_codec.cpp Extension/Multiplayer/Net/wire_codec.cpp)
-@@ -324,11 +357,13 @@ endif()
+@@ -324,11 +368,13 @@ endif()
  option(DINGOSDK_BUILD_HALL_OF_MEAT_TESTS "Build Hall of Meat regression tests" OFF)
  if(DINGOSDK_BUILD_HALL_OF_MEAT_TESTS)
      enable_testing()
@@ -68,6 +86,42 @@ index 4d820c3..e6a8c1b 100644
      # skate.'s own skeleton mesh, read from the game's data and posed (with a Skate folder).
      add_executable(dingosdk_hall_of_meat_skeleton_tests Extension/HallOfMeat/Test/hall_of_meat_skeleton_tests.cpp
          Extension/HallOfMeat/hall_of_meat_skeleton.cpp)
+diff --git a/CMakePresets.json b/CMakePresets.json
+index 66b667f..c6787bd 100644
+--- a/CMakePresets.json
++++ b/CMakePresets.json
+@@ -20,6 +20,19 @@
+       "cacheVariables": {
+         "CMAKE_BUILD_TYPE": "Release"
+       }
++    },
++    {
++      "name": "lean-playtest-x64",
++      "displayName": "Lean multiplayer playtest (external asset mod, diagnostics disabled)",
++      "inherits": "vs2022-x64",
++      "binaryDir": "${sourceDir}/build/lean-playtest-x64",
++      "cacheVariables": {
++        "DINGOSDK_LEAN_PLAYTEST": "ON",
++        "DINGOSDK_VERSION": "2.0.7",
++        "DINGOSDK_BUILD_LAUNCHER_TESTS": "ON",
++        "DINGOSDK_BUILD_MULTIPLAYER_TESTS": "ON",
++        "DINGOSDK_BUILD_BACKTRACE_TESTS": "OFF"
++      }
+     }
+   ],
+   "buildPresets": [
+@@ -31,6 +44,11 @@
+     {
+       "name": "linux-release",
+       "configurePreset": "linux-x64"
++    },
++    {
++      "name": "lean-playtest-release",
++      "configurePreset": "lean-playtest-x64",
++      "configuration": "Release"
+     }
+   ]
+ }
 diff --git a/Engine/Core/Debug/Test/backtrace_tests.cpp b/Engine/Core/Debug/Test/backtrace_tests.cpp
 index 90f7f65..39d2984 100644
 --- a/Engine/Core/Debug/Test/backtrace_tests.cpp
@@ -127,6 +181,75 @@ index 90f7f65..39d2984 100644
          attachment_checks(root);
          queue_checks(root);
          crash_check(root / L"direct", false);
+diff --git a/Engine/Core/Log/Test/disabled_diagnostics_tests.cpp b/Engine/Core/Log/Test/disabled_diagnostics_tests.cpp
+new file mode 100644
+index 0000000..5ebb4b3
+--- /dev/null
++++ b/Engine/Core/Log/Test/disabled_diagnostics_tests.cpp
+@@ -0,0 +1,31 @@
++#include "Engine/Core/Log/logging.h"
++#include "Engine/Core/Profiling/profiler.h"
++#include <filesystem>
++#include <iostream>
++#include <stdexcept>
++
++int main(int argc,char** argv) {
++    try {
++        if(argc!=2)throw std::runtime_error("Expected fixture root.");
++        const auto directory=std::filesystem::path(argv[1])/std::to_string(GetCurrentProcessId());
++        if(std::filesystem::exists(directory))throw std::runtime_error("Fixture must not exist.");
++        dingosdk::logging::Options options;options.directory=directory;options.level=dingosdk::logging::Level::trace;options.external_console=true;
++        if(!dingosdk::logging::initialize(options))throw std::runtime_error("Disabled logger initializes without output.");
++        dingosdk::logging::startup_banner();
++        dingosdk::logging::log(dingosdk::logging::Level::critical,dingosdk::logging::Channel::ui,"No output {}",123);
++        dingosdk::logging::event(dingosdk::logging::Channel::ui,"{\"probe\":true}");
++        dingosdk::logging::printf(dingosdk::logging::Level::debug,dingosdk::logging::Channel::runtime,"No output %d",456);
++        dingosdk::logging::set_level(dingosdk::logging::Level::trace);
++        dingosdk::logging::flush();
++        if(dingosdk::logging::enabled(dingosdk::logging::Level::critical) || dingosdk::logging::status().file_output ||
++           dingosdk::logging::status().external_console || dingosdk::logging::latest_sequence() ||
++           !dingosdk::logging::snapshot_after(0).empty() || std::filesystem::exists(directory))
++            throw std::runtime_error("Lean build must not create log files, console sinks or recorded events.");
++        dingosdk::profiler::set_hud(true);dingosdk::profiler::set_window(true);
++        std::string error;
++        if(dingosdk::profiler::active() || dingosdk::profiler::start_sampling({},error))throw std::runtime_error("No profiling workers in the playtest build.");
++        dingosdk::logging::shutdown();
++        std::cout<<"Diagnostics stay disabled even when trace, console and profiling are requested.\n";
++        return 0;
++    } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
++}
+diff --git a/Engine/Core/Log/disabled.cpp b/Engine/Core/Log/disabled.cpp
+new file mode 100644
+index 0000000..2f34a13
+--- /dev/null
++++ b/Engine/Core/Log/disabled.cpp
+@@ -0,0 +1,26 @@
++#include "logging.h"
++
++// A shipping build has no sinks, files, native event recorder or crash helper.
++namespace dingosdk::logging {
++bool initialize(const Options&) noexcept { return true; }
++Options options_from_environment() { Options options; options.level=Level::off; return options; }
++std::filesystem::path log_directory(const std::filesystem::path& game) { return game / L"logs"; }
++Status status() { Status value; value.level=Level::off; value.initialized=true; return value; }
++bool enabled(Level) noexcept { return false; }
++void set_level(Level) noexcept {}
++void startup_banner() noexcept {}
++void flush() noexcept {}
++void shutdown() noexcept {}
++void write(Level, Context, Channel, std::string_view) noexcept {}
++void write(Level, Context, Channel, std::wstring_view) noexcept {}
++void vprintf(Level, Context, Channel, const char*, va_list) noexcept {}
++void printf(Level, Context, Channel, const char*, ...) noexcept {}
++void write(Level, Channel, std::string_view) noexcept {}
++void write(Level, Channel, std::wstring_view) noexcept {}
++void vprintf(Level, Channel, const char*, va_list) noexcept {}
++void printf(Level, Channel, const char*, ...) noexcept {}
++void event(Channel, std::string_view, Level) noexcept {}
++void event(Context, Channel, std::string_view, Level) noexcept {}
++std::vector<ConsoleLogLine> snapshot_after(std::uint64_t) { return {}; }
++std::uint64_t latest_sequence() noexcept { return 0; }
++}
 diff --git a/Engine/Core/Log/logger.cpp b/Engine/Core/Log/logger.cpp
 index ec8fceb..358c6ee 100644
 --- a/Engine/Core/Log/logger.cpp
@@ -162,6 +285,72 @@ index ec8fceb..358c6ee 100644
          }
          file_ = CreateFileW(path.c_str(), FILE_APPEND_DATA, sharing, nullptr,
              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+diff --git a/Engine/Core/Log/logging.h b/Engine/Core/Log/logging.h
+index 06de3df..a1bcfd9 100644
+--- a/Engine/Core/Log/logging.h
++++ b/Engine/Core/Log/logging.h
+@@ -45,11 +45,16 @@ void vprintf(Level level, Channel channel, const char* format, va_list args) noe
+ void printf(Level level, Channel channel, const char* format, ...) noexcept;
+ template<class... Args>
+ void log(Level level, Context context, Channel channel, std::format_string<Args...> format, Args&&... args) noexcept {
++#if defined(DINGOSDK_LEAN_PLAYTEST)
++    (void)level; (void)context; (void)channel; (void)format;
++    ((void)args, ...);
++#else
+     const auto saved = GetLastError();
+     try {
+         if (enabled(level) || (channel == Channel::command && level != Level::off)) write(level, context, channel, std::format(format, std::forward<Args>(args)...));
+     } catch (...) { write(Level::error, Channel::runtime, "Could not format a log message."); }
+     SetLastError(saved);
++#endif
+ }
+ template<class... Args>
+ void log(Level level, Channel channel, std::format_string<Args...> format, Args&&... args) noexcept {
+diff --git a/Engine/Core/Profiling/disabled.cpp b/Engine/Core/Profiling/disabled.cpp
+new file mode 100644
+index 0000000..93d73eb
+--- /dev/null
++++ b/Engine/Core/Profiling/disabled.cpp
+@@ -0,0 +1,20 @@
++#include "profiler.h"
++
++namespace dingosdk::profiler {
++std::atomic<bool> zones_enabled{false};
++Site::Site(const char* value) noexcept : name(value) {}
++void record_client_update(std::uint64_t) noexcept {}
++void record_client_frame(std::uint64_t) noexcept {}
++void record_present() noexcept {}
++std::size_t history(Series, std::span<float>) noexcept { return 0; }
++void set_hud(bool) noexcept {}
++bool hud() noexcept { return false; }
++void set_window(bool) noexcept {}
++bool window() noexcept { return false; }
++bool active() noexcept { return false; }
++std::shared_ptr<const Summary> summary() noexcept { return {}; }
++bool start_sampling(const SampleRequest&, std::string& error) { error="Profiling is not included in this playtest build."; return false; }
++void stop_sampling() noexcept {}
++std::shared_ptr<const SampleReport> sample_report() noexcept { return {}; }
++void set_engine_labels(std::span<const Label>) noexcept {}
++}
+diff --git a/Engine/Core/Profiling/profiler.h b/Engine/Core/Profiling/profiler.h
+index 029738d..907eff4 100644
+--- a/Engine/Core/Profiling/profiler.h
++++ b/Engine/Core/Profiling/profiler.h
+@@ -54,10 +54,14 @@ public:
+ };
+ #define DINGO_PROFILE_CAT2(a, b) a##b
+ #define DINGO_PROFILE_CAT(a, b) DINGO_PROFILE_CAT2(a, b)
++#if defined(DINGOSDK_LEAN_PLAYTEST)
++#define DINGO_PROFILE_ZONE(name) ((void)0)
++#else
+ #define DINGO_PROFILE_ZONE(name)                                                                       \
+     static ::dingosdk::profiler::Site DINGO_PROFILE_CAT(dingo_profile_site_, __LINE__){name};          \
+     const ::dingosdk::profiler::Scope DINGO_PROFILE_CAT(dingo_profile_scope_, __LINE__){                 \
+         DINGO_PROFILE_CAT(dingo_profile_site_, __LINE__)}
++#endif
+ 
+ // ---- frame timing ---------------------------------------------------------------------------
+ // ReSkate's client tick (once per client update): its own work, timed.
 diff --git a/Engine/Game/Build/20260929/native_throwdowns.h b/Engine/Game/Build/20260929/native_throwdowns.h
 index 1745851..e61aade 100644
 --- a/Engine/Game/Build/20260929/native_throwdowns.h
@@ -555,8 +744,61 @@ index 2a450d3..2092ae1 100644
      if (failures) {
          std::cerr << failures << " failure(s)\n";
          return 1;
+diff --git a/Engine/Vfs/Test/native_asset_package_tests.cpp b/Engine/Vfs/Test/native_asset_package_tests.cpp
+new file mode 100644
+index 0000000..b49d057
+--- /dev/null
++++ b/Engine/Vfs/Test/native_asset_package_tests.cpp
+@@ -0,0 +1,47 @@
++#include <Windows.h>
++#include "Engine/Vfs/native_asset_mod.h"
++#include "Engine/Vfs/native_asset_mod_manifest.h"
++#include "Engine/Vfs/mod_catalog.h"
++#include <fstream>
++#include <iostream>
++#include <stdexcept>
++
++namespace {
++void require(bool value,const char* message) {if(!value)throw std::runtime_error(message);}
++bool rejected(const std::filesystem::path& root) {
++    try {(void)dingosdk::mods::required_throwdown_asset_mod(root);return false;}
++    catch(const std::runtime_error&) {return true;}
++}
++}
++int main(int argc,char** argv) {
++    try {
++        require(argc==3,"Expected a complete packaged client root and fixture directory.");
++        const auto mod=dingosdk::mods::required_throwdown_asset_mod(argv[1]);
++        require(mod.provides_layout && mod.directory==std::filesystem::path(argv[1])/L"Mods"/dingosdk::mods::native_package::folder,"Required assets mount the mod folder directly.");
++        require(mod.studio_marker && mod.skate_sha256.size()==64,"Supported game stamp retained.");
++        require(dingosdk::mods::native_package::files.size()==17,"All 17 native files retained.");
++        const auto package=std::filesystem::path(argv[1]);
++        require(!std::filesystem::exists(package/L"Data") && !std::filesystem::exists(package/L"Mods"/L"mods.json"),"Only an isolated package fixture may be used.");
++        std::filesystem::create_directory(package/L"Data");
++        {std::ofstream out(package/L"Data"/L"layout.toc");out<<"fixture";}
++        auto catalog=dingosdk::mods::load_catalog(package,{},false);
++        require(catalog.issue.empty() && catalog.mods.size()==1,"The required mod must mount exactly once.");
++        {std::ofstream out(package/L"Mods"/L"mods.json");out<<R"({"schema":1,"mods":[{"name":"SmokeyDawg58-ReSkate_Throwdown_Assets","enabled":false}]})";}
++        catalog=dingosdk::mods::load_catalog(package,{},false);
++        require(catalog.issue.empty() && catalog.mods.size()==1 && catalog.disabled.empty(),"Required assets remain a single dependency when its optional duplicate is disabled.");
++        std::filesystem::remove(package/L"Mods"/L"mods.json");
++        std::filesystem::remove(package/L"Data"/L"layout.toc");std::filesystem::remove(package/L"Data");
++        const auto fixture=std::filesystem::path(argv[2])/std::to_string(GetCurrentProcessId());
++        std::filesystem::create_directories(fixture);
++        require(rejected(fixture),"Missing mod must fail instead of silently losing logos.");
++        const auto partial=fixture/L"Mods"/dingosdk::mods::native_package::folder;
++        std::filesystem::create_directories(partial);
++        const auto& first=dingosdk::mods::native_package::files.front();
++        const auto file=partial/first.path;
++        {std::ofstream out(file,std::ios::binary);out<<std::string(static_cast<std::size_t>(first.bytes),'x');}
++        require(rejected(fixture),"Same-size corrupt native content must be rejected by hash.");
++        std::filesystem::remove(file);std::filesystem::remove(partial);std::filesystem::remove(fixture/L"Mods");std::filesystem::remove(fixture);
++        std::cout<<"Required asset mod: full payload validated; missing and corrupted packages rejected.\n";
++        return 0;
++    } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
++}
 diff --git a/Engine/Vfs/mod_catalog.cpp b/Engine/Vfs/mod_catalog.cpp
-index d0cd48d..fee0ccc 100644
+index d0cd48d..73f457c 100644
 --- a/Engine/Vfs/mod_catalog.cpp
 +++ b/Engine/Vfs/mod_catalog.cpp
 @@ -1,6 +1,7 @@
@@ -567,19 +809,35 @@ index d0cd48d..fee0ccc 100644
  #include "native_db.h"
  #include "Engine/Core/Json/json.h"
  
-@@ -293,6 +294,12 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
+@@ -293,6 +294,16 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
      auto list = scan_mods(data_root);
      result.root = std::move(list.root);
      result.present = list.present;
 +    try {
 +        if(auto core=one_up_core_assets(data_root)) {
 +            result.mods.push_back(std::move(*core));result.present=true;
++#if defined(DINGOSDK_LEAN_PLAYTEST)
++            result.notes.push_back("Required Throwdown asset mod loaded and checksum verified");
++#else
 +            result.notes.push_back("1-Up native assets loaded from ReSkate.dll");
++#endif
 +        }
 +    }catch(const std::exception& e) {result.issue=e.what();return result;}
      if (!result.present) return result;
      for (auto& note : list.notes) result.notes.push_back(std::move(note));
      if (!list.issue.empty()) {
+@@ -366,6 +377,11 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
+             }
+         }
+         for (auto& entry : list.entries) {
++#if defined(DINGOSDK_LEAN_PLAYTEST)
++            // This required mod is already mounted first. Do not merge it twice
++            // when the ordinary mod scan discovers the same visible folder.
++            if(!result.mods.empty() && entry.mod.directory==result.mods.front().directory)continue;
++#endif
+             if (!entry.enabled) {
+                 if (std::find(result.set_aside.begin(), result.set_aside.end(), entry.mod.name) == result.set_aside.end()) {
+                     result.notes.push_back("Mod disabled in mods.json: " + entry.mod.name);
 diff --git a/Engine/Vfs/mod_merge_overrides.cpp b/Engine/Vfs/mod_merge_overrides.cpp
 index 295576a..a38be8a 100644
 --- a/Engine/Vfs/mod_merge_overrides.cpp
@@ -636,13 +894,92 @@ index 295576a..a38be8a 100644
                          carried.push_back(fb::decode_cas(addition.encoded, {gameRoot}));
                      } catch (const std::exception&) {}
              // Each carried asset is gone through once, for all the chunks together: looking for
+diff --git a/Engine/Vfs/native_asset_mod.cpp b/Engine/Vfs/native_asset_mod.cpp
+new file mode 100644
+index 0000000..8531ea2
+--- /dev/null
++++ b/Engine/Vfs/native_asset_mod.cpp
+@@ -0,0 +1,23 @@
++#include "native_asset_mod.h"
++#include "native_asset_mod_manifest.h"
++#include "Engine/Core/Platform/launcher_support.h"
++#include <stdexcept>
++
++namespace dingosdk::mods {
++Mod required_throwdown_asset_mod(const std::filesystem::path& game) {
++    const auto directory=game/L"Mods"/native_package::folder;
++    for(const auto& file:native_package::files) {
++        const auto path=directory/file.path;
++        std::error_code error;
++        if(!std::filesystem::is_regular_file(path,error) || error)
++            throw std::runtime_error("The required ReSkate Throwdown Assets mod is missing or incomplete. Extract the complete playtest package beside Skate.exe.");
++        if(std::filesystem::file_size(path,error)!=file.bytes || error || launcher::sha256_file(path)!=file.sha256)
++            throw std::runtime_error("The ReSkate Throwdown Assets mod does not match this DLL. Install the complete matching playtest package.");
++    }
++    Mod core;core.name="SmokeyDawg58-ReSkate_Throwdown_Assets";core.directory=directory;core.provides_layout=true;
++    core.title="ReSkate Throwdown Assets";core.author="SmokeyDawg58";core.version="1.0.0";
++    core.description="Required native logos, gates, flags, menus and HUD assets.";
++    core.studio_marker=true;core.skate_sha256=std::string(launcher::expected_game_sha256);
++    return core;
++}
++}
+diff --git a/Engine/Vfs/native_asset_mod.h b/Engine/Vfs/native_asset_mod.h
+new file mode 100644
+index 0000000..155aee3
+--- /dev/null
++++ b/Engine/Vfs/native_asset_mod.h
+@@ -0,0 +1,8 @@
++#pragma once
++#include "mod_list.h"
++namespace dingosdk::mods {
++// Validates every required file before mounting the visible Thunderstore mod.
++// Missing or altered packs fail clearly; a disabled duplicate cannot hide the
++// runtime's own required dependency and is never mounted a second time.
++Mod required_throwdown_asset_mod(const std::filesystem::path& game);
++}
+diff --git a/Engine/Vfs/native_asset_mod_manifest.h b/Engine/Vfs/native_asset_mod_manifest.h
+new file mode 100644
+index 0000000..a74ff64
+--- /dev/null
++++ b/Engine/Vfs/native_asset_mod_manifest.h
+@@ -0,0 +1,27 @@
++#pragma once
++#include <array>
++#include <cstdint>
++#include <string_view>
++namespace dingosdk::mods::native_package {
++inline constexpr auto folder=L"SmokeyDawg58-ReSkate_Throwdown_Assets";
++struct File {const char* path;std::uint64_t bytes;std::string_view sha256;};
++inline constexpr std::array<File,17> files{{
++    {".reskate-studio-patch",109ULL,"7251fea422094e6868c47471d14dd268819dc084e04e0778c48d2451242b591d"},
++    {"Win32/buildkititems.toc",61492ULL,"2c69b4b401da5f4a8f6f5928a8eecd628bb0f46096596c85e40858dca0d9cf7b"},
++    {"Win32/configurations/layout/defaultinstallpackage/cas_01.cas",313145664ULL,"ad7d967bc8a0cf8d676865a704e6324990eebf625b04ff1419aea613daa0f00f"},
++    {"Win32/configurations/layout/initialinstallpackage/cas_01.cas",84738515ULL,"0412de0be24f471110f6849eda646683070999da60f207ac3bf85add8becd45f"},
++    {"Win32/customization.toc",1824ULL,"d66e34d5f0e4f41330ec615c3df208573e8472f395fffa3f3cca67914de03c16"},
++    {"Win32/globals.toc",104232ULL,"1129c974b9877e2c38ac9f1ec932411f356a190efd8350a88254fcd43aceb64c"},
++    {"Win32/items.toc",227500ULL,"96e09788435dad844a0801cbc2441a6ffde452f4f592308b4de6a57cbc3f2e2c"},
++    {"Win32/levels/game/bam_levelroot/bam_levelroot.toc",1082472ULL,"6e8a46be8e31309762ec9da7228eb03c0e0b0431eb64816ab48833a26d195864"},
++    {"Win32/levels/game/dingolevel_ftue_island/dingolevel_ftue_island.toc",864208ULL,"f646b816fae14ccc515fe5f1f208c6248a553d6f3edd9b931e0c307ab0d4e25d"},
++    {"Win32/levels/game/dingolevel_isle_of_grom/dingolevel_isle_of_grom.toc",891876ULL,"2ce3b198ec18a7896e113aa6ba277309d0a4c7007e1e594387bc122783aae522"},
++    {"Win32/levels/game/dingolevel_mpr/dingolevel_mpr.toc",892908ULL,"1c39979c8d8d73e92091d7fe0dabb39150e6f8dfa5ccb3c6be53f97b5e9c3623"},
++    {"Win32/levels/game/dingolevel_root/dingolevel_root.toc",420764ULL,"0dfb07e0180705e75b6fca022e30f251fc1b7e253ecf888985c22c7b37d5fb99"},
++    {"Win32/levels/game/dingolevel_sdm/dingolevel_sdm_int_001/dingolevel_sdm_int_001.toc",887460ULL,"c5383ea80d13e3a71126770131b0645a75fa37c725b0491c33d21510dbe33bcb"},
++    {"Win32/levels/game/dingolevel_sdm/dingolevel_sdm_int_002/dingolevel_sdm_int_002.toc",887576ULL,"e50bc6225d89bd9acabcd974d637c3067d630b392dd8e354ecae7efc8b97f857"},
++    {"Win32/levels/game/dingolevel_splash/dingolevel_splash.toc",131352ULL,"7159de0ea5f2cbe4978c674047e9893b18eb1f9b1b9fa688ae2fc3fed998e4ff"},
++    {"initfs_win32",743439ULL,"b73e95d63933f2e75fca464bc91c00d99c53e23fb392113d868b8379f975eae4"},
++    {"layout.toc",14663ULL,"ca1a8c1a8f0d58be15fd82787231783d071b744f77e9cb84e6abcc5201bc22f0"},
++}};
++}
 diff --git a/Engine/Vfs/one_up_core_assets.cpp b/Engine/Vfs/one_up_core_assets.cpp
 new file mode 100644
-index 0000000..a45ac36
+index 0000000..2c328a0
 --- /dev/null
 +++ b/Engine/Vfs/one_up_core_assets.cpp
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,99 @@
 +#include "one_up_core_assets.h"
++#if defined(DINGOSDK_LEAN_PLAYTEST)
++#include "native_asset_mod.h"
++#endif
 +#include <Windows.h>
 +#include <array>
 +#include <cstring>
@@ -653,6 +990,7 @@ index 0000000..a45ac36
 +
 +namespace dingosdk::mods {
 +namespace {
++#if !defined(DINGOSDK_LEAN_PLAYTEST)
 +template<class T> T take(std::span<const std::byte>& data) {
 +    if(data.size()<sizeof(T))throw std::runtime_error("ReSkate core asset bundle is truncated");
 +    T value;std::memcpy(&value,data.data(),sizeof(T));data=data.subspan(sizeof(T));return value;
@@ -668,6 +1006,7 @@ index 0000000..a45ac36
 +    }
 +    return true;
 +}
++#endif
 +}
 +std::optional<Mod> one_up_core_assets(const std::filesystem::path& data_root) {
 +    // Unit-test roots and tools without a game installation have no native layout.
@@ -678,6 +1017,10 @@ index 0000000..a45ac36
 +    static std::optional<Mod> verified;
 +    std::lock_guard lock(mutex);
 +    if(verified && verified_root==data_root)return verified;
++#if defined(DINGOSDK_LEAN_PLAYTEST)
++    auto core=required_throwdown_asset_mod(data_root);
++    verified_root=data_root;verified=std::move(core);return verified;
++#else
 +    HMODULE module=GetModuleHandleW(L"ReSkate.dll");
 +    bool borrowed=module!=nullptr;
 +    if(!module) {
@@ -729,20 +1072,22 @@ index 0000000..a45ac36
 +    Mod core;core.name="ReSkate Core 1-Up";core.directory=patch;core.provides_layout=true;
 +    core.title="1-Up native assets";core.author="ReSkate";core.version="1";
 +    verified_root=data_root;verified=std::move(core);return verified;
++#endif
 +}
 +}
 diff --git a/Engine/Vfs/one_up_core_assets.h b/Engine/Vfs/one_up_core_assets.h
 new file mode 100644
-index 0000000..48f6a7a
+index 0000000..279c9c9
 --- /dev/null
 +++ b/Engine/Vfs/one_up_core_assets.h
-@@ -0,0 +1,8 @@
+@@ -0,0 +1,9 @@
 +#pragma once
 +#include "mod_list.h"
 +#include <optional>
 +
 +namespace dingosdk::mods {
-+// Native game data shipped inside ReSkate.dll, independent of Mods settings.
++// Native game data, independent of Mods settings. Lean playtest builds load the
++// required Throwdown asset mod folder; ordinary builds embed the same bytes.
 +std::optional<Mod> one_up_core_assets(const std::filesystem::path& data_root);
 +}
 diff --git a/Engine/Vfs/race_core_assets.h b/Engine/Vfs/race_core_assets.h
@@ -810,6 +1155,17 @@ index 71ae717..4030b50 100644
  void register_hall_of_meat_commands(Commands &);
  void register_road_rash_commands(Commands &);
  void register_board_break_commands(Commands &);
+diff --git a/Extension/Console/perf_commands_disabled.cpp b/Extension/Console/perf_commands_disabled.cpp
+new file mode 100644
+index 0000000..736e0ba
+--- /dev/null
++++ b/Extension/Console/perf_commands_disabled.cpp
+@@ -0,0 +1,5 @@
++#include "commands.h"
++namespace dingosdk::console {
++void register_perf_commands(Commands&) {}
++void start_memory_trace_from_environment() noexcept {}
++}
 diff --git a/Extension/Customization/local_player_card_runtime.cpp b/Extension/Customization/local_player_card_runtime.cpp
 index 85d968a..1154b30 100644
 --- a/Extension/Customization/local_player_card_runtime.cpp
@@ -8670,7 +9026,7 @@ index 5575a05..3522ffd 100644
          const auto send_at = now_us();
          s.client_timing.record(ClientTiming::network, receive_at, send_at);
 diff --git a/Extension/Multiplayer/Session/session_commands.cpp b/Extension/Multiplayer/Session/session_commands.cpp
-index a44cd16..101ab3c 100644
+index a44cd16..724516f 100644
 --- a/Extension/Multiplayer/Session/session_commands.cpp
 +++ b/Extension/Multiplayer/Session/session_commands.cpp
 @@ -1,4 +1,5 @@
@@ -8679,7 +9035,26 @@ index a44cd16..101ab3c 100644
  #include "Extension/Multiplayer/Steam/steam_social.h"
  #include "Extension/Multiplayer/Hud/native_indicators.h"
  #include "Extension/Multiplayer/Hud/native_player_ui.h"
-@@ -615,7 +616,7 @@ bool own_mark_command(std::string_view action) {
+@@ -418,6 +419,10 @@ std::string edit_player_distance(Session &s, std::string_view argument) {
+                                               : "Players within " + std::to_string(static_cast<int>(value)) + " m are shown as skaters.";
+ }
+ std::string start_pose_dump(Session &s, std::string_view argument) {
++#if defined(DINGOSDK_LEAN_PLAYTEST)
++    (void)s; (void)argument;
++    return "Pose recording is not included in this playtest build.";
++#else
+     int seconds{};
+     const auto parsed = std::from_chars(argument.data(), argument.data() + argument.size(), seconds);
+     if (parsed.ec != std::errc{} || parsed.ptr != argument.data() + argument.size() || seconds < 1 || seconds > 600)
+@@ -434,6 +439,7 @@ std::string start_pose_dump(Session &s, std::string_view argument) {
+     s.pose_dump_until = now_us() + static_cast<std::uint64_t>(seconds) * 1000000;
+     s.pose_dump_count = 0;
+     return "Recording your poses for " + std::to_string(seconds) + " s to " + file.string() + ". Skate as you normally would.";
++#endif
+ }
+ std::string edit_direct_connections(Session &s, std::string_view argument) {
+     const auto enabled = parse_switch(argument, s.prefer_direct);
+@@ -615,7 +621,7 @@ bool own_mark_command(std::string_view action) {
  }
  } // namespace
  bool queue_command(std::string_view action, std::string_view argument, std::string_view password) {
@@ -8688,7 +9063,7 @@ index a44cd16..101ab3c 100644
      if ((action != "host" && action != "host-config" && action != "join" && action != "rejoin" && action != "join-lobby" && action != "join-friend-lobby" && action != "stop" &&
           action != "distances" && action != "object-placement" && action != "object-limit" && action != "kick" && action != "clear-objects" &&
           action != "nametags" && action != "chat-visible" && action != "chat-filter" &&
-@@ -628,7 +629,7 @@ bool queue_command(std::string_view action, std::string_view argument, std::stri
+@@ -628,7 +634,7 @@ bool queue_command(std::string_view action, std::string_view argument, std::stri
           action != "world-layer-sync" && action != "noclip-allow" && action != "nobail-allow" && action != "boosts-allow" &&
           action != "tuning-enforce" && action != "tp" &&
           action != "tpall" && action != "tphere" && action != "browse" &&
@@ -8697,7 +9072,7 @@ index a44cd16..101ab3c 100644
          argument.size() > (action == "host" || action == "host-config" ? 160U : action == "chat" ? 4 * multiplayer_chat_max_bytes
                             : action == "server" ? max_admin_text : 128U) ||
          password.size() > 64)
-@@ -653,7 +654,7 @@ std::vector<NextMapWanted> next_maps() {
+@@ -653,7 +659,7 @@ std::vector<NextMapWanted> next_maps() {
  }
  unsigned next_maps_serial() noexcept { return session_detail::next_maps_serial_value.load(std::memory_order_relaxed); }
  std::string command(std::string_view action, std::string_view argument, std::string_view password) {
@@ -8706,7 +9081,7 @@ index a44cd16..101ab3c 100644
          return "Multiplayer is unavailable in offline mode. Start Steam and relaunch ReSkate.";
      const bool configured_host = action == "host-config";
      if (configured_host) action = "host";
-@@ -718,6 +719,7 @@ std::string command(std::string_view action, std::string_view argument, std::str
+@@ -718,6 +724,7 @@ std::string command(std::string_view action, std::string_view argument, std::str
              if (!refused.empty() && (s.mode == Mode::host || s.mode == Mode::join)) add_chat(s, 0, "ReSkate", refused);
              return refused.empty() ? "Message sent." : refused;
          }
@@ -13916,7 +14291,7 @@ index 0000000..51f7fe9
 +bool apply_snapshot(State& current, const Message&, PlayerId authenticated_sender, std::uint64_t world);
 +} // namespace dingosdk::multiplayer::one_up
 diff --git a/Extension/Throwdowns/throwdown_lab.cpp b/Extension/Throwdowns/throwdown_lab.cpp
-index 1aef52b..82b25ad 100644
+index 1aef52b..dcba758 100644
 --- a/Extension/Throwdowns/throwdown_lab.cpp
 +++ b/Extension/Throwdowns/throwdown_lab.cpp
 @@ -1,4 +1,7 @@
@@ -14031,7 +14406,19 @@ index 1aef52b..82b25ad 100644
          return std::format("RequestThrowdownDestroyGlobal sent for MMID {:#x}", mmid);
      }
      }
-@@ -1448,6 +1466,23 @@ void initialize_throwdown_lab(Address base) noexcept {
+@@ -1430,6 +1448,7 @@ void initialize_throwdown_lab(Address base) noexcept {
+             throw std::runtime_error("Throwdown lab: cannot enable hooks");
+         l.installed.store(true, std::memory_order_release);
+     } catch (const std::exception& e) { logging::write(logging::Level::warning, logging::Channel::progression, e.what()); }
++#if !defined(DINGOSDK_LEAN_PLAYTEST)
+     // The condition probe replaces the game's AND / OR / NOT, which every authored
+     // condition runs through; opt in with RESKATE_THROWDOWN_PROBE=1.
+     if (!GetEnvironmentVariableW(L"RESKATE_THROWDOWN_PROBE", nullptr, 0)) return;
+@@ -1445,9 +1464,27 @@ void initialize_throwdown_lab(Address base) noexcept {
+                 hook_enable(reinterpret_cast<void*>(base + op.rva)) == HookOk) ++count;
+         logging::log(logging::Level::info, logging::Channel::progression, "Throwdown lab: condition probe on {} of 3 boolean ops.", count);
+     } catch (...) {}
++#endif
  }
  
  void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) noexcept {
@@ -14055,7 +14442,7 @@ index 1aef52b..82b25ad 100644
      auto& l = lab();
      if (!l.installed.load(std::memory_order_acquire) || injecting || !type || !payload) return;
      if (handled(hash)) { try { note_sent(hash, 0); } catch (...) {} }
-@@ -1552,6 +1587,7 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
+@@ -1552,6 +1589,7 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
              ThrowdownLocalAction action{ThrowdownLocalAction::Kind::exited};
              if (const auto f = find_field(type, field_is_cancelling); f && f->size == 1)
                  action.cancelling = read<std::uint8_t>(payload + f->offset) != 0;
@@ -14063,7 +14450,7 @@ index 1aef52b..82b25ad 100644
              {
                  std::lock_guard lock(l.mutex);
                  action.series = l.series; action.mmid = l.hosted_mmid;
-@@ -1633,15 +1669,31 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
+@@ -1633,15 +1671,31 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
          std::string series; std::uint32_t mmid{};
          std::vector<std::uint8_t> params; std::string note;
          bool placed{};
@@ -14096,7 +14483,7 @@ index 1aef52b..82b25ad 100644
              placed = spawn[0] != 0 || spawn[1] != 0 || spawn[2] != 0;
          }
          {
-@@ -1662,6 +1714,19 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
+@@ -1662,6 +1716,19 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
                  "Throwdown lab: local client sent {:#x}; series {} MMID {:#x}{}{}.", hash, l.series, l.mmid,
                  note.empty() ? "" : "; ", note);
          }
@@ -14116,7 +14503,7 @@ index 1aef52b..82b25ad 100644
          using Kind = ThrowdownLocalAction::Kind;
          const auto kind = hash == event_create ? Kind::created : hash == event_add_participant ? Kind::joined
                          : hash == event_force_start ? Kind::force_started : hash == event_destroy ? Kind::destroy_requested
-@@ -1675,6 +1740,113 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
+@@ -1675,12 +1742,122 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
      } catch (...) {}
  }
  
@@ -14230,7 +14617,24 @@ index 1aef52b..82b25ad 100644
  namespace {
  std::uint64_t now_ms() {
      return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-@@ -1726,6 +1898,7 @@ bool lab_graph(Address vm) noexcept {
+         std::chrono::steady_clock::now().time_since_epoch()).count());
+ }
+ void trace_expression(Address vm) {
++#if defined(DINGOSDK_LEAN_PLAYTEST)
++    (void)vm;
++#else
+     auto& l = lab();
+     const auto now = now_ms();
+     if (now >= l.trace_end_ms) {
+@@ -1714,6 +1891,7 @@ void trace_expression(Address vm) {
+     auto& seen = l.trace[key];
+     if (!seen.count++) seen.first_ms = now;
+     seen.last_ms = now;
++#endif
+ }
+ 
+ // The pump runs after every expression the game executes, thousands a frame, and almost all
+@@ -1726,6 +1904,7 @@ bool lab_graph(Address vm) noexcept {
          std::vector<std::uint32_t> v{graph_celebration, graph_criteria_attempt, graph_queue_filled, graph_round_end_update,
                                       graph_turn_start, graph_skate_timer, graph_turn_end_begin,
                                       0xc33322b2, 0xc4a37359, 0xcc6467cf, 0xf073dd02};
@@ -14238,12 +14642,13 @@ index 1aef52b..82b25ad 100644
          for (const auto& h : handled_events) v.insert(v.end(), h.graphs.begin(), h.graphs.end());
          std::ranges::sort(v);
          v.erase(std::unique(v.begin(), v.end()), v.end());
-@@ -1737,6 +1910,135 @@ bool lab_graph(Address vm) noexcept {
+@@ -1737,6 +1916,143 @@ bool lab_graph(Address vm) noexcept {
  }
  } // namespace
  
 +namespace {
 +
++#if !defined(DINGOSDK_LEAN_PLAYTEST)
 +struct OfficialPanelTrace {
 +    std::atomic<bool> active{};
 +    std::uint64_t until{},epoch{};
@@ -14318,6 +14723,13 @@ index 1aef52b..82b25ad 100644
 +}
 +bool official_panel_trace_active() noexcept {return official_trace().active.load(std::memory_order_acquire);}
 +
++#else
++void trace_official_expression(Address,Address,std::uint32_t,std::uint32_t) noexcept {}
++} // namespace
++void tick_official_panel_trace(bool,std::uint64_t) noexcept {}
++bool official_panel_trace_active() noexcept {return false;}
++#endif
++
 +void execute_throwdown_preview_expression(Address vm,std::uint32_t pc,Address profiler,
 +    void (*runner)(Address,std::uint32_t,Address)) {
 +    FlagPreviewPage private_page;
@@ -14374,7 +14786,7 @@ index 1aef52b..82b25ad 100644
  void pump_throwdown_lab(Address vm) noexcept {
      auto& l = lab();
      if (vm && l.installed.load(std::memory_order_acquire) && lab_graph(vm)) {
-@@ -1744,6 +2046,61 @@ void pump_throwdown_lab(Address vm) noexcept {
+@@ -1744,6 +2060,61 @@ void pump_throwdown_lab(Address vm) noexcept {
          try {
              const auto resource = *reinterpret_cast<const Address*>(vm + 0x38);
              const auto graph = resource ? *reinterpret_cast<const std::uint32_t*>(resource + 0x10) : 0U;
@@ -14436,7 +14848,7 @@ index 1aef52b..82b25ad 100644
              if (graph == graph_celebration && realm() == client_realm) {
                  // CoopChallengeCelebrationLocation as the graph built it in its locals (page 2).
                  const auto frame = read<std::uint32_t>(resource + 0x20);
-@@ -1783,6 +2140,9 @@ void pump_throwdown_lab(Address vm) noexcept {
+@@ -1783,6 +2154,9 @@ void pump_throwdown_lab(Address vm) noexcept {
                  const auto frame = read<std::uint32_t>(resource + 0x20);
                  const auto locals = read<Address>(read<Address>(vm + 0x30) + ((frame + 15U) & ~15U) + 16);
                  if (locals && graph == graph_queue_filled && l.local_entered.exchange(false, std::memory_order_acq_rel)) {
@@ -14446,7 +14858,7 @@ index 1aef52b..82b25ad 100644
                      const auto handle = read<std::uint32_t>(locals + queue_filled_handle_local);
                      const auto seed = read<std::uint32_t>(locals + queue_filled_seed_local);
                      { std::lock_guard lock(l.mutex); l.event_handle = handle; }
-@@ -1927,17 +2287,26 @@ void pump_throwdown_lab(Address vm) noexcept {
+@@ -1927,17 +2301,26 @@ void pump_throwdown_lab(Address vm) noexcept {
  }
  
  void throwdown_lab_before_level_transition(unsigned next) noexcept {
@@ -14473,7 +14885,7 @@ index 1aef52b..82b25ad 100644
  bool throwdown_lab_player(std::uint32_t player_id) noexcept {
      if (!player_id) return false;
      for (const auto& slot : lab().players) if (slot.load(std::memory_order_relaxed) == player_id) return true;
-@@ -2132,6 +2501,10 @@ std::string throwdown_lab_command(std::string_view arguments, std::optional<std:
+@@ -2132,6 +2515,10 @@ std::string throwdown_lab_command(std::string_view arguments, std::optional<std:
          at = end == std::string_view::npos ? arguments.size() : end;
      }
      const auto verb = words.empty() ? std::string_view("status") : words[0];
@@ -14484,7 +14896,7 @@ index 1aef52b..82b25ad 100644
      if (verb == "relay") return throwdown_relay_status();
      const auto number = [&](std::size_t i) { return i < words.size() ? parse_u32(words[i]) : std::nullopt; };
      const auto current = [&] {
-@@ -2147,6 +2520,7 @@ std::string throwdown_lab_command(std::string_view arguments, std::optional<std:
+@@ -2147,6 +2534,7 @@ std::string throwdown_lab_command(std::string_view arguments, std::optional<std:
                 "  throwdown mirror <host id>          replace your placed drop by the same drop hosted by <host id>\n"
                 "  throwdown join                      join the current queue as the local player (the Join button)\n"
                 "  throwdown start | destroy           force start / destroy the current queue (MMID above)\n"
@@ -14611,7 +15023,7 @@ index 0058792..95d115b 100644
  };
  constexpr std::size_t max_throwdown_series = 48, max_throwdown_params = 1536, max_throwdown_order = 32,
 diff --git a/Extension/Trainer/trainer.cpp b/Extension/Trainer/trainer.cpp
-index 511285e..ff3ab29 100644
+index 511285e..003437c 100644
 --- a/Extension/Trainer/trainer.cpp
 +++ b/Extension/Trainer/trainer.cpp
 @@ -1,4 +1,5 @@
@@ -14685,7 +15097,25 @@ index 511285e..ff3ab29 100644
              const bool marked = current_map().markers[static_cast<std::size_t>(s.slot)].set;
              if (marked) s.return_at = now + static_cast<std::uint64_t>(s.return_delay * 1000.0f);
              say(logging::Level::info, marked ? std::format("Trainer: bail seen; back to marker {} in {:.1f} s.", s.slot + 1, s.return_delay)
-@@ -1490,6 +1501,7 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool playing, const std::s
+@@ -1253,6 +1264,9 @@ void set_logging(bool on) {
+     auto &s = state();
+     if (s.log.is_open()) s.log.close();
+     s.logging = false;
++#if defined(DINGOSDK_LEAN_PLAYTEST)
++    (void)on;
++#else
+     if (!on) return;
+     const auto directory = data_directory() / L"telemetry";
+     std::error_code error;
+@@ -1269,6 +1283,7 @@ void set_logging(bool on) {
+     s.log << "seconds,x,y,z,speed_mps,vertical_mps,heading_deg,airborne,physics_state,board_turn_dps\n";
+     s.log_start = clock_now();
+     s.logging = true;
++#endif
+ }
+ void shortcuts() {
+     auto &s = state();
+@@ -1490,6 +1505,7 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool playing, const std::s
              refresh_waypoint();
          }
          if (playing) {
@@ -14693,7 +15123,7 @@ index 511285e..ff3ab29 100644
              observe(base, client, now);
              shortcuts();
              update_landing(now);
-@@ -1528,6 +1540,7 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool playing, const std::s
+@@ -1528,6 +1544,7 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool playing, const std::s
          // The speeds pushes aim for are the push class's (value_links ties them to the tuning's top
          // pushing speed, which only gates whether a push may start).
          const auto *top_speed = find_entry("physicspush.maxpushablespeed");
@@ -14701,7 +15131,7 @@ index 511285e..ff3ab29 100644
          set_push_speed(client, s.entity, 1.0f, top_speed ? static_cast<float>(top_speed->stock) : 0.0f, s.boosts.cruise);
          for (TrickLaunch launch; take_trick_launch(launch);)
              if (launch.factor != 1.0f)
-@@ -1673,6 +1686,8 @@ std::string run(std::string_view verb, const std::vector<std::string> &a) {
+@@ -1673,6 +1690,8 @@ std::string run(std::string_view verb, const std::vector<std::string> &a) {
      }
      if (v == "marker") {
          const auto action = lower(arg(0));
@@ -16705,6 +17135,17 @@ index 1c73812..81b3eb8 100644
  // Publishes one loaded texture or image asset, by name, into an asset reference field.
  bool publish_texture(const Context& context, Value target, std::string_view name);
  } // namespace dingosdk::multiplayer::menu_data
+diff --git a/Extension/UI/NativeMenu/native_menu_dump_disabled.cpp b/Extension/UI/NativeMenu/native_menu_dump_disabled.cpp
+new file mode 100644
+index 0000000..90a5324
+--- /dev/null
++++ b/Extension/UI/NativeMenu/native_menu_dump_disabled.cpp
+@@ -0,0 +1,5 @@
++#include "native_menu_dump.h"
++namespace dingosdk::multiplayer {
++std::string request_ui_dump(std::string_view, unsigned) { return "UI model dumps are not included in this playtest build."; }
++void run_pending_ui_dump(std::uintptr_t) noexcept {}
++}
 diff --git a/Extension/UI/NativeMenu/native_menu_lifetime.h b/Extension/UI/NativeMenu/native_menu_lifetime.h
 index 2b4a358..e4fd66c 100644
 --- a/Extension/UI/NativeMenu/native_menu_lifetime.h
@@ -18094,10 +18535,10 @@ index 0000000..9b8d0e4
 +
 diff --git a/Extension/UI/NativeMenu/one_up_menu.cpp b/Extension/UI/NativeMenu/one_up_menu.cpp
 new file mode 100644
-index 0000000..3308260
+index 0000000..9636874
 --- /dev/null
 +++ b/Extension/UI/NativeMenu/one_up_menu.cpp
-@@ -0,0 +1,3039 @@
+@@ -0,0 +1,3043 @@
 +#include "one_up_menu.h"
 +#include "Extension/Throwdowns/challenge_registry.h"
 +#include "Extension/Modes/game_modes.h"
@@ -20611,6 +21052,7 @@ index 0000000..3308260
 +    s.hud_results_visible=true;
 +}
 +#include "one_up_match_panel.inl"
++#if !defined(DINGOSDK_LEAN_PLAYTEST)
 +void trace_official_panel_models(const Context& c,std::uint64_t now) noexcept {
 +    try {
 +        const auto mode=modes::native_view();
@@ -20664,6 +21106,7 @@ index 0000000..3308260
 +        }
 +    } catch(const std::exception& e) {logging::log(logging::Level::info,logging::Channel::ui,"PanelTrace snapshot unavailable: {}.",e.what());}
 +}
++#endif
 +void gameplay_hud(const Context& c,std::uint64_t now) {
 +    auto& s=state();
 +    // Retire expired countdown/intro before any optional HUD builder can fail.
@@ -20863,6 +21306,7 @@ index 0000000..3308260
 +    // Escape. PromptKeys explicitly samples Escape from the foreground game.
 +    const bool escape=(DingoSDKOverlayReadPromptKeys() & 8u)!=0;
 +    s.panel_key_down=(panel_input.buttons & 0x0010u)!=0 || escape;
++#if !defined(DINGOSDK_LEAN_PLAYTEST)
 +    tick_official_panel_trace(s.panel_key_down,now);
 +    static std::uint64_t next_panel_trace{};
 +    if((official_panel_trace_active() || panel_view.available || s.match_panel_open.load()) &&
@@ -20872,6 +21316,7 @@ index 0000000..3308260
 +        const auto manager=ui?read<Address>(ui+0x140):0;
 +        if(manager) {const Context c(base,manager);game::ModelWriteLock lock(manager);trace_official_panel_models(c,now);}
 +    }
++#endif
 +    DWORD foreground_process{};
 +    GetWindowThreadProcessId(GetForegroundWindow(),&foreground_process);
 +    const bool input_allowed=!loading && panel_view.available && foreground_process==GetCurrentProcessId() && !overlay::interface_open();
@@ -23011,6 +23456,16 @@ index 7765b45..09658ab 100644
          check(same_map("Levels/Game/BAM_LevelRoot/BAM_LevelRoot", "levels\\game\\BAM_LevelRoot\\BAM_LevelRoot"), "Map matching ignores asset path case and slash direction");
          check(!same_map("Levels/Game/BAM", "Levels/Game/BAM_Extra"), "Map matching requires the full destination");
          Pending p{123, 1000, "grom"};
+diff --git a/Launcher/crash_reporter_disabled.cpp b/Launcher/crash_reporter_disabled.cpp
+new file mode 100644
+index 0000000..3dbc4aa
+--- /dev/null
++++ b/Launcher/crash_reporter_disabled.cpp
+@@ -0,0 +1,4 @@
++#include "crash_reporter.h"
++namespace dingosdk::backtrace {
++int run_reporter(int, wchar_t**) noexcept { return 1; }
++}
 diff --git a/Launcher/gui_home.cpp b/Launcher/gui_home.cpp
 index 6ffd6c6..30bdb6f 100644
 --- a/Launcher/gui_home.cpp
@@ -25149,7 +25604,7 @@ index 7ab7b5d..65ecaff 100644
          {
              DINGO_PROFILE_ZONE("tick/Steam friend join");
 diff --git a/Runtime/runtime_init.cpp b/Runtime/runtime_init.cpp
-index 727dc44..854c93e 100644
+index 727dc44..15cdef6 100644
 --- a/Runtime/runtime_init.cpp
 +++ b/Runtime/runtime_init.cpp
 @@ -1,4 +1,5 @@
@@ -25166,7 +25621,18 @@ index 727dc44..854c93e 100644
  #include "Extension/Skater/skater_slot_override.h"
  #include "Extension/UI/Startup/startup_window.h"
  #include "Extension/World/level_loading.h"
-@@ -471,6 +473,7 @@ extern "C" __declspec(dllexport) BOOL WINAPI DingoSDKDebugInitialize() {
+@@ -322,8 +324,10 @@ extern "C" __declspec(dllexport) BOOL WINAPI DingoSDKDebugInitialize() {
+         (void)dingosdk::mesh_unload_guard::install(r.base);
+         (void)dingosdk::load_error_guard::install(r.base);
+         (void)dingosdk::texture_handle_limit::install(r.base);
++#if !defined(DINGOSDK_LEAN_PLAYTEST)
+         (void)dingosdk::stack_check_report::install(r.base);
+         dingosdk::console::start_memory_trace_from_environment();
++#endif
+         const bool fixed_stop_provider = (global_offline_hook && progression_guard_armed) &&
+             dingosdk::prepare_fixed_stop_entitlement_provider(r.base);
+         record("{\"event\":\"fixed_stop_entitlement_provider_initialized\",\"prepared\":" +
+@@ -471,6 +475,7 @@ extern "C" __declspec(dllexport) BOOL WINAPI DingoSDKDebugInitialize() {
          r.native_loading_logging = dingosdk::start_level_loading_logging(r.base,
              [](std::uintptr_t base, unsigned next) noexcept {
                  dingosdk::local_profile_before_level_transition(next);
@@ -25686,11 +26152,63 @@ index 0000000..462d4b9
 +++ b/assets/one_up/native_assets.sha256
 @@ -0,0 +1 @@
 +d6364defe09be71447108a204d5470771e7444a85d6220f4989bc7ab0226a3f4
+diff --git a/cmake/Backtrace.cmake b/cmake/Backtrace.cmake
+index bc50fd6..695032d 100644
+--- a/cmake/Backtrace.cmake
++++ b/cmake/Backtrace.cmake
+@@ -22,6 +22,15 @@ if(GIT_FOUND)
+ endif()
+ configure_file(cmake/templates/backtrace_config.h.in generated/backtrace_config.h @ONLY)
+ 
++if(DINGOSDK_LEAN_PLAYTEST)
++    target_sources(dingosdk_launcher PRIVATE Launcher/crash_reporter_disabled.cpp)
++    add_dependencies(dingosdk_runtime dingosdk_launcher)
++    foreach(target dingosdk_runtime dingosdk_launcher dingosdk_server)
++        target_link_options(${target} PRIVATE /DEBUG:NONE /INCREMENTAL:NO /OPT:REF /OPT:ICF)
++    endforeach()
++    return()
++endif()
++
+ add_library(dingosdk_backtrace_client STATIC Engine/Core/Debug/client.cpp)
+ add_library(dingosdk_backtrace_upload STATIC Engine/Core/Debug/upload.cpp
+     Engine/Core/Debug/native_dump.cpp Engine/Core/Debug/multipart.cpp)
 diff --git a/cmake/Core.cmake b/cmake/Core.cmake
-index 5b1df29..255122f 100644
+index 5b1df29..a465e4b 100644
 --- a/cmake/Core.cmake
 +++ b/cmake/Core.cmake
-@@ -65,6 +65,8 @@ add_library(dingosdk_frostbite STATIC
+@@ -37,21 +37,29 @@ target_include_directories(dingosdk_json SYSTEM PRIVATE External)
+ 
+ 
+ if(WIN32)
+-    add_library(dingosdk_logging STATIC
++    if(DINGOSDK_LEAN_PLAYTEST)
++        add_library(dingosdk_logging STATIC Engine/Core/Log/disabled.cpp)
++    else()
++        add_library(dingosdk_logging STATIC
+         Engine/Core/Log/logger.cpp
+         Engine/Core/Log/banner.cpp
+         Engine/Core/Log/events.cpp
+         Engine/Core/Log/paths.cpp
+         Engine/Core/Log/crash.cpp)
++    endif()
+     target_link_libraries(dingosdk_logging PUBLIC dingosdk_console_core PRIVATE shell32 ole32)
+     target_include_directories(dingosdk_logging SYSTEM PRIVATE External/spdlog/include External)
+     target_compile_definitions(dingosdk_logging PRIVATE SPDLOG_USE_STD_FORMAT SPDLOG_WCHAR_FILENAMES)
+ 
+     # The performance profiler: zones, frame timing, thread CPU use and the stack sampler
+     # (Engine/Core/Profiling/profiler.h). Shared by the overlay and the runtime.
+-    add_library(dingosdk_profiler STATIC
++    if(DINGOSDK_LEAN_PLAYTEST)
++        add_library(dingosdk_profiler STATIC Engine/Core/Profiling/disabled.cpp)
++    else()
++        add_library(dingosdk_profiler STATIC
+         Engine/Core/Profiling/profiler.cpp
+         Engine/Core/Profiling/sampler.cpp)
++    endif()
+     target_link_libraries(dingosdk_profiler PUBLIC dingosdk_logging PRIVATE dbghelp)
+ 
+     add_library(dingosdk_storage STATIC Engine/Core/Storage/save_database.cpp)
+@@ -65,6 +73,8 @@ add_library(dingosdk_frostbite STATIC
      Engine/Resource/ebx_document.cpp
      Engine/Resource/ebx_merge.cpp
      Engine/Resource/material_grid.cpp
@@ -25699,19 +26217,53 @@ index 5b1df29..255122f 100644
      Engine/Resource/shader_lookup.cpp
      Engine/Resource/bundle_ref_table.cpp
      Engine/Resource/ebx_writer.cpp
-@@ -95,6 +97,7 @@ target_link_libraries(dingosdk_game_archives PUBLIC dingosdk_native_db dingosdk_
+@@ -95,6 +105,8 @@ target_link_libraries(dingosdk_game_archives PUBLIC dingosdk_native_db dingosdk_
  if(WIN32)
      add_library(dingosdk_mods STATIC
          Engine/Vfs/mod_catalog.cpp
 +        Engine/Vfs/one_up_core_assets.cpp
++        Engine/Vfs/native_asset_mod.cpp
          Engine/Vfs/mod_merge.cpp
          Engine/Vfs/mod_merge_files.cpp
          Engine/Vfs/mod_merge_stamp.cpp
+@@ -106,7 +118,7 @@ if(WIN32)
+         Engine/Vfs/mod_music.cpp
+         Engine/Vfs/mod_scoring.cpp
+         Engine/Vfs/mod_store_copies.cpp)
+-    target_link_libraries(dingosdk_mods PUBLIC dingosdk_json dingosdk_mod_list PRIVATE dingosdk_game_archives dingosdk_native_db dingosdk_frostbite dingosdk_content_cache shell32 bcrypt)
++    target_link_libraries(dingosdk_mods PUBLIC dingosdk_json dingosdk_mod_list PRIVATE dingosdk_launcher_support dingosdk_game_archives dingosdk_native_db dingosdk_frostbite dingosdk_content_cache shell32 bcrypt)
+ 
+     add_library(dingosdk_custom_scripts STATIC Engine/Scripting/custom_scripts.cpp)
+     target_link_libraries(dingosdk_custom_scripts PUBLIC dingosdk_json PRIVATE dingosdk_initfs)
+diff --git a/cmake/ProjectOptions.cmake b/cmake/ProjectOptions.cmake
+index bb2523c..df54f55 100644
+--- a/cmake/ProjectOptions.cmake
++++ b/cmake/ProjectOptions.cmake
+@@ -2,6 +2,10 @@
+ set(CMAKE_CXX_STANDARD 20)
+ set(CMAKE_CXX_STANDARD_REQUIRED ON)
+ set(CMAKE_CXX_EXTENSIONS OFF)
++option(DINGOSDK_LEAN_PLAYTEST "Ship external native assets without logging, tracing, profiling or crash reporting" OFF)
++if(DINGOSDK_LEAN_PLAYTEST)
++    add_compile_definitions(DINGOSDK_LEAN_PLAYTEST=1)
++endif()
+ if(MSVC)
+     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+ endif()
 diff --git a/cmake/Runtime.cmake b/cmake/Runtime.cmake
-index 14660fb..5dada2d 100644
+index 14660fb..b9a93bd 100644
 --- a/cmake/Runtime.cmake
 +++ b/cmake/Runtime.cmake
-@@ -22,6 +22,7 @@ add_library(dingosdk_runtime SHARED
+@@ -10,7 +10,7 @@ add_library(dingosdk_runtime SHARED
+     Runtime/menu_entry_hook.cpp
+     Engine/Game/Abi/native_data.cpp
+     Extension/Console/commands.cpp
+-    Extension/Console/perf_commands.cpp
++    $<IF:$<BOOL:${DINGOSDK_LEAN_PLAYTEST}>,Extension/Console/perf_commands_disabled.cpp,Extension/Console/perf_commands.cpp>
+     Extension/Skater/console_commands.cpp
+     Extension/Multiplayer/console_commands.cpp
+     Extension/Customization/console_commands.cpp
+@@ -22,10 +22,11 @@ add_library(dingosdk_runtime SHARED
      Extension/Multiplayer/Session/session_party.cpp
      Extension/Multiplayer/Session/party_book.cpp
      Extension/UI/NativeMenu/native_menu.cpp
@@ -25719,6 +26271,11 @@ index 14660fb..5dada2d 100644
      Extension/UI/NativeMenu/native_menu_rows.cpp
      Extension/UI/NativeMenu/native_menu_multiplayer.cpp
      Extension/UI/NativeMenu/ui_sound.cpp
+-    Extension/UI/NativeMenu/native_menu_dump.cpp
++    $<IF:$<BOOL:${DINGOSDK_LEAN_PLAYTEST}>,Extension/UI/NativeMenu/native_menu_dump_disabled.cpp,Extension/UI/NativeMenu/native_menu_dump.cpp>
+     Extension/UI/NativeMenu/native_hub.cpp
+     Extension/UI/NativeMenu/native_menu_data.cpp
+     Extension/Multiplayer/Remote/native_skater.cpp
 @@ -51,6 +52,26 @@ add_library(dingosdk_runtime SHARED
      Extension/Throwdowns/skate_trick_rule.cpp
      Extension/Throwdowns/graph_throttle.cpp
@@ -25762,7 +26319,7 @@ index 14660fb..5dada2d 100644
      Extension/RoadRash/road_rash.cpp
      Extension/RoadRash/road_rash_commands.cpp
      Extension/BoardBreak/board_break.cpp
-@@ -230,6 +243,16 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc"
+@@ -230,6 +243,18 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc"
      "FONT_BODY RCDATA \"${dingosdk_menu_fonts}/Montserrat-SemiBold.ttf\"\n"
      "FONT_BRUSH RCDATA \"${dingosdk_menu_fonts}/PermanentMarker-Regular.ttf\"\n")
  target_sources(dingosdk_runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc")
@@ -25772,10 +26329,12 @@ index 14660fb..5dada2d 100644
 +# package. Change the resource source itself when the bytes change so MSBuild
 +# cannot silently reuse a resource compiled with the previous artwork bundle.
 +file(SHA256 "${PROJECT_SOURCE_DIR}/assets/one_up/native_assets.bin" dingosdk_native_asset_sha256)
++if(NOT DINGOSDK_LEAN_PLAYTEST)
 +file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/one_up_native_assets.rc"
 +    "// Native asset SHA256: ${dingosdk_native_asset_sha256}\n"
 +    "ONE_UP_NATIVE_ASSETS RCDATA \"${PROJECT_SOURCE_DIR}/assets/one_up/native_assets.bin\"\n")
 +target_sources(dingosdk_runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/one_up_native_assets.rc")
++endif()
  
  # The startup window's picture (PNG or JPEG), built into ReSkate.dll when the
  # repository has one. ReSkate.Splash.png/.jpg beside the DLL still takes
@@ -27283,6 +27842,77 @@ index 0000000..c785368
 +    std::cout<<"custom_flags=9 distant_logos=9 logo_dependencies="<<logoDependencies.size()<<" private_materials=18 shader_parameters_verified=true serialized_registry_verified=true native_spot_battle_unchanged=true resources="<<project.resources.size()<<"\nmod="<<mod.string()<<'\n';
 +    return true;
 +}
+diff --git a/contrib/throwdown-flags/package_asset_mod.py b/contrib/throwdown-flags/package_asset_mod.py
+new file mode 100644
+index 0000000..0d0e860
+--- /dev/null
++++ b/contrib/throwdown-flags/package_asset_mod.py
+@@ -0,0 +1,65 @@
++"""Export the existing native archive as a Thunderstore-compatible ReSkate mod.
++
++No game or Studio process is started. Payload bytes are preserved exactly; the
++Patch/ archive prefix becomes the root layout.toc/Win32 mod layout Studio uses.
++"""
++from pathlib import Path
++import argparse, hashlib, json, shutil, struct
++
++parser=argparse.ArgumentParser(description=__doc__)
++parser.add_argument('--output',type=Path,required=True,help='New SmokeyDawg58-ReSkate_Throwdown_Assets mod folder')
++args=parser.parse_args()
++source=Path(__file__).resolve().parents[2]
++archive=source/'assets/one_up/native_assets.bin'
++expected=(source/'assets/one_up/native_assets.sha256').read_text().strip().split()[0].lower()
++with archive.open('rb') as stream:
++    if hashlib.file_digest(stream,'sha256').hexdigest()!=expected:
++        raise RuntimeError('The native archive does not match its checksum.')
++if args.output.exists():
++    raise RuntimeError('Destination already exists; use a new folder to preserve previous packages.')
++args.output.mkdir(parents=True)
++records=[]
++with archive.open('rb') as stream:
++    if stream.read(8)!=b'RS1UP001': raise RuntimeError('Unsupported native archive.')
++    count=struct.unpack('<I',stream.read(4))[0]
++    if count!=17: raise RuntimeError('Expected the complete 17-file Throwdown asset pack.')
++    for _ in range(count):
++        length,size=struct.unpack('<IQ',stream.read(12))
++        if not 0<length<=512: raise RuntimeError('Invalid archive path.')
++        name=stream.read(length).decode('utf-8')
++        if not name.startswith('Patch/'): raise RuntimeError('Expected a Patch-relative native file.')
++        relative=name[6:]
++        if not relative or Path(relative).is_absolute() or '..' in Path(relative).parts or ':' in relative or '\\' in relative:
++            raise RuntimeError('Invalid asset destination.')
++        target=args.output/relative
++        target.parent.mkdir(parents=True,exist_ok=True)
++        digest=hashlib.sha256();remaining=size
++        with target.open('xb') as output:
++            while remaining:
++                block=stream.read(min(remaining,1024*1024))
++                if not block: raise RuntimeError('Truncated native file.')
++                output.write(block);digest.update(block);remaining-=len(block)
++        records.append({'path':relative,'bytes':size,'sha256':digest.hexdigest()})
++    if stream.read(1): raise RuntimeError('Trailing native archive data.')
++manifest={'name':'ReSkate_Throwdown_Assets','version_number':'1.0.0',
++    'website_url':'https://github.com/SmokeyDawg58/reskate-custom-mods',
++    'description':'Required native logos, gates, flags, menus and HUD assets for the matching ReSkate custom Throwdowns lean playtest.',
++    'dependencies':[],'author':'SmokeyDawg58'}
++(args.output/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
++(args.output/'asset-manifest.json').write_text(json.dumps({'archive_sha256':expected,'files':records},indent=2)+'\n',encoding='utf-8')
++shutil.copy2(source/'assets/launcher/icon_mods.png',args.output/'icon.png')
++shutil.copy2(source/'LICENSE',args.output/'LICENSE')
++(args.output/'README.md').write_text('''# ReSkate Throwdown Assets
++
++Native logos, placement flags, Deathrace gates, menus, HUD materials and map registrations for the matching custom ReSkate 2.0.7 lean playtest.
++
++Install as `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets/`, with `layout.toc`, `Win32` and `initfs_win32` directly inside. The launcher also accepts the standalone package ZIP. Install into your active Mods directory; ModData installations use `ModData/Default/Mods`. The full playtest installer selects that directory automatically.
++
++Everyone needs this asset mod and the matching custom DLL/launcher. The assets alone do not add custom modes to the stock runtime. No new DLL or game executable is included in this asset-only mod.
++
++The custom runtime verifies all 17 native file hashes and mounts this required dependency once, ahead of optional mods. Keep its folder name unchanged. An incomplete or different pack stops preparation with an error instead of silently losing artwork. Asset contents are byte-identical to the previous working embedded pack; no route, HUD, font or logo artwork was rebuilt.
++
++Download the matching runtime and full playtest instructions from https://github.com/SmokeyDawg58/reskate-custom-mods/releases . This is a local/shareable Thunderstore-format package, not evidence of a published Thunderstore listing.
++''',encoding='utf-8')
++(args.output/'CHANGELOG.md').write_text('# 1.0.0\n\nExtract the complete, unchanged native asset pack into a visible mod folder for the lean custom Throwdowns runtime.\n',encoding='utf-8')
++print(json.dumps({'folder':str(args.output),'native_files':len(records),'archive_sha256':expected}))
 diff --git a/contrib/throwdown-flags/shader_depot.cpp b/contrib/throwdown-flags/shader_depot.cpp
 new file mode 100644
 index 0000000..2353112
