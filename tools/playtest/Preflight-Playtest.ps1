@@ -4,7 +4,7 @@ $manifest=Get-Content -LiteralPath (Join-Path $PackageDirectory 'release-manifes
 $game=(Resolve-Path -LiteralPath $GameDirectory).Path
 $modData=Join-Path $game 'ModData'
 $data=if(Test-Path -LiteralPath $modData -PathType Container){Join-Path $modData 'Default'}else{$game}
-if(-not $manifest.files.PSObject.Properties['ReSkate.dll'] -or -not $manifest.files.PSObject.Properties['ReSkateLauncher.exe'] -or $manifest.native_assets.file_count -ne 17 -or @($manifest.native_assets.integrity_files).Count -ne 17 -or -not $manifest.supported_game.PSObject.Properties['Skate.exe'] -or -not $manifest.supported_game.PSObject.Properties['steam_api64.dll']) {throw 'Incomplete release manifest.'}
+if(-not $manifest.files.PSObject.Properties['ReSkate.dll'] -or -not $manifest.files.PSObject.Properties['ReSkateLauncher.exe'] -or $manifest.native_assets.file_count -ne 17 -or @($manifest.native_assets.integrity_files).Count -ne 19 -or -not $manifest.supported_game.PSObject.Properties['Skate.exe'] -or -not $manifest.supported_game.PSObject.Properties['steam_api64.dll']) {throw 'Incomplete release manifest.'}
 $issues=New-Object 'System.Collections.Generic.List[string]'
 $checks=@()
 $assetPrefix='Mods/SmokeyDawg58-ReSkate_Throwdown_Assets/'

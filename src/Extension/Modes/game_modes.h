@@ -49,6 +49,7 @@ overlay::ModesMenu menu_view();
 struct NativeView {
     bool active{}, leading{}, placing{};
     bool pending_flag{}, flag_placed{}, waiting{};
+    bool local_ready{};
     std::uint64_t local{}, leader{}, world{};
     std::uint64_t state_sampled_ms{};
     std::uint32_t game{};
@@ -87,11 +88,14 @@ void accept_race_start(std::uint64_t world, std::uint32_t game, const Vec3& at, 
 // stays an explicit waiting-HUD hold action, dispatched on the client tick.
 void accept_native_start_flag(std::uint64_t world, std::uint32_t game, const Vec3& at, float yaw);
 bool request_native_start(std::uint64_t world, std::uint32_t game) noexcept;
+bool request_native_ready(std::uint64_t world, std::uint32_t game) noexcept;
 bool request_native_quit(std::uint64_t world, std::uint32_t game) noexcept;
 bool active() noexcept;
-std::optional<Vec3> take_race_recovery_velocity() noexcept;
+std::optional<Vec3> peek_race_recovery_velocity() noexcept;
+void accept_race_recovery_velocity(const Vec3&) noexcept;
 bool internal_teleport() noexcept;
 bool countdown_locks_input() noexcept;
+bool race_recovery_pending() noexcept;
 bool placement_camera_requested() noexcept;
 bool restricts_session_markers() noexcept;
 } // namespace dingosdk::modes

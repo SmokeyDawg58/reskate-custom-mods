@@ -243,6 +243,10 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc"
     "FONT_BODY RCDATA \"${dingosdk_menu_fonts}/Montserrat-SemiBold.ttf\"\n"
     "FONT_BRUSH RCDATA \"${dingosdk_menu_fonts}/PermanentMarker-Regular.ttf\"\n")
 target_sources(dingosdk_runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/throwdown_audio.rc"
+    "THROWDOWN_GATE RCDATA \"${PROJECT_SOURCE_DIR}/assets/throwdowns/audio/gate-required.wav\"\n"
+    "THROWDOWN_FINISH RCDATA \"${PROJECT_SOURCE_DIR}/assets/throwdowns/audio/race-finish.wav\"\n")
+target_sources(dingosdk_runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/throwdown_audio.rc")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${PROJECT_SOURCE_DIR}/assets/one_up/native_assets.bin")
 # The packed file can retain an older timestamp when copied from an authored

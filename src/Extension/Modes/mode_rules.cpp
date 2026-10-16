@@ -46,7 +46,7 @@ struct Reader {
 
 bool valid_settings(const Settings &s) noexcept {
     if (!std::any_of(std::begin(all_modes), std::end(all_modes), [&](Mode m) { return m == s.mode; })) return false;
-    if (s.duration_s < 30 || s.duration_s > 3600 || s.turn_s < 10 || s.turn_s > 120 || s.strikes < 1 || s.strikes > 5)
+    if (s.duration_s < 30 || s.duration_s > 3600 || s.turn_s < 10 || s.turn_s > 120 || s.strikes < 1 || s.strikes > (s.mode == Mode::skate ? 7 : 5))
         return false;
     if (s.trick_kinds == 0 || s.trick_kinds > all_trick_kinds) return false;
     if (!(s.radius >= 1.0f && s.radius <= 50.0f)) return false;
@@ -76,7 +76,7 @@ std::string_view mode_name(Mode m) noexcept {
     case Mode::tag: return "Skate Tag";
     case Mode::infection: return "Infection";
     case Mode::hide: return "Hide & Seek";
-    case Mode::skate: return "S.K.A.T.E.";
+    case Mode::skate: return "R.E.S.K.A.T.E.";
     }
     return "Game";
 }
@@ -106,7 +106,7 @@ std::string_view mode_summary(Mode m) noexcept {
     case Mode::tag: return "One player is it: get close to tag someone else. No tag-backs. Least time spent it wins.";
     case Mode::infection: return "One player starts infected. Everyone they reach is infected too and joins the hunt. Survive longest to win.";
     case Mode::hide: return "Hide while the seeker can't see. Then they hunt: whoever is found seeks too. Stay hidden longest to win.";
-    case Mode::skate: return "Set a trick, everyone copies it or takes a letter. Spell S.K.A.T.E. and you're out; last one standing wins.";
+    case Mode::skate: return "Set a trick, everyone copies it or takes a letter. Spell R.E.S.K.A.T.E. and you're out; last one standing wins.";
     }
     return "";
 }
@@ -122,7 +122,7 @@ std::optional<Mode> parse_mode(std::string_view text) noexcept {
     if (key == "tag" || key == "skatetag" || key == "skate_tag") return Mode::tag;
     if (key == "infection" || key == "infect" || key == "zombie" || key == "zombies") return Mode::infection;
     if (key == "hide" || key == "hideandseek" || key == "hide_and_seek" || key == "hidenseek" || key == "seek") return Mode::hide;
-    if (key == "skate" || key == "s.k.a.t.e."|| key == "s.k.a.t.e") return Mode::skate;
+    if (key == "reskate" || key == "r.e.s.k.a.t.e." || key == "r.e.s.k.a.t.e" || key == "skate" || key == "s.k.a.t.e."|| key == "s.k.a.t.e") return Mode::skate;
     return std::nullopt;
 }
 bool timed(Mode m) noexcept { return m != Mode::one_up && m != Mode::skate; }
@@ -173,7 +173,7 @@ bool trick_allowed(const Settings &s, std::string_view trick) noexcept {
     return kinds && (kinds & ~s.trick_kinds) == 0;
 }
 std::string skate_letters(unsigned letters, unsigned of) {
-    constexpr std::string_view word = "SKATE";
+    constexpr std::string_view word = "RESKATE";
     std::string text;
     for (unsigned i = 0; i < letters && i < of && i < word.size(); ++i) {
         if (!text.empty()) text += '.';
@@ -451,6 +451,7 @@ std::vector<std::uint8_t> encode(const Message &m) {
     case Message::Kind::leave:
     case Message::Kind::end:
     case Message::Kind::join:
+    case Message::Kind::ready:
     case Message::Kind::hello: break;
     default: throw std::invalid_argument("unknown game mode message");
     }
@@ -469,7 +470,7 @@ std::optional<Message> decode(std::span<const std::uint8_t> bytes) noexcept {
         m.version = static_cast<std::uint8_t>(r.integer(1));
         if (m.version != wire_version) return std::nullopt;
         const auto kind = r.integer(1);
-        if (kind < 1 || kind > 8) return std::nullopt;
+        if (kind < 1 || kind > 9) return std::nullopt;
         m.kind = static_cast<Message::Kind>(kind);
         m.leader = r.integer(8);
         m.game = static_cast<std::uint32_t>(r.integer(4));
@@ -570,6 +571,7 @@ std::optional<Message> decode(std::span<const std::uint8_t> bytes) noexcept {
         case Message::Kind::leave:
         case Message::Kind::end:
         case Message::Kind::join:
+        case Message::Kind::ready:
         case Message::Kind::hello: break;
         default: return std::nullopt;
         }

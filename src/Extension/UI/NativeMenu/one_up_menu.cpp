@@ -1,6 +1,7 @@
 #include "one_up_menu.h"
 #include "Extension/Throwdowns/challenge_registry.h"
 #include "Extension/Modes/game_modes.h"
+#include "Extension/Modes/mode_lobby.h"
 #include "native_menu_data.h"
 #include "native_menu_lifetime.h"
 #include "native_menu_ownership.h"
@@ -114,6 +115,7 @@ struct ModeHud {
     Value race_rows,race_board,race_anchor,race_item;
     Value race_title,race_columns;std::array<Value,3> race_captions;
     Value race_elapsed,race_elapsed_anchor,race_elapsed_item;
+    Value race_progress,race_progress_anchor,race_progress_item;
     Value race_deadline,race_deadline_anchor,race_deadline_item,race_deadline_caption,race_deadline_caption_anchor,race_deadline_caption_item;
     std::array<float,3> race_widths{100.f,224.f,320.f};
     Value results_header,results_columns,results_badge,results_panel_anchor,results_panel_item;
@@ -2041,13 +2043,16 @@ void waiting_hud(const Context& c) {
     // The live HUD is in the gameplay asset domain, which need not be a parent
     // of the card's domain. Resolve its registered type directly.
     constexpr std::uint32_t hash=273922540U; // NotificationViewModel
-    const auto count=generic?(mode.state?mode.state->standings.size():1U):awaiting_lobby?1:
+    const auto count=generic?(mode.state?modes::lobby_ready_count(*mode.state):(mode.leading?1U:0U)):awaiting_lobby?1:
         std::count_if(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.connected && p.ready;});
+    const auto joined=generic?(mode.state?std::max<std::size_t>(1,mode.state->standings.size()):1U):0U;
     const auto selected=one_up::native_flag_options();
     const auto capacity=generic?mode.capacity:awaiting_lobby?selected.players:v.state.config.max_players;
     const std::string name=definition?definition->name:"1-UP";
     std::string message;
     if(generic && !mode.waiting_status.empty())message=mode.waiting_status;
+    else if(lobby && generic) message=std::to_string(count)+"/"+std::to_string(joined)+" ready"+
+        (mode.leading?"  |  Host starts":"  |  Waiting for host");
     else if(lobby) message="Waiting for players  "+std::to_string(count)+" / "+std::to_string(capacity)+" ready";
     else if(generic) message=mode.waiting_status;
     else if(v.state.phase==one_up::Phase::countdown) message="Starting in "+std::to_string((v.remaining+999)/1000);
@@ -2142,7 +2147,7 @@ void waiting_hud(const Context& c) {
         // for Deathrace -> 1-UP. Its live flag selects the rules at dispatch;
         // a retired/hidden card or a real Spot Battle fails the owner check.
         footer_action(c,leave,"LEAVE","flag-wait-leave",std::to_string(source.handle));
-        footer_action(c,start,lobby?"START":name,"flag-wait-start",std::to_string(source.handle));
+        footer_action(c,start,lobby?(generic && !mode.leading?"READY":"START"):name,"flag-wait-start",std::to_string(source.handle));
         if(!s.waiting_badge.handle) {
             s.waiting_badge=make(c,texture_schema);
             c.set(c.field(s.waiting_badge,0xf524c836),96.f);
@@ -2162,7 +2167,8 @@ void waiting_hud(const Context& c) {
             c.set(decorator,participant_widget);
         }
         const auto connected=generic || awaiting_lobby?count:std::count_if(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.connected;});
-        plain_label(c,c.field(participants,0x58c9d354),std::to_string(connected)+"/"+std::to_string(capacity));
+        plain_label(c,c.field(participants,0x58c9d354),generic?std::to_string(count)+"/"+std::to_string(joined)+" ready":
+            std::to_string(connected)+"/"+std::to_string(capacity));
         // CountdownViewModel explicitly supports an outside time source when
         // DoCountdown is false. Keep the authored timer artwork/animation and
         // feed the synchronized match clock, never the native S.K.A.T.E. clock.
@@ -2871,7 +2877,10 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
                     logging::log(logging::Level::info,logging::Channel::ui,
                         "Throwdown waiting control: {} owns card {}, game {}, match {}.",start?"Start":"Leave",action.argument,flag_game,v.state.match);
                     if(generic) {
-                        if(start)modes::request_native_start(mode.world,mode.game);
+                        if(start) {
+                            if(mode.leading)modes::request_native_start(mode.world,mode.game);
+                            else modes::request_native_ready(mode.world,mode.game);
+                        }
                         else modes::request_native_quit(mode.world,mode.game);
                     } else one_up::queue(start?"start":"leave");
                 }
@@ -2879,7 +2888,10 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
                 else if(action.command=="mode-wait-start" || action.command=="mode-wait-leave") {
                     const auto mode=modes::native_view();
                     if(mode.active && mode.waiting && action.argument==std::to_string(mode.game)) {
-                        if(action.command=="mode-wait-start")modes::request_native_start(mode.world,mode.game);
+                        if(action.command=="mode-wait-start") {
+                            if(mode.leading)modes::request_native_start(mode.world,mode.game);
+                            else modes::request_native_ready(mode.world,mode.game);
+                        }
                         else modes::request_native_quit(mode.world,mode.game);
                     }
                 }

@@ -1,4 +1,6 @@
 #include "client_source_spawn.h"
+#include "Extension/Modes/race_momentum.h"
+#include "Extension/Modes/game_modes.h"
 #include "client_source_spawn_internal.h"
 #include "no_bail.h"
 #include "Engine/Game/Multiplayer/session_tools.h"
@@ -357,10 +359,14 @@ struct RaceRecoveryVelocity {
 RaceRecoveryVelocity& race_recovery_velocity(){static RaceRecoveryVelocity r;return r;}
 void apply_race_recovery_velocity(std::uintptr_t core) noexcept {
     auto& request=race_recovery_velocity();auto& state=source_state();
-    if(!request.pending.load(std::memory_order_acquire) || request.core!=core || state.busy.test_and_set(std::memory_order_acquire))return;
-    SourceBusyScope scope{state.busy};request.pending.store(false,std::memory_order_release);
+    if(!request.pending.load(std::memory_order_acquire) || state.busy.test_and_set(std::memory_order_acquire))return;
+    SourceBusyScope scope{state.busy};
     try {
-        if(!competition_stock_physics() || GetTickCount64()>=request.expires)return;
+        const auto wanted=modes::peek_race_recovery_velocity();
+        if(!competition_stock_physics() || GetTickCount64()>=request.expires || !wanted || *wanted!=request.velocity) {
+            request.pending.store(false,std::memory_order_release);return;
+        }
+        if(request.core!=core)return;
         const auto bodies=debug_noclip_bodies(state.trial.base,request.client,request.entity);
         if(bodies.core!=core || bodies.offboard)return;
         SourceReader reader;if(reader.value<std::uint8_t>(request.entity,0x7e0)!=0)return;
@@ -372,6 +378,10 @@ void apply_race_recovery_velocity(std::uintptr_t core) noexcept {
         }
         reader.verify();
         for(std::size_t i=0;i<bodies.parts.size();++i){body_write(bodies.parts[i]+0x70,velocities[i]);body_write(bodies.parts[i]+0x60,flags[i]|8u);}
+        // A queued request is not delivery: bail/teleport physics may still be
+        // busy or have replaced the body. Acknowledge only the actual write.
+        modes::accept_race_recovery_velocity(request.velocity);
+        request.pending.store(false,std::memory_order_release);
     }catch(...){}
 }
 void noclip_physics_update(std::uintptr_t core) {
@@ -483,9 +493,14 @@ using namespace client_source::detail;
 bool queue_race_recovery_velocity(std::uintptr_t client,std::uintptr_t entity,const std::array<float,3>& velocity) noexcept {
     try {
         auto& state=source_state();auto& request=race_recovery_velocity();
-        if(!competition_stock_physics() || request.pending.load(std::memory_order_acquire) ||
-            !start_client_noclip_velocity(state.trial.base) ||
-            !std::all_of(velocity.begin(),velocity.end(),[](float v){return std::isfinite(v) && std::abs(v)<=6.01f;}))return false;
+        if(!competition_stock_physics() || !start_client_noclip_velocity(state.trial.base) ||
+            !modes::valid_race_recovery_velocity(velocity))return false;
+        if(state.busy.test_and_set(std::memory_order_acquire))return false;
+        SourceBusyScope scope{state.busy};
+        if(request.pending.load(std::memory_order_acquire)) {
+            if(GetTickCount64()<request.expires)return false;
+            request.pending.store(false,std::memory_order_release);
+        }
         const auto bodies=debug_noclip_bodies(state.trial.base,client,entity);if(bodies.offboard)return false;
         request.client=client;request.entity=entity;request.core=bodies.core;request.velocity=velocity;request.expires=GetTickCount64()+500;
         request.pending.store(true,std::memory_order_release);return true;

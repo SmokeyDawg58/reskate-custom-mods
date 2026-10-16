@@ -934,7 +934,7 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool ready, std::string_vi
             if (competition_stock_physics() && solo.ready) {
                 physics_tuning::prepare();physics_tuning::enforce(base,solo.entity,{});
             } else if (!competition_stock_physics()) physics_tuning::release(base);
-            if (solo.ready && (one_up::countdown_locks_input() || modes::countdown_locks_input()))
+            if (solo.ready && (one_up::countdown_locks_input() || modes::countdown_locks_input() || modes::race_recovery_pending()))
                 prepare_on_board_teleport(client, solo.entity);
             // Without a session the UI model follows at the same 10 Hz as in one;
             // commands still publish at once.
@@ -1035,7 +1035,7 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool ready, std::string_vi
         relay_throwdowns(s, s.gameplay_ready && !s.travelling && !s.awaiting_map && s.host_world_ready);
         // A S.K.A.T.E. player waiting for their turn stays off the board.
         update_board_lock(client, local.entity, local.ready && (throwdown_relay_waits_offboard() || one_up::waits_offboard()));
-        if (local.ready && (one_up::countdown_locks_input() || modes::countdown_locks_input()))
+        if (local.ready && (one_up::countdown_locks_input() || modes::countdown_locks_input() || modes::race_recovery_pending()))
             prepare_on_board_teleport(client, local.entity);
         update_physics_tuning(s, local, now);
         const auto send_at = now_us();

@@ -1,9 +1,9 @@
-# Multiplayer playtest diagnostics
+# Playtest diagnostics
 
-79/79 automated checks pass. Installed runtime and all17 native payload files verified; settings and other mods preserved.
+79/79 automated checks pass. The new regression drives the actual race referee from Playing directly to Results and verifies the finish cue appears once. Recovery requests now survive a busy/off-board physics handoff and are acknowledged after the actual velocity write. Native rendering/audio and speed under live physics still require the checks in PLAYTEST.md.
 
-Human-confirmed two-PC checks: native guest flag/Join; local controls after finish/DNF; guest Quit without ending host race. Native HUD appearance and functional menu behavior remain the working baseline.
+The owner previously confirmed guest native flag Join, restored controls after finish/DNF and guest-only Quit on two PCs. Missed-gate recovery speed and the separate progress layout were confirmed for the preceding installed update. These confirmations do not certify every map, player count or disconnect case.
 
-The guest flag currently inherits some Spot Battle wording and its waiting action can say Start. Only the host can start the custom race. Correct Deathrace wording and a guest Ready counter are being worked on separately; they are not included in this tested snapshot.
+Asset mod 1.0.2 has 17 native files plus two exact quiet WAVs. Independent project comparison found only the shared R.E.S.K.A.T.E. logo and flag texture chunks changed among 1,635 resources. Native identities, metadata, bundles, HUD animations and all other payloads stayed exact. Every required file is hash-pinned to the matching lean runtime.
 
-This is a controlled playtest release. The three human checks do not certify every map, player count or disconnect/reconnect scenario. No new load simulation was run for this snapshot; earlier production-server fake-transport simulations are historical evidence only.
+No new live load simulation was run for this artwork/recovery update. No logging, profiling, crash capture, PDBs, personal settings, game executable or Steam DLL is distributed. The native Spot Battle wording on one join confirmation remains a known issue, awaiting the owner's deferred live capture.

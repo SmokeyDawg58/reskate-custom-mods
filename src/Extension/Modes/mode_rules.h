@@ -41,7 +41,7 @@ bool timed(Mode) noexcept; // ends when the clock runs out (1-Up ends on strikes
 enum class Phase : std::uint8_t { setup = 1, countdown = 2, playing = 3, results = 4 };
 
 inline constexpr std::uint8_t wire_magic = 0xD5; // never a throwdown message's first byte (1..15)
-inline constexpr std::uint8_t wire_version = 12; // required/guide gates, large routes, shared race deadline
+inline constexpr std::uint8_t wire_version = 13; // explicit guest Ready and authoritative setup readiness
 inline constexpr std::size_t max_corners = 16, max_points = 16, max_players = 16, max_zones = 64, max_calls = 4,
                              max_call_length = 96, max_tags = 64, max_tag_points = 6, max_line_tags = 6;
 inline constexpr std::uint32_t countdown_ms = 5000, results_ms = 12000;
@@ -63,11 +63,11 @@ struct Settings {
     Vec3 spawn{};                   // where everyone starts when the countdown begins
     bool has_spawn{};
     bool race_finish{};             // final route point is the sole red finish, including during setup
-    std::uint8_t trick_kinds = 0x0f; // S.K.A.T.E.: the kinds of trick that may be set (trick_* bits)
+    std::uint8_t trick_kinds = 0x0f; // R.E.S.K.A.T.E.: the kinds of trick that may be set (trick_* bits)
     bool operator==(const Settings &) const = default;
 };
 
-// S.K.A.T.E.: the setter lands a trick, everyone else copies it or takes a letter; a setter who misses
+// R.E.S.K.A.T.E.: the setter lands a trick, everyone else copies it or takes a letter; a setter who misses
 // hands the set on. The tricks are skate.'s own names, as its score HUD lists them ("Kickflip",
 // "Heelflip + Seatbelt", "BS 50-50 Grind"); a trick set once cannot be set again. The leader picks the
 // kinds that may be set; a trick is of every kind any of its parts is.
@@ -75,7 +75,7 @@ inline constexpr std::uint8_t trick_flips = 1, trick_grabs = 2, trick_grinds = 4
 inline constexpr std::size_t max_trick_length = 80;
 std::uint8_t trick_kinds_of(std::string_view trick) noexcept;
 bool trick_allowed(const Settings &, std::string_view trick) noexcept;
-// "S.K.A" for three letters of S.K.A.T.E.; the letters spell as many as `strikes` allows.
+// "R.E.S" for three letters of R.E.S.K.A.T.E.; the letters spell as many as `strikes` allows.
 std::string skate_letters(unsigned letters, unsigned of);
 // What is missing before `mode start` (empty: ready).
 std::string missing(const Settings &);
@@ -134,13 +134,13 @@ std::int32_t bail_score(const BailSample &) noexcept;
 
 // ---- wire
 // position: where the sender is (Skate Tag), sent a few times a second to every player.
-// trick: a S.K.A.T.E. attempt, `trick` its name and value 1 landed, 0 missed (a bail, or nothing landed).
+// trick: a R.E.S.K.A.T.E. attempt, `trick` its name and value 1 landed, 0 missed (a bail, or nothing landed).
 enum class Event : std::uint8_t { line = 1, bail = 2, checkpoint = 3, position = 4, trick = 5 };
 struct Standing {
     std::uint64_t player{};
     std::int32_t score{}, aux{}; // aux: best line or bail, finish time (ms), strikes; Skate Tag: score the
                                  // tenths of a second spent it (fewer is better)
-    bool out{}, up{};
+    bool out{}, up{}; // setup: up means this joined player is ready; play: current turn
     std::uint32_t remaining_ms{}; // Deathrace: shared deadline, zero for a finisher or DNF
     bool operator==(const Standing &) const = default;
 };
@@ -159,8 +159,9 @@ struct Message {
         end = 5,   // leader: the game is over or cancelled
         join = 6,  // a player with game modes saw the setup and plays (only they are added)
         tags = 7,  // leader: Graffiti tag shapes, from index `first` (state messages carry only their owners)
-        hello = 8  // anyone with game modes, every few seconds: who has them, and (by the version byte) which
+        hello = 8, // anyone with game modes, every few seconds: who has them, and (by the version byte) which
                    // (`leader` is the sender, `game` 1). A game of another version that cannot read it says so.
+        ready = 9  // a joined guest explicitly readied; idempotent, only accepted during setup
     };
     Kind kind = Kind::setup;
     std::uint8_t version = wire_version;
@@ -183,8 +184,8 @@ struct Message {
     std::uint32_t sequence{};                  // event: the sender's own count (repeats are dropped)
     std::vector<Tag> tags;                     // event: what a Graffiti line was skated on; tags: the shapes
     std::uint8_t first{};                      // tags: the index of the first shape
-    std::string trick;                         // event: a S.K.A.T.E. attempt's trick; state: the trick to copy (empty: one to set)
-    std::uint64_t setter{};                    // state: S.K.A.T.E.'s setter
+    std::string trick;                         // event: a R.E.S.K.A.T.E. attempt's trick; state: the trick to copy (empty: one to set)
+    std::uint64_t setter{};                    // state: R.E.S.K.A.T.E.'s setter
     bool operator==(const Message &) const = default;
 };
 inline bool is_mode_message(std::span<const std::uint8_t> bytes) noexcept {
@@ -250,7 +251,7 @@ class Referee {
     // Infection: every infected player within reach of a survivor infects them.
     void try_infections(std::uint64_t now_ms);
     std::size_t survivors() const noexcept;
-    // S.K.A.T.E.
+    // R.E.S.K.A.T.E.
     void skate_attempt(Player &, bool landed, std::string_view trick, std::uint64_t now_ms);
     void letter(Player &, std::string_view why);
     void pass_set(std::uint64_t now_ms);    // the setter missed: the next player still in sets

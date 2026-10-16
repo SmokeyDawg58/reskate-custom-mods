@@ -25,7 +25,7 @@ std::string asset_issue(const std::filesystem::path& directory) {
 }
 Mod verified_mod(const std::filesystem::path& directory) {
     Mod core;core.name=directory.filename().string();core.directory=directory;core.provides_layout=true;
-    core.title="ReSkate Throwdown Assets";core.author="SmokeyDawg58";core.version="1.0.0";
+    core.title="ReSkate Throwdown Assets";core.author="SmokeyDawg58";core.version="1.0.2";
     core.description="Required native logos, gates, flags, menus and HUD assets.";
     core.studio_marker=true;core.skate_sha256=std::string(launcher::expected_game_sha256);
     return core;
@@ -65,6 +65,6 @@ Mod required_throwdown_asset_mod(const std::filesystem::path& game) {
         if(issue.empty())issue=std::move(current);
     }
     if(!issue.empty())throw std::runtime_error(issue);
-    throw std::runtime_error("The required ReSkate Throwdown Assets mod is missing. Extract its ZIP into the active Mods folder, with layout.toc and Win32 directly inside SmokeyDawg58-ReSkate_Throwdown_Assets or SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.0.");
+    throw std::runtime_error("The required ReSkate Throwdown Assets mod is missing. Extract its ZIP into the active Mods folder, with layout.toc and Win32 directly inside SmokeyDawg58-ReSkate_Throwdown_Assets or SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.2.");
 }
 }

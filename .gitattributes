@@ -1,2 +1,5 @@
 * text eol=lf
 mods.patch -text
+
+*.png -text
+*.wav -text

@@ -166,10 +166,14 @@ void logo_picker(const Context& c) {
                 size(inner.type)==content_tile_schema.size,"Throwdown grid tile model differs.");
         refs.push_back(inner.handle);
     };
-    for(const auto tile:s.picker_stock)append_tile(tile);
+    auto& reskate=s.mode_cards.at("native.skate");
+    if(!reskate.logo.handle)reskate.logo=picker_logo(c,reskate.tile,reskate.category,false,"R.E.S.K.A.T.E.");
+    mode_art(c,std::array{c.field(reskate.logo,0x6e469d2a)},throwdowns::registry().find("native.skate")->logo);
+    append_tile(reskate.tile);
+    append_tile(s.picker_stock[1]);append_tile(s.picker_stock[2]);
     append_tile(s.card);
     mode_art(c,std::array{c.field(s.oneup_logo,0x6e469d2a)},"UI/ReSkate/OneUp/img_OneUp_Blue_1024");
-    for(const auto& d:throwdowns::registry().definitions())if(d.adapter==throwdowns::Adapter::game_mode) {
+    for(const auto& d:throwdowns::registry().definitions())if(d.adapter==throwdowns::Adapter::game_mode && d.id!="native.skate") {
         auto& card=s.mode_cards.at(d.id);
         if(!card.logo.handle)card.logo=picker_logo(c,card.tile,card.category,false,d.name);
         mode_art(c,std::array{c.field(card.logo,0x6e469d2a)},d.logo);
@@ -265,7 +269,7 @@ void mode_render(const Context& c) {
             if(duration!=v.settings.duration_s)s.mode_status=modes::command("time",{std::to_string(duration)});
         }
         if(d->supports_turns) {
-            const auto turn=mode_selector(c,shown,"mode-hide-time","Hide Time",{10,20,30,45,60,90,120},v.settings.turn_s," sec");
+            const auto turn=mode_selector(c,shown,"mode-hide-time",v.settings.mode==modes::Mode::skate?"Turn Timer":"Hide Time",{10,20,30,45,60,90,120},v.settings.turn_s," sec");
             if(turn!=v.settings.turn_s)s.mode_status=modes::command("turn",{std::to_string(turn)});
         }
         if(d->needs_points)row(c,shown,"mode-points",d->key=="race"?"Place race route":"Place capture spots","mode-place","points");
@@ -336,7 +340,7 @@ void mode_hud_publish(const Context& c,bool show,bool countdown,bool intro,bool 
     if(show && h.placing_layout)append(h.editor_panel_item);
     if(show && h.race_layout && !h.placing_layout)append(h.race_header_item);
     if(results)append(h.results_panel_item);
-    for(const auto item:{blind?h.blind_item:Value{},show?h.item:Value{},show?h.badge_item:Value{},show && h.placing_layout?h.placement_item:Value{},show && !h.placing_layout && h.clock_visible?h.clock_item:Value{},show && !h.placing_layout && !h.race_layout?h.score_item:Value{},countdown?h.countdown_item:Value{},intro?h.intro_item:Value{},results?h.results_item:Value{},race?h.race_item:Value{},race?h.race_position_item:Value{},race?h.race_elapsed_item:Value{},race?h.race_deadline_item:Value{},race?h.race_deadline_caption_item:Value{},show && h.race_warning_visible?h.race_warning_item:Value{},show && h.placing_layout && h.clear_ring_visible?h.clear_ring_item:Value{},show && h.exit_visible?h.exit_panel_item:Value{},show && h.exit_visible?h.exit_item:Value{}})append(item);
+    for(const auto item:{blind?h.blind_item:Value{},show?h.item:Value{},show?h.badge_item:Value{},show && h.placing_layout?h.placement_item:Value{},show && !h.placing_layout && h.clock_visible?h.clock_item:Value{},show && !h.placing_layout && !h.race_layout?h.score_item:Value{},countdown?h.countdown_item:Value{},intro?h.intro_item:Value{},results?h.results_item:Value{},race?h.race_item:Value{},race?h.race_position_item:Value{},race?h.race_elapsed_item:Value{},race?h.race_deadline_item:Value{},race?h.race_deadline_caption_item:Value{},race?h.race_progress_item:Value{},show && h.race_warning_visible?h.race_warning_item:Value{},show && h.placing_layout && h.clear_ring_visible?h.clear_ring_item:Value{},show && h.exit_visible?h.exit_panel_item:Value{},show && h.exit_visible?h.exit_item:Value{}})append(item);
     if(show && !blind && !results)for(const auto item:h.world_items)append(item);
     publish_hud_surface(c,h.stack,visible,true);
 }
@@ -500,6 +504,16 @@ void mode_race_standings(const Context& c,const modes::NativeView& v,const overl
     place(h.race_elapsed_anchor,clock_width,100.f,520.f,198.f);
     place(h.race_deadline_caption_anchor,clock_width,56.f,520.f,308.f);
     place(h.race_deadline_anchor,clock_width,100.f,520.f,370.f);
+    if(!h.race_progress.handle)h.race_progress=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+    std::size_t cleared{};
+    for(const auto& row:v.state->standings)if(row.player==v.local)
+        cleared=modes::mandatory_gates(v.settings,static_cast<std::size_t>(std::max(0,row.score)));
+    mode_hud_cell(c,h.race_progress,"REQUIRED "+std::to_string(cleared)+" / "+
+        std::to_string(modes::mandatory_gates(v.settings,v.settings.points.size())),480.f,72.f,"TextStylesList/H52-XBold_White");
+    mount_hud(c,h.race_progress,mode_hud_art(c,modes::Mode::race,"Score"),h.race_progress_anchor,h.race_progress_item,mode_hud_id+46,false);
+    // Slot 46 is already reserved in the fixed 64-slot mode catalog. Revealing
+    // it updates Content only; the stable native stack is never rebuilt.
+    place(h.race_progress_anchor,480.f,72.f,24.f,522.f);
     mode_race_clocks(c,v,now);
 }
 void mode_results(const Context& c,const modes::NativeView& v,const overlay::ModesHud& feed,const throwdowns::Definition& d) {
@@ -639,8 +653,10 @@ void mode_hud(const Context& c) {
         h.clock=record_model(c,"Activities_HudElementData_ContentResource/A_ActivityCountdown");
     }
     plain_label(c,h.title,race?"DEATHRACE":d->name);
-    label_styles(c,h.title,"TextStylesList/D94-Caps-Bold_White",
-                 "TextStylesList/D94-Caps-Bold_White");
+    const bool racing_header=race && !feed.placing;
+    const auto title_style=racing_header?"TextStylesList/D140-Caps_White":"TextStylesList/D94-Caps-Bold_White";
+    label_styles(c,h.title,title_style,title_style);
+    c.set_if_changed(c.field(h.title,0x3d8639d0),racing_header?2:0);
     plain_label(c,h.status,feed.placing && race?"":feed.placing?feed.hint:feed.status);
     label_styles(c,h.status,"TextStylesList/SP38-SemiB_White",
                  "TextStylesList/SP38-SemiB_White");
@@ -829,13 +845,15 @@ void mode_hud(const Context& c) {
     }
     if(!feed.blind.empty())plain_label(c,h.status,"Hiding time: "+feed.blind);
     else if(feed.heat>=0)plain_label(c,h.status,feed.status+"  |  "+feed.heat_label);
-    if(h.theme_mode!=static_cast<unsigned>(v.settings.mode) || !hud_list_has_items(c,h.content,2)) {
+    if(h.theme_mode!=static_cast<unsigned>(v.settings.mode) || !hud_list_has_items(c,h.content,race && !h.placing_layout?1:2)) {
         h.theme_mode=static_cast<unsigned>(v.settings.mode);h.race_layout=race;
-        hud_list(c,h.content,{{label_widget,{0,h.title.handle}},{label_widget,{0,h.status.handle}}},false,64.f,8.f,0.f,680.f);
+        std::vector<Widget> header{{label_widget,{0,h.title.handle}}};
+        if(!race || h.placing_layout)header.push_back({label_widget,{0,h.status.handle}});
+        hud_list(c,h.content,header,false,racing_header?156.f:64.f,8.f,0.f,racing_header?660.f:680.f);
         const auto cells=c.field(h.content,0xf2c90867);
-        for(unsigned i=0;i<2;++i) {
+        for(unsigned i=0;i<header.size();++i) {
             const auto ref=read<Handle>(c.address(c.element(cells,i)));
-            c.set_if_changed(c.field({ref,c.type_of(ref)},0x1cff7243),std::array<float,2>{680.f,i==0?96.f:48.f});
+            c.set_if_changed(c.field({ref,c.type_of(ref)},0x1cff7243),std::array<float,2>{racing_header?660.f:680.f,racing_header?156.f:i==0?96.f:48.f});
         }
         hud_list(c,h.score,{{mode_hud_art(c,v.settings.mode,"Score"),{0,h.target.handle}},
             {mode_hud_art(c,v.settings.mode,"Score"),{0,h.current.handle}}},false,72.f,8.f,0.f,480.f);
@@ -881,13 +899,13 @@ void mode_hud(const Context& c) {
     }
     mount_hud(c,h.content,list_widget,h.anchor,h.item,mode_hud_id,false);
     if(h.stack.handle!=s.hud_stack.handle) {mode_hud_publish(c,false);h.stack=s.hud_stack;}
-    c.set_if_changed(c.field(h.anchor,0x1cff7243),std::array<float,2>{720.f,168.f});
+    c.set_if_changed(c.field(h.anchor,0x1cff7243),racing_header?std::array<float,2>{660.f,156.f}:std::array<float,2>{720.f,168.f});
     // This anchor is reused after the editor closes. Reconcile both layouts
     // so another mode cannot inherit the editor's compact header position.
     for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
         const bool vertical=axis==0x185a5736U;
         const float at=vertical?.08f:.03f;
-        const float offset=vertical?24.f:190.f;
+        const float offset=racing_header?(vertical?12.f:196.f):(vertical?24.f:190.f);
         for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.anchor,{axis,field}),at);
         for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(h.anchor,{axis,field}),offset);
         c.set_if_changed(c.path(h.anchor,{axis,0xfec5e0b1}),0.f);

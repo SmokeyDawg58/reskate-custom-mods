@@ -19,6 +19,7 @@ bool receive(std::uint64_t, std::span<const std::uint8_t>) { return false; }
 std::vector<std::string> take_notices() { return {}; }
 bool hidden_player(std::uint64_t) noexcept { return false; }
 bool countdown_locks_input() noexcept { return false; }
+bool race_recovery_pending() noexcept { return false; }
 }
 
 namespace dingosdk {

@@ -8,7 +8,7 @@ void check(bool value,const char* message) {if(!value)throw std::runtime_error(m
 int main() {
     try {
         const auto& builtins=throwdowns::registry();
-        check(builtins.definitions().size()==12,"Three stock, canonical 1-Up and eight imported modes are registered.");
+        check(builtins.definitions().size()==12,"Two stock, R.E.S.K.A.T.E., canonical 1-Up and eight other custom modes are registered.");
         std::set<std::string> ids,logos;std::set<unsigned> colors,modes;
         throwdowns::Registry repeated;
         for(const auto& d:builtins.definitions()) {
@@ -19,19 +19,22 @@ int main() {
             auto changed=d;changed.name+=" conflict";
             check(!repeated.add(changed).accepted,"Conflicting repeated metadata is rejected.");
             if(d.adapter==throwdowns::Adapter::game_mode) {
-                check(d.mode!=2 && d.mode!=8,"Legacy 1-Up and S.K.A.T.E. cannot become competing menu entries.");
+                check(d.mode!=2,"Canonical 1-Up has no duplicate custom adapter.");
                 check(modes.insert(d.mode).second,"Only one adapter owns each imported mode.");
-                check(colors.insert(d.palette.primary).second,"All eight new challenges have different colors.");
-                check(!d.logo.empty() && logos.insert(d.logo).second,"All eight embedded placeholder logos have distinct identities.");
+                check(colors.insert(d.palette.primary).second,"All custom challenges have different colors.");
+                check(!d.logo.empty() && logos.insert(d.logo).second,"All custom logos have distinct identities.");
                 const auto resolved=dingosdk::modes::parse_mode(d.key);
                 check(resolved && static_cast<unsigned>(*resolved)==d.mode,"Every generated card resolves to real rules.");
                 dingosdk::modes::Settings settings;settings.mode=*resolved;
                 check(d.needs_points==!dingosdk::modes::missing(settings).empty(),"Cards expose their mode's required placement.");
             }
         }
-        check(modes.size()==8,"All supplied compatible game modes have adapters.");
+        check(modes.size()==9,"All supplied compatible game modes have adapters.");
         check(builtins.find("native.oneup")->palette.primary==0xffef8b22U,
             "1-Up uses its approved blue instead of a fallback challenge hue.");
+        const auto* reskate=builtins.find("native.skate");
+        check(reskate && reskate->name=="R.E.S.K.A.T.E." && reskate->mode==8 && reskate->adapter==throwdowns::Adapter::game_mode,
+            "The replacement card uses the seven-letter referee rather than the stock five-letter challenge.");
         auto invalid=*builtins.find("mode.jam");invalid.id="bad path/escape";
         check(!repeated.add(invalid).accepted,"Invalid stable IDs are refused.");
         invalid.id="other.mode";invalid.key="not-a-mode";

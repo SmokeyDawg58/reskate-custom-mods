@@ -44,7 +44,9 @@ const Definition* Registry::mode(unsigned value) const noexcept {
 Registry& registry() {
     static Registry value=[] {
         Registry result;
-        result.add({"native.skate","S.K.A.T.E.","Set and copy specific tricks.","ThrowdownSkate",{},Adapter::native_skate,0,0,{}});
+        result.add({"native.skate","R.E.S.K.A.T.E.","Set a trick. Copy it or take a letter. Spell R.E.S.K.A.T.E. and you are out; last skater wins.",
+            "skate","UI/ReSkate/Throwdowns/img_skate_Reskate_1024",Adapter::game_mode,static_cast<unsigned>(modes::Mode::skate),0,
+            {0xffd9df00U,0xfff3f0e5U,0xfff2cc52U,0xff171717U,0xffffffffU},false,true});
         result.add({"native.spot","Spot Battle","Earn the highest score in a single round.","SpotBattle",{},Adapter::native_spot,0,1,{}});
         result.add({"native.jam","Skate Jam","Accumulate points across all tricks.","ThrowdownerActive",{},Adapter::native_jam,0,2,{}});
         result.add({"native.oneup","1-UP","Beat the previous turn total. Three penalties and you're out. Last skater wins!",

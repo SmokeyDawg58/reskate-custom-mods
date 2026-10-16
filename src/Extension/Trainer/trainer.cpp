@@ -1544,7 +1544,8 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool playing, const std::s
         // The speeds pushes aim for are the push class's (value_links ties them to the tuning's top
         // pushing speed, which only gates whether a push may start).
         const auto *top_speed = find_entry("physicspush.maxpushablespeed");
-        if(const auto recovery=modes::take_race_recovery_velocity())(void)queue_race_recovery_velocity(client,s.entity,*recovery);
+        if(const auto recovery=modes::peek_race_recovery_velocity())
+            (void)queue_race_recovery_velocity(client,s.entity,*recovery);
         set_push_speed(client, s.entity, 1.0f, top_speed ? static_cast<float>(top_speed->stock) : 0.0f, s.boosts.cruise);
         for (TrickLaunch launch; take_trick_launch(launch);)
             if (launch.factor != 1.0f)

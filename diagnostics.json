@@ -1,29 +1,45 @@
 {
-  "generated_at_utc": "2026-10-16T00:01:05.002391+00:00",
+  "generated_at_utc": "2026-10-16T02:12:27.049850+00:00",
   "automated_tests": {
     "passed": 79,
     "failed": 0
   },
-  "user_confirmed_two_pc_checks": {
-    "guest_sees_native_deathrace_flag_and_joins_through_it": true,
-    "local_controls_return_after_finish_or_dnf": true,
-    "guest_quit_leaves_host_race_running": true
-  },
   "runtime_files": {
     "ReSkate.dll": {
-      "sha256": "57821316505c32aab541f083754a085392ea1c3f8337f1697ad6f06c4dcd8cca",
-      "bytes": 13993984
+      "bytes": 14499328,
+      "sha256": "0e90fd8ab9bcf169aee627d5048c718ad355a16e14fe2600d9e95e3c7c3e7168"
     },
     "ReSkateLauncher.exe": {
-      "sha256": "e3caf15e2560b18c83468ce53b98ae074e0368ea17c60ad663a8c023bf6043b8",
-      "bytes": 4980736
+      "bytes": 4981248,
+      "sha256": "7de51db02ce838d6a0b3e45acbd4c9f44124b63d2bb7f9606650efd577080100"
     }
   },
-  "native_files_unchanged": 17,
+  "asset_version": "1.0.2",
+  "asset_audit": {
+    "result": "PASS",
+    "resources": 1635,
+    "changed_chunk_payloads": [
+      "f2546499-a953-45eb-8793-073447d8b50b",
+      "c5b9ea9e-7817-4198-b6bf-8eb02cd8f3a6"
+    ],
+    "all_resource_identities_metadata_bundles_preserved": true,
+    "existing_hud_animation_and_other_1633_payloads_exact": true
+  },
+  "human_confirmed_prior_checks": [
+    "Native guest flag Join",
+    "Controls return after finish/DNF",
+    "Guest Quit leaves host racing",
+    "Missed-gate recovery speed",
+    "Separate Required-progress layout"
+  ],
+  "new_checks_pending": [
+    "Finish sound in solo and multiplayer races",
+    "Bail recovery on board with pre-bail speed",
+    "Enlarged centered Deathrace title",
+    "Pink logo across native surfaces"
+  ],
+  "known_follow_up": "One native join confirmation may still say Spot Battle; live inspection was deferred by the owner.",
   "diagnostic_logging": false,
-  "profiling": false,
   "debug_symbols_shipped": false,
-  "remaining_follow_up": "The guest flag currently inherits some Spot Battle wording and its waiting action can say Start. Only the host can start the custom race. Correct Deathrace wording and a guest Ready counter are being worked on separately; they are not included in this tested snapshot.",
-  "broader_multiplayer_validation": "Not implied by the three confirmed checks",
-  "game_or_launcher_controlled": false
+  "programs_controlled": false
 }

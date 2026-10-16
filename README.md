@@ -1,52 +1,52 @@
 # ReSkate custom Throwdowns
 
-Custom challenges for ReSkate 2.0.7, including Deathrace routes, gates, race clocks, leaderboards and native challenge menus.
+Custom challenges for ReSkate 2.0.7, including Deathrace and seven-letter R.E.S.K.A.T.E.
 
-## Get the current build
+## Get the current playtest
 
-**Use the [current playtest release](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.0.7-custom-20261015-multiplayer-flags).** Every player needs the same DLL and launcher, plus the required asset mod. Older releases are marked **ARCHIVED** and are kept for reference.
+**Use the [current release](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.0.7-custom-20261015-reskate-refresh). Every PC needs the matching DLL, launcher and complete asset mod 1.0.2.** Replace older versions together.
 
-| What you need | Download |
+| Download | Contents |
 | --- | --- |
-| **New installation — start here** | [Full playtest package](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-multiplayer-flags/ReSkate-2.0.7-Multiplayer-Playtest-Full-20261015.zip) — DLL, launcher, required assets and installer |
-| Update an existing installation with the asset pack | [Small update](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-multiplayer-flags/ReSkate-2.0.7-Multiplayer-Runtime-Update-20261015.zip) — replace both included files |
-| Logos, flags, gates and HUD artwork | [Required asset mod](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-multiplayer-flags/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.0.zip) — also included in the full package |
+| **[Full playtest package](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-reskate-refresh/ReSkate-2.0.7-Playtest-Full-20261015-Reskate-Refresh.zip) — start here** | DLL, launcher, all required assets, backup installer and file checker |
+| [Required asset mod 1.0.2](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-reskate-refresh/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.2.zip) | Logos, flags, gates and HUD artwork; also in the full package |
+| [DLL](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-reskate-refresh/ReSkate.dll) and [launcher](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-reskate-refresh/ReSkateLauncher.exe) | Individual matching runtime files; both are required |
+| [Asset authoring source](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-reskate-refresh/ReSkate-Throwdown-Asset-Source-1.0.2.zip) | Current Studio project, FBMOD, original logo, selected WAVs and authoring code |
 
-The full package is the easiest choice. The separate DLL and launcher on the release page are the same files included in it. `native_assets.bin` is for building from source; players should use the asset mod above.
+The pink R.E.S.K.A.T.E. skateboard logo is used on its picker, pages, HUD, map markers and flags. The Deathrace header is larger and centered. Finish audio now follows the final result transition; bail recovery returns on the board at the last Required gate and keeps its measured speed request until physics applies it. Required/Finish audio stays quiet; Guides stay silent. The separate Required progress box and working clock layout remain.
 
-## Install and play
+Guests choose Ready; only the host starts after joined guests are ready. Guest Quit leaves the host's race running. Every player uses the same build (mode protocol 13); do not mix older runtimes or asset packs.
 
-1. Start with a supported ReSkate 2.0.7 installation.
-2. Close the game and launcher yourself.
-3. Extract the full package, then follow [the installation guide](PLAYTEST.md). Its installer backs up replaced files and preserves other mods and settings.
-4. Run the included preflight checker on every PC, then launch the game yourself.
+## Install
 
-Keep the complete asset mod installed so everyone sees the logos, flags, gates and menus. Its files belong directly inside `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets`. Installations using ModData put it in `ModData/Default/Mods` instead. Numeric version suffixes on the mod folder are supported.
+1. Close the game and launcher yourself.
+2. Extract the full package and follow [PLAYTEST.md](PLAYTEST.md). The installer backs up replaced files and preserves other mods/settings.
+3. Keep the complete mod at `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets`, with `layout.toc`, `Win32` and `initfs_win32` directly inside it. The installer also supports ModData. Replace the previous asset folder rather than enabling duplicates.
+4. Run the included file checker, then launch yourself.
 
-## What has been checked
+## Validation and known issue
 
-All 79 automated checks passed for this build. In a two-PC playtest, the owner confirmed that guests can see and join through the Deathrace flag, controls return after finishing or DNF, and a guest can quit without ending the host's race. The working steady HUD is retained. The DLL is about 14 MB; logging, profiling, crash capture and shipped debug symbols are disabled.
+All **79 automated checks pass**, including a new solo-finish audio transition regression. The asset audit verifies exactly two changed texture chunks, with all identities, bundles, HUD animations and other resource payloads preserved. The lean DLL is about 14.5 MB; logging, profiling, crash capture and shipped debug symbols are disabled.
 
-**Still being improved:** some guest join screens say Spot Battle, and the guest waiting button can say Start. Only the host starts the custom race. Correct challenge wording and a guest Ready count are being developed separately and are not included in this download yet.
+The owner previously confirmed native guest flag Join, controls returning after finish/DNF, and guest-only Quit on two PCs. Missed-gate recovery speed and the separate progress layout were also confirmed. **The latest finish-sound, bail-recovery and title changes still need an in-game check.** This is a playtest, not certification of every multiplayer scenario.
 
-This is a public playtest. See [test results and remaining checks](DIAGNOSTICS.md) for its limits.
+Known follow-up: One native join confirmation may still say Spot Battle; live inspection was deferred by the owner.
 
-## Find your way around
+## Repository guide
 
-| File or folder | Purpose |
+| Location | Purpose |
 | --- | --- |
-| [PLAYTEST.md](PLAYTEST.md) | Install, update and test with friends |
-| [DIAGNOSTICS.md](DIAGNOSTICS.md) | Verified results and known limitations |
-| [Build guide](docs/BUILD.md) | Recreate this version from source |
-| [Archived releases](docs/ARCHIVED_RELEASES.md) | Older builds, clearly separated from the current download |
-| [Contributors](CONTRIBUTORS.md) | Maintainer and AI contribution disclosure |
-| `src/` | Source files changed from official ReSkate |
-| `mods.patch` | Applies those changes to the supported official source version |
-| `tools/playtest/` | Backup installer and file checker |
-| `SNAPSHOT.json` | Exact source and build identifiers for developers |
+| [PLAYTEST.md](PLAYTEST.md) | Installation and friend-playtest checks |
+| [DIAGNOSTICS.md](DIAGNOSTICS.md) | Verified scope and remaining checks |
+| [Build guide](docs/BUILD.md) | Recreate the matching runtime |
+| [Asset-pack guide](docs/ASSET_PACK.md) | Logo source, authoring tools and export instructions |
+| [Archived releases](docs/ARCHIVED_RELEASES.md) | Previous downloads, kept for reference |
+| `src/` and `mods.patch` | Complete modified overlay against pinned official source, including logo/audio inputs |
+| `tools/playtest/` | Backup installer and checker |
+| `SNAPSHOT.json` | Exact source hashes and upstream version |
 
 ## Credits and AI assistance
 
-Maintained by **SmokeyDawg58**. This project was developed with substantial assistance from **OpenAI Codex**, an AI coding assistant, for investigation, code changes, tests, packaging and documentation. The maintainer directs the work, performs the reported gameplay checks and controls publication. See [CONTRIBUTORS.md](CONTRIBUTORS.md).
+Maintained by **SmokeyDawg58**, with substantial assistance from **OpenAI Codex** for investigation, code, tests, artwork integration, packaging and documentation. The maintainer directs the work, performs the reported gameplay checks and controls publication. See [CONTRIBUTORS.md](CONTRIBUTORS.md).
 
-Based on [official ReSkate](https://github.com/Dingo-Shenanigans/ReSkate). Source is licensed under GPL-3.0; see [LICENSE](LICENSE). No game executable, Steam DLL, unrelated mods or personal settings are distributed. The asset pack uses a Thunderstore-compatible folder format; it has not been published to a Thunderstore account.
+Based on [official ReSkate](https://github.com/Dingo-Shenanigans/ReSkate). Source is GPL-3.0; see [LICENSE](LICENSE). No game executable, Steam DLL, unrelated mods or personal settings are distributed. The mod folder is Thunderstore-compatible; no Thunderstore account listing is claimed.

@@ -2,8 +2,12 @@
 // the events players would send.
 #include "Extension/Modes/mode_rules.h"
 #include "Extension/Modes/race_route.h"
+#include "Extension/Modes/race_momentum.h"
+#include "Extension/Modes/race_sound.h"
+#include "Extension/Modes/mode_announcements.h"
 #include "Extension/Modes/mode_transport.h"
 #include "Extension/Modes/mode_participation.h"
+#include "Extension/Modes/mode_lobby.h"
 #include "Engine/Game/Multiplayer/session_tools.h"
 #include "Engine/Game/Multiplayer/session_physics.h"
 #include "Extension/Modes/placement_camera.h"
@@ -21,6 +25,29 @@ void check(bool condition, const std::string &what) {
 }
 constexpr std::uint64_t a = 76561198000000001ULL, b = 76561198000000002ULL, c = 76561198000000003ULL;
 const std::vector<Vec3> square{{0, 0, 0}, {40, 0, 0}, {40, 0, 40}, {0, 0, 40}};
+
+void lobby_readiness_flow() {
+    LobbyReadiness lobby;
+    std::vector<std::uint64_t> guests{b,c};
+    check(!lobby.all(guests),"joined guests must explicitly ready before the host starts");
+    check(!lobby.mark(a,guests) && !lobby.mark(0,guests),"only a joined guest can ready their own place");
+    check(lobby.mark(b,guests) && !lobby.mark(b,guests),"retransmitted Ready is idempotent");
+    check(!lobby.all(guests) && lobby.mark(c,guests) && lobby.all(guests),"all joined guests ready unlocks host start");
+    Message state;state.kind=Message::Kind::state;state.leader=a;state.game=11;
+    state.standings={{.player=a,.up=true},{.player=b,.up=lobby.ready(b)},{.player=c,.up=lobby.ready(c)}};
+    const auto echoed=decode(encode(state));
+    check(echoed && lobby_ready_count(*echoed)==3,"authoritative setup state carries the ready count to every PC");
+    Message ready;ready.kind=Message::Kind::ready;ready.leader=a;ready.game=11;
+    check(decode(encode(ready))==ready,"explicit guest Ready roundtrips on the wire");
+    auto old=encode(ready);old[1]=12;check(!decode(old),"old mode versions cannot silently mix incompatible readiness rules");
+    auto truncated=encode(ready);truncated.pop_back();check(!decode(truncated),"truncated Ready is rejected");
+    lobby.remove(b);check(!lobby.ready(b),"a departing guest loses their ready state");
+    guests={c};lobby.retain(guests);check(lobby.all(guests),"remaining ready players can still start after a guest leaves");
+    guests.push_back(b);check(!lobby.all(guests),"a rejoining guest must ready again");
+    lobby.reset();check(!lobby.all(guests),"editing the course or settings clears guest readiness");
+    check(lobby.all({}),"solo host can start without nonexistent guests");
+    state.phase=Phase::playing;check(lobby_ready_count(state)==0,"turn indicators in gameplay are not lobby readiness");
+}
 
 void placement_camera_flow() {
     PlacementCamera camera;
@@ -684,12 +711,39 @@ void hide_flow() {
     check(decode(encode(st)) == st && parse_mode("hideandseek") == Mode::hide, "a Hide & Seek state round trips");
 }
 
+void reskate_seven_letters_flow() {
+    check(mode_name(Mode::skate)=="R.E.S.K.A.T.E." && parse_mode("R.E.S.K.A.T.E.")==Mode::skate &&
+        parse_mode("skate")==Mode::skate,"new branding and existing command aliases resolve to the same mode");
+    check(skate_letters(7,7)=="R.E.S.K.A.T.E" && skate_letters(99,7)=="R.E.S.K.A.T.E",
+        "all seven penalty letters have the correct order and are bounded");
+    Settings s;s.mode=Mode::skate;s.strikes=7;s.turn_s=10;
+    Message setup;setup.kind=Message::Kind::setup;setup.leader=a;setup.game=71;setup.settings=s;
+    check(decode(encode(setup))==setup,"seven-letter settings roundtrip to guests");
+    Referee r(s,a,71);r.add_player(a);r.add_player(b);r.start(1000);r.tick(6000);
+    std::uint64_t t=6000;
+    std::uint32_t serial=0;
+    // Every setter lands a new allowed trick; the copier times out. Five
+    // misses must leave them playing, while the seventh eliminates them.
+    const std::array tricks{"Kickflip","Heelflip","Hardflip","Varial Kickflip","Laser Flip","FS Kickflip","BS Heelflip"};
+    for(unsigned i=0;i<tricks.size();++i) {
+        check(r.state(t).turn==a,"setter retains the set after a failed copy");
+        r.event(a,Event::trick,1,{0,0,0},++serial,t,{},tricks[i]);
+        check(r.state(t).turn==b,"other player must copy the trick");
+        t+=s.turn_s*1000ULL;r.tick(t);
+        const auto st=r.state(t);
+        const auto loser=std::find_if(st.standings.begin(),st.standings.end(),[](const auto& p){return p.player==b;});
+        check(loser!=st.standings.end() && loser->aux==static_cast<int>(i+1),"one missed copy earns exactly one letter");
+        check(r.phase()==(i==6?Phase::results:Phase::playing),"elimination occurs on the seventh letter, never the fifth");
+    }
+    check(r.state(t).standings.front().player==a,"last remaining skater wins the seven-letter match");
+}
+
 void skate_flow() {
     check(trick_kinds_of("Kickflip") == trick_flips && trick_kinds_of("BS 50-50 Grind") == trick_grinds, "flips and grinds are told apart");
     check(trick_kinds_of("Heelflip + Seatbelt") == (trick_flips | trick_grabs) && trick_kinds_of("Manual") == trick_manuals,
           "a combo is every kind its parts are");
     check(trick_kinds_of("Rocket Air") == trick_grabs && trick_kinds_of("FS Powerslide") == trick_grinds, "grabs and slides");
-    check(skate_letters(3, 5) == "S.K.A" && skate_letters(0, 5).empty(), "letters spell S.K.A.T.E.");
+    check(skate_letters(3, 7) == "R.E.S" && skate_letters(0, 5).empty(), "letters spell R.E.S.K.A.T.E.");
     Settings s;
     s.mode = Mode::skate;
     s.strikes = 2;
@@ -769,6 +823,79 @@ void skate_flow() {
 }
 } // namespace
 
+void race_momentum_recovery_flow() {
+    RaceMomentum momentum;
+    momentum.observe(21.f,1000);momentum.observe(20.5f,1100);momentum.observe(0.f,1120);
+    check(momentum.before_bail(1130)==21.f,"bail restores speed before collision rather than collision zero or fixed 6 m/s");
+    check(momentum.current(1130)==0.f,"missed-gate recovery uses current measured motion, including a stopped rider");
+    momentum.observe(18.f,1400);
+    check(momentum.before_bail(1410)==18.f,"old high approach speed expires");
+    momentum.observe(std::numeric_limits<float>::quiet_NaN(),1420);momentum.observe(1000.f,1430);
+    check(momentum.current(1440)==18.f,"invalid telemetry cannot inject a recovery boost");
+    check(momentum.before_bail(1800)==0.f && momentum.current(1800)==0.f,"stale samples never boost a later bail");
+    auto velocity=race_recovery_motion(22.f,90);
+    check(std::abs(velocity[0]-22.f)<.001f && std::abs(velocity[2])<.001f && velocity[1]==0,
+        "recovered motion keeps measured horizontal speed in the checkpoint's direction");
+    check(valid_race_recovery_velocity(velocity) && !valid_race_recovery_velocity({121,0,0}) &&
+        !valid_race_recovery_velocity({0,1,0}) && !valid_race_recovery_velocity({0,0,std::numeric_limits<float>::infinity()}),
+        "native recovery accepts real racing speeds with finite horizontal-only bounds");
+    RaceRecoveryDelivery delivery;delivery.request(velocity,2000);
+    check(delivery.peek(2001)==velocity && delivery.peek(2500)==velocity,"a busy/off-board receiver retains recovery until accepted");
+    delivery.accepted({1,0,0});check(delivery.peek(2600)==velocity,"an unrelated acknowledgement cannot consume pending recovery");
+    delivery.accepted(velocity);check(!delivery.peek(2601),"success applies recovery once");
+    delivery.request(velocity,3000);check(!delivery.peek(5000),"expired native restore cannot fire late");
+    delivery.request(velocity,6000);delivery.reset();check(!delivery.peek(6001),"match/world cleanup cancels recovery");
+}
+void race_sound_and_announcements_flow() {
+    RaceCountdownAudio audio;
+    check(!audio.update(Phase::countdown,5000) && !audio.update(Phase::countdown,4000),"countdown does not emit unwanted five/four cues");
+    check(audio.update(Phase::countdown,3000)==RaceCountdownCue::count && !audio.update(Phase::countdown,2800),"three plays once across repeated state samples");
+    check(audio.update(Phase::countdown,2000)==RaceCountdownCue::count && audio.update(Phase::countdown,1000)==RaceCountdownCue::count,"two and one play once");
+    check(audio.update(Phase::playing,120000)==RaceCountdownCue::go && !audio.update(Phase::playing,119500),"GO plays once at the race transition");
+    audio.update(Phase::setup,0);
+    check(audio.update(Phase::countdown,2500)==RaceCountdownCue::count && audio.update(Phase::countdown,900)==RaceCountdownCue::count &&
+        !audio.update(Phase::countdown,2000),"network frame skips never replay missed countdown cues or run them backwards");
+    RaceCountdownAudio late;check(!late.update(Phase::playing,100000),"joining/spectating mid-race does not replay GO");
+    Settings route;route.mode=Mode::race;route.duration_s=120;route.points={{0,0,0},{0,0,10},{0,0,20},{0,0,30}};
+    route.gate_kinds={RaceGateKind::mandatory,RaceGateKind::guiding,RaceGateKind::mandatory,RaceGateKind::mandatory};route.race_finish=true;
+    check(race_gate_cue(route,1,2)==RaceGateCue::none,"Guide gate progress is always silent");
+    check(race_gate_cue(route,2,3)==RaceGateCue::required && race_gate_cue(route,3,4)==RaceGateCue::finish,"Required and finish gates select separate user-chosen clips");
+    check(race_gate_cue(route,3,3)==RaceGateCue::none && race_gate_cue(route,3,2)==RaceGateCue::none,"duplicate/backward state cannot replay gate sounds");
+    // Drive the actual referee through a solo finish: its next tick is already
+    // Results, so an observer restricted to Playing would lose the sound.
+    Referee solo(route,a,19);solo.add_player(a);solo.start(0);solo.tick(countdown_ms);
+    RaceProgressAudio progress;
+    auto snapshot=solo.state(countdown_ms);
+    check(progress.update(route,snapshot.phase,snapshot.standings[0].score,false)==RaceGateCue::none,"race start is silent");
+    solo.event(a,Event::checkpoint,2,route.points[2],1,countdown_ms+100);
+    snapshot=solo.state(countdown_ms+100);
+    check(progress.update(route,snapshot.phase,snapshot.standings[0].score,false)==RaceGateCue::required,"acknowledged Required gate plays its selected clip");
+    solo.event(a,Event::checkpoint,3,route.points[3],2,countdown_ms+200);solo.tick(countdown_ms+201);
+    snapshot=solo.state(countdown_ms+201);
+    check(snapshot.phase==Phase::results && progress.update(route,snapshot.phase,snapshot.standings[0].score,false)==RaceGateCue::finish,
+        "solo finish celebration survives the Playing-to-Results transition");
+    check(progress.update(route,snapshot.phase,snapshot.standings[0].score,false)==RaceGateCue::none,"repeated results never replay the finish");
+    RaceProgressAudio dnf;
+    check(dnf.update(route,Phase::results,2,true)==RaceGateCue::none,"DNF never plays a finish celebration");
+    MatchAnnouncements notices;Message state;state.phase=Phase::setup;
+    check(!notices.observe("Host",route,state,1000),"setup and invitation produce no server spam");
+    state.phase=Phase::countdown;state.remaining_ms=5000;
+    check(notices.observe("Host",route,state,1000)=="Host has started Deathrace (02:00.000).","start notification contains only the host, challenge and time");
+    check(!notices.observe("Host",route,state,1500),"retransmitted countdown cannot duplicate the start notification");
+    state.phase=Phase::playing;check(!notices.observe("Host",route,state,6000),"countdown-to-play does not announce start twice");
+    state.phase=Phase::results;state.standings={{.player=a,.score=4,.aux=14468}};
+    check(notices.observe("Host",route,state,21000)=="Host has ended Deathrace (00:14.468).","end notification uses the precise finishing time");
+    check(!notices.observe("Host",route,state,21500),"results and subsequent End cannot duplicate the end notification");
+    MatchAnnouncements cancelled;check(!cancelled.observe("Host",route,state,22000),"cancelling an unstarted setup produces no misleading ended notice");
+    Settings reskate;reskate.mode=Mode::skate;reskate.turn_s=45;reskate.strikes=7;
+    MatchAnnouncements turn_game;state.phase=Phase::playing;
+    check(turn_game.observe("Host",reskate,state,1000)=="Host has started R.E.S.K.A.T.E. (00:45.000).",
+        "turn-based games announce their real turn timer instead of an unused match limit");
+    state.phase=Phase::results;
+    check(turn_game.observe("Host",reskate,state,391123)=="Host has ended R.E.S.K.A.T.E. (06:30.123).",
+        "a long seven-letter match reports its full elapsed time without a false timed-mode cap");
+}
+
 void race_saved_course_and_recovery() {
     using namespace dingosdk::modes;
     Settings route;route.mode=Mode::race;bool finish=false;
@@ -833,6 +960,7 @@ void race_saved_course_and_recovery() {
 int main() {
     try {
         area_flow();
+        lobby_readiness_flow();
         placement_camera_flow();
         scoring_flow();
         wire_flow();
@@ -841,6 +969,8 @@ int main() {
         race_flow();
         race_builder_flow();
         race_saved_course_and_recovery();
+        race_momentum_recovery_flow();
+        race_sound_and_announcements_flow();
         race_clock_flow();
         race_custom_deadlines_and_snap();
         race_optional_flow();
@@ -851,6 +981,7 @@ int main() {
         tag_flow();
         graffiti_flow();
         skate_flow();
+        reskate_seven_letters_flow();
         infection_flow();
         hide_flow();
         std::cout << "Game modes: area, scoring, wire, Spot Jam, 1-Up, Deathrace, Domination, tag, Graffiti and S.K.A.T.E. flows passed.\n";
