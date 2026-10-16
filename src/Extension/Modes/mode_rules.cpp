@@ -620,6 +620,9 @@ void Referee::remove_player(std::uint64_t player, std::uint64_t now_ms) {
         std::erase_if(players_, [&](const Player &q) { return q.id == player; });
         return;
     }
+    // A completed race result belongs to this run even when its owner leaves
+    // the waiting/results UI while the other racers are still finishing.
+    if(settings_.mode==Mode::race && p->finished)return;
     if(settings_.mode==Mode::race && phase_==Phase::playing && !p->finished)
         p->aux=static_cast<std::int32_t>(std::min<std::uint64_t>(now_ms>=play_at_?now_ms-play_at_:0,0x7fffffff));
     p->out = true;

@@ -94,10 +94,16 @@ void throwdown_map_identity(const Context& c) {
     b.map=map;
     const auto game=one_up::native_flag_mode_game();
     const auto mode=modes::native_view();
-    const auto* definition=game?(mode.active && mode.game==game?
+    const auto* own_definition=game?(mode.active && mode.game==game?
         throwdowns::registry().mode(static_cast<unsigned>(mode.settings.mode)):nullptr):
         throwdowns::registry().find("native.oneup");
-    if(!definition || !one_up::flag_registration_owned()) {restore_map_branding(c);return;}
+    if(!one_up::flag_registration_owned() && !has_custom_throwdown_flags()) {restore_map_branding(c);return;}
+    const auto definition_for=[&](std::uint32_t mmid) -> const throwdowns::Definition* {
+        if(one_up::owns_flag_registration(mmid))return own_definition;
+        const auto key=custom_throwdown_flag_key(mmid);
+        if(const auto value=modes::parse_mode(key))return throwdowns::registry().mode(static_cast<unsigned>(*value));
+        return nullptr;
+    };
 
     const auto table=read<Address>(map+0x48);
     const auto buckets=read<std::uint32_t>(map+0x50),count=read<std::uint32_t>(map+0x54);
@@ -122,7 +128,7 @@ void throwdown_map_identity(const Context& c) {
                 const Value context{data,c.type_of(data)};
                 if(context.type && read<std::uint32_t>(read<Address>(context.type))==0x9b16ae26 && size(context.type)==80) {
                     const auto mmid=read<std::uint32_t>(c.address(c.field(context,0x66ba7ea4)));
-                    if(one_up::owns_flag_registration(mmid)) {
+                    if(const auto* definition=definition_for(mmid)) {
                         current.insert(handle);
                         brand_flag_bubble(c,poi,data,mmid,definition->logo);
                         if(handle==focused)selected_mmid=mmid;
@@ -171,7 +177,8 @@ void throwdown_map_identity(const Context& c) {
     if(!panel.handle || panel.handle!=b.panel.handle || selected_mmid!=b.card_mmid) {
         restore_branding_presenters(c,b.card);b.panel={};b.card_mmid=0;
     }
-    if(!panel.handle)return;
+    const auto* definition=definition_for(selected_mmid);
+    if(!panel.handle || !definition)return;
     if(std::any_of(b.card.begin(),b.card.end(),[&](const auto& p) {
         return !branding_presenter_attached(c,p);
     }))restore_branding_presenters(c,b.card);
@@ -201,7 +208,12 @@ void throwdown_map_identity(const Context& c) {
     require(read<std::uint32_t>(read<Address>(stats.type))==linear_list.hash,"Native Throwdown map stat list differs.");
     const auto rows=c.field(stats,0x345b75b1);
     unsigned n{},stride{};c.array(rows,8,n,stride);require(n==3,"Native Throwdown map stat count differs.");
-    if(!game) {
+    if(const auto remote=custom_throwdown_flag_info(selected_mmid)) {
+        brand_map_stat(c,c.element(rows,0),"Players",std::to_string(remote->players));
+        brand_map_stat(c,c.element(rows,1),remote->key=="race"?"Required Gates":"Duration",
+            remote->key=="race"?std::to_string(remote->required_gates):std::to_string(remote->duration_s)+"s");
+        brand_map_stat(c,c.element(rows,2),"Time Limit",native_hud_race_time(static_cast<std::uint64_t>(remote->duration_s)*1000));
+    } else if(definition->adapter==throwdowns::Adapter::native_one_up) {
         const auto v=one_up::view();
         const auto players=std::count_if(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.connected;});
         brand_map_stat(c,c.element(rows,0),"Players",std::to_string(players)+"/"+std::to_string(v.state.config.max_players));

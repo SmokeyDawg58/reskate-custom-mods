@@ -48,6 +48,7 @@ std::uint32_t nav{};
 bool available=true;
 }
 namespace dingosdk::multiplayer {
+bool local_throwdown_event_active() noexcept {return false;}
 void release_one_up_native_placeholder() noexcept { ++released; }
 bool prepare_throwdown_injection() noexcept { return true; }
 bool queue_throwdown_destroy(std::uint32_t id) noexcept { destroyed.push_back(id); return true; }
@@ -523,6 +524,23 @@ int main() {
         test_now+=1501;tick();check(!flag_registration_owned());
         test_mode_active=false;
         check(arm_native_setup(20,1) && native_setup_mode_game()==0);abandon_flag_placement();
+        current_view.world=901;current_view.local=77;current_view.state={};
+        current_mode_view={};current_mode_view.active=true;current_mode_view.leading=false;
+        current_mode_view.world=901;current_mode_view.game=401;current_mode_view.settings.mode=dingosdk::modes::Mode::race;
+        current_mode_view.state=dingosdk::modes::Message{};current_mode_view.state->phase=dingosdk::modes::Phase::setup;
+        test_mode_active=true;
+        const auto handoffs_before_guest=race_handoffs;
+        check(!adopt_native_mode_flag(900,401,5001,{10,20,30},90,120,6,true));
+        check(adopt_native_mode_flag(901,401,5001,{10,20,30},90,120,6,true));
+        check(owns_flag_registration(5001) && known_custom_flag_queue(5001) && native_flag_mode_waiting() && race_flag_registration_owned());
+        check(!adopt_native_mode_flag(901,402,5002,{10,20,30},90,120,6,true));
+        tick();check(race_handoffs==handoffs_before_guest && native_flag_mode_waiting());
+        const auto guest_destroy_before=destroyed.size();
+        current_mode_view.state->phase=dingosdk::modes::Phase::countdown;tick();
+        check(destroyed.size()==guest_destroy_before+1 && destroyed.back()==5001 && test_mode_active);
+        observe_flag_destroyed(5001);tick();check(!flag_registration_owned() && test_mode_active);
+        current_mode_view.state->phase=dingosdk::modes::Phase::results;tick();check(native_flag_mode_game()==0);
+        abandon_flag_placement();
         std::cout<<count<<" flag bridge checks passed\n";
         return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }

@@ -166,6 +166,8 @@ struct Job {
     std::uint64_t token{};
     std::vector<std::uint8_t> placement, settings;
     std::array<std::uint8_t, 28> trick{}; // attempt (flag = landed)
+    std::string instance;
+    float spawn_yaw{};
 };
 struct Lab {
     Address base{};
@@ -1096,7 +1098,7 @@ std::string run_job(const Job& job) {
             const auto vector = [&](std::uint32_t hash, std::size_t count) {
                 const auto f = find_field(p->type, hash);
                 if (!f || f->size < count * 4) throw std::runtime_error(std::format("Throwdown lab: vector field {:#x} missing", hash));
-                std::array<float, 4> v{pos[0], pos[1], pos[2], 0};
+                std::array<float, 4> v{pos[0], pos[1], pos[2], job.spawn_yaw};
                 std::memcpy(reinterpret_cast<void*>(at + f->offset), v.data(), count * 4);
             };
             vector(field_spawn, 4);
@@ -1140,7 +1142,7 @@ std::string run_job(const Job& job) {
         // Party-only resolves the host's game group through its native player,
         // which a virtual host lacks, so the host would never enter the queue.
         if (const auto f = find_field(p->type, field_party_only); f && f->size == 1) *reinterpret_cast<std::uint8_t*>(at + f->offset) = 0;
-        if (const auto f = find_field(p->type, field_instance); f && f->kind == kind_string) assign_string(at + f->offset, "");
+        if (const auto f = find_field(p->type, field_instance); f && f->kind == kind_string) assign_string(at + f->offset, job.instance);
         e.set_u32(field_number_of_events, 1);
         const auto summary = describe_params(p->type, at);
         std::uint32_t player_limit{};
@@ -1767,6 +1769,12 @@ void prepare_native_solo_throwdown_leave(std::uint32_t hash) noexcept {
 }
 
 bool consume_one_up_throwdown_send(std::uint32_t hash,Address type,Address payload) noexcept {
+    if(!injecting && (hash==event_leave_in_progress || hash==event_force_destroy) && modes::active()) {
+        const auto mode=modes::native_view();
+        if(mode.active && mode.state && (mode.state->phase==modes::Phase::countdown || mode.state->phase==modes::Phase::playing) &&
+           std::any_of(mode.state->standings.begin(),mode.state->standings.end(),[&](const auto& row){return row.player==mode.local;}) &&
+           modes::request_native_quit(mode.world,mode.game))return true;
+    }
     if(!injecting && one_up::restricts_session_markers() &&
        (hash==event_leave_in_progress || hash==event_force_destroy)) {
         // The native activity pause modal uses these same Quit Match requests.
@@ -2397,6 +2405,17 @@ bool queue_throwdown_spawn(std::uint64_t token, std::uint32_t host, const std::s
         job.token = token; job.series = series; job.placement = placement; job.settings = settings;
         return queue_relay_job(std::move(job), event_debug_spawn);
     } catch (...) { return false; }
+}
+bool queue_custom_throwdown_flag(std::uint64_t token,std::uint32_t host,const std::string& key,
+    const std::array<float,3>& at,float yaw) noexcept {
+    if(!token || !host || !modes::parse_mode(key) || key=="oneup" || key=="skate" || !std::isfinite(yaw) ||
+       !std::all_of(at.begin(),at.end(),[](float n){return std::isfinite(n) && std::abs(n)<100000.f;}))return false;
+    try {
+        Job job{Job::Kind::spawn,host};job.token=token;job.series="SpotBattle";
+        job.instance="ReSkate."+key;job.position=at;job.spawn_yaw=yaw*3.14159265f/180.f;
+        job.max_players=10; // A flag must never auto-start the Spot Battle donor.
+        return queue_relay_job(std::move(job),event_debug_spawn);
+    } catch(...) {return false;}
 }
 bool queue_throwdown_add(std::uint32_t player, const std::string& series, std::uint32_t mmid) noexcept {
     if (!player || !mmid) return false;

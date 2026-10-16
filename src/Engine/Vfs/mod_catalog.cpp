@@ -2,6 +2,9 @@
 
 #include "mod_merge.h"
 #include "one_up_core_assets.h"
+#if defined(DINGOSDK_LEAN_PLAYTEST)
+#include "native_asset_mod.h"
+#endif
 #include "native_db.h"
 #include "Engine/Core/Json/json.h"
 
@@ -378,9 +381,9 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
         }
         for (auto& entry : list.entries) {
 #if defined(DINGOSDK_LEAN_PLAYTEST)
-            // This required mod is already mounted first. Do not merge it twice
-            // when the ordinary mod scan discovers the same visible folder.
-            if(!result.mods.empty() && entry.mod.directory==result.mods.front().directory)continue;
+            // The verified dependency is already mounted first. Older/versioned
+            // copies must not become extra native layers in the normal scan.
+            if(throwdown_asset_folder_name(entry.mod.directory.filename().wstring()))continue;
 #endif
             if (!entry.enabled) {
                 if (std::find(result.set_aside.begin(), result.set_aside.end(), entry.mod.name) == result.set_aside.end()) {

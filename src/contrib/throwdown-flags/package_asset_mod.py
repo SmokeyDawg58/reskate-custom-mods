@@ -53,11 +53,11 @@ shutil.copy2(source/'LICENSE',args.output/'LICENSE')
 
 Native logos, placement flags, Deathrace gates, menus, HUD materials and map registrations for the matching custom ReSkate 2.0.7 lean playtest.
 
-Install as `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets/`, with `layout.toc`, `Win32` and `initfs_win32` directly inside. The launcher also accepts the standalone package ZIP. Install into your active Mods directory; ModData installations use `ModData/Default/Mods`. The full playtest installer selects that directory automatically.
+Install as `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets/`, with `layout.toc`, `Win32` and `initfs_win32` directly inside. The corrected runtime also accepts `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.0/`, the folder Windows creates when extracting this ZIP. Older lean runtimes require the unversioned name. The launcher also accepts the standalone package ZIP. Install into your active Mods directory; ModData installations use `ModData/Default/Mods`. The full playtest installer selects that directory automatically.
 
 Everyone needs this asset mod and the matching custom DLL/launcher. The assets alone do not add custom modes to the stock runtime. No new DLL or game executable is included in this asset-only mod.
 
-The custom runtime verifies all 17 native file hashes and mounts this required dependency once, ahead of optional mods. Keep its folder name unchanged. An incomplete or different pack stops preparation with an error instead of silently losing artwork. Asset contents are byte-identical to the previous working embedded pack; no route, HUD, font or logo artwork was rebuilt.
+The custom runtime verifies all 17 native file hashes and mounts this required dependency once, ahead of optional mods. Use the plain folder name or its numeric version suffix; avoid extra nested folders. An incomplete or different pack stops preparation with an error instead of silently losing artwork. Asset contents are byte-identical to the previous working embedded pack; no route, HUD, font or logo artwork was rebuilt.
 
 Download the matching runtime and full playtest instructions from https://github.com/SmokeyDawg58/reskate-custom-mods/releases . This is a local/shareable Thunderstore-format package, not evidence of a published Thunderstore listing.
 ''',encoding='utf-8')

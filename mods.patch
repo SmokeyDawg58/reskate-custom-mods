@@ -1,18 +1,19 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 4d820c3..1c83e5d 100644
+index 4d820c3..333aba0 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -26,6 +26,17 @@ if(WIN32)
+@@ -26,6 +26,18 @@ if(WIN32)
  endif()
  
  option(DINGOSDK_BUILD_TESTS "Build logging regression tests" OFF)
 +if(WIN32 AND DINGOSDK_LEAN_PLAYTEST)
 +    set(DINGOSDK_PLAYTEST_PACKAGE_ROOT "${CMAKE_CURRENT_BINARY_DIR}/playtest-package" CACHE PATH "Packaged client root containing the required Mods asset folder for regression checks")
++    set(DINGOSDK_PLAYTEST_ASSET_FIXTURE_ROOT "${CMAKE_CURRENT_BINARY_DIR}/lean-asset-fixtures" CACHE PATH "Scratch root for native asset tests; choose a short path on Windows")
 +    enable_testing()
 +    add_executable(dingosdk_native_asset_package_tests Engine/Vfs/Test/native_asset_package_tests.cpp)
 +    target_link_libraries(dingosdk_native_asset_package_tests PRIVATE dingosdk_mods dingosdk_launcher_support)
 +    add_test(NAME lean_native_asset_package COMMAND dingosdk_native_asset_package_tests
-+        "${DINGOSDK_PLAYTEST_PACKAGE_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/lean-asset-fixtures")
++        "${DINGOSDK_PLAYTEST_PACKAGE_ROOT}" "${DINGOSDK_PLAYTEST_ASSET_FIXTURE_ROOT}")
 +    add_executable(dingosdk_disabled_diagnostics_tests Engine/Core/Log/Test/disabled_diagnostics_tests.cpp)
 +    target_link_libraries(dingosdk_disabled_diagnostics_tests PRIVATE dingosdk_logging dingosdk_profiler)
 +    add_test(NAME lean_diagnostics_disabled COMMAND dingosdk_disabled_diagnostics_tests "${CMAKE_CURRENT_BINARY_DIR}/lean-log-fixtures")
@@ -20,7 +21,7 @@ index 4d820c3..1c83e5d 100644
  option(DINGOSDK_BUILD_PARK_EDITOR_TESTS "Build park editor regression tests" OFF)
  option(DINGOSDK_BUILD_TRAINER_TESTS "Build the trainer's tools and regression tests" OFF)
  if(DINGOSDK_BUILD_PARK_EDITOR_TESTS)
-@@ -46,6 +57,9 @@ if(DINGOSDK_BUILD_PARK_EDITOR_TESTS AND WIN32)
+@@ -46,6 +58,9 @@ if(DINGOSDK_BUILD_PARK_EDITOR_TESTS AND WIN32)
      add_executable(dingosdk_park_editor_transaction_tests Extension/Objects/ParkEditor/Test/park_editor_transaction_tests.cpp)
      target_link_libraries(dingosdk_park_editor_transaction_tests PRIVATE dingosdk_local_profile dingosdk_logging)
      add_test(NAME park_editor_transactions COMMAND dingosdk_park_editor_transaction_tests)
@@ -30,7 +31,7 @@ index 4d820c3..1c83e5d 100644
      add_executable(dingosdk_profile_migration_tests Extension/Profile/Test/profile_migration_tests.cpp)
      target_link_libraries(dingosdk_profile_migration_tests PRIVATE dingosdk_local_profile)
      add_test(NAME profile_migration COMMAND dingosdk_profile_migration_tests)
-@@ -62,6 +76,36 @@ endif()
+@@ -62,6 +77,36 @@ endif()
  option(DINGOSDK_BUILD_MULTIPLAYER_TESTS "Build multiplayer protocol regression tests" OFF)
  if(DINGOSDK_BUILD_MULTIPLAYER_TESTS)
      enable_testing()
@@ -67,7 +68,7 @@ index 4d820c3..1c83e5d 100644
      if(WIN32)
          add_executable(dingosdk_voice_tests Extension/Multiplayer/Test/voice_chat_tests.cpp Extension/Multiplayer/Net/protocol.cpp
              Extension/Multiplayer/Net/delta_codec.cpp Extension/Multiplayer/Net/wire_codec.cpp)
-@@ -324,11 +368,13 @@ endif()
+@@ -324,11 +369,13 @@ endif()
  option(DINGOSDK_BUILD_HALL_OF_MEAT_TESTS "Build Hall of Meat regression tests" OFF)
  if(DINGOSDK_BUILD_HALL_OF_MEAT_TESTS)
      enable_testing()
@@ -746,10 +747,10 @@ index 2a450d3..2092ae1 100644
          return 1;
 diff --git a/Engine/Vfs/Test/native_asset_package_tests.cpp b/Engine/Vfs/Test/native_asset_package_tests.cpp
 new file mode 100644
-index 0000000..b49d057
+index 0000000..470dc58
 --- /dev/null
 +++ b/Engine/Vfs/Test/native_asset_package_tests.cpp
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,101 @@
 +#include <Windows.h>
 +#include "Engine/Vfs/native_asset_mod.h"
 +#include "Engine/Vfs/native_asset_mod_manifest.h"
@@ -759,57 +760,114 @@ index 0000000..b49d057
 +#include <stdexcept>
 +
 +namespace {
++namespace fs=std::filesystem;
++namespace mods=dingosdk::mods;
 +void require(bool value,const char* message) {if(!value)throw std::runtime_error(message);}
-+bool rejected(const std::filesystem::path& root) {
-+    try {(void)dingosdk::mods::required_throwdown_asset_mod(root);return false;}
++bool rejected(const fs::path& root) {
++    try {(void)mods::required_throwdown_asset_mod(root);return false;}
 +    catch(const std::runtime_error&) {return true;}
++}
++struct Fixture {
++    fs::path parent,path;
++    explicit Fixture(const fs::path& directory):parent(fs::absolute(directory).lexically_normal()),
++        path(parent/(std::to_string(GetCurrentProcessId())+"-"+std::to_string(GetTickCount64()))) {
++        require(path.parent_path()==parent && !fs::exists(path),"Use a fresh child fixture only.");
++        fs::create_directories(path);
++    }
++    ~Fixture() {
++        // Only this freshly created absolute child is ever removed. Payload
++        // hard links below are read-only; tests never write through a link.
++        if(path.parent_path()==parent) {std::error_code error;fs::remove_all(path,error);}
++    }
++};
++fs::path pack(const fs::path& root,std::wstring_view name,const fs::path& source) {
++    const auto directory=root/L"Mods"/name;
++    for(const auto& file:mods::native_package::files) {
++        const auto destination=directory/file.path;
++        fs::create_directories(destination.parent_path());
++        std::error_code error;fs::create_hard_link(source/file.path,destination,error);
++        if(error)fs::copy_file(source/file.path,destination);
++    }
++    fs::create_directories(root/L"Data");
++    {std::ofstream out(root/L"Data"/L"layout.toc");out<<"fixture";}
++    return directory;
++}
++void single_catalog(const fs::path& root,const fs::path& expected) {
++    const auto catalog=mods::load_catalog(root,{},false);
++    require(catalog.issue.empty() && catalog.mods.size()==1 && catalog.disabled.empty(),"Required assets mount once, even with disabled or duplicate copies.");
++    require(catalog.mods.front().directory==expected,"The catalogue must mount the resolved asset folder.");
++}
++void disable(const fs::path& root,std::string_view name) {
++    std::ofstream out(root/L"Mods"/L"mods.json");
++    out<<"{\"schema\":1,\"mods\":[{\"name\":\""<<name<<"\",\"enabled\":false}]}";
 +}
 +}
 +int main(int argc,char** argv) {
 +    try {
 +        require(argc==3,"Expected a complete packaged client root and fixture directory.");
-+        const auto mod=dingosdk::mods::required_throwdown_asset_mod(argv[1]);
-+        require(mod.provides_layout && mod.directory==std::filesystem::path(argv[1])/L"Mods"/dingosdk::mods::native_package::folder,"Required assets mount the mod folder directly.");
-+        require(mod.studio_marker && mod.skate_sha256.size()==64,"Supported game stamp retained.");
-+        require(dingosdk::mods::native_package::files.size()==17,"All 17 native files retained.");
-+        const auto package=std::filesystem::path(argv[1]);
-+        require(!std::filesystem::exists(package/L"Data") && !std::filesystem::exists(package/L"Mods"/L"mods.json"),"Only an isolated package fixture may be used.");
-+        std::filesystem::create_directory(package/L"Data");
-+        {std::ofstream out(package/L"Data"/L"layout.toc");out<<"fixture";}
-+        auto catalog=dingosdk::mods::load_catalog(package,{},false);
-+        require(catalog.issue.empty() && catalog.mods.size()==1,"The required mod must mount exactly once.");
-+        {std::ofstream out(package/L"Mods"/L"mods.json");out<<R"({"schema":1,"mods":[{"name":"SmokeyDawg58-ReSkate_Throwdown_Assets","enabled":false}]})";}
-+        catalog=dingosdk::mods::load_catalog(package,{},false);
-+        require(catalog.issue.empty() && catalog.mods.size()==1 && catalog.disabled.empty(),"Required assets remain a single dependency when its optional duplicate is disabled.");
-+        std::filesystem::remove(package/L"Mods"/L"mods.json");
-+        std::filesystem::remove(package/L"Data"/L"layout.toc");std::filesystem::remove(package/L"Data");
-+        const auto fixture=std::filesystem::path(argv[2])/std::to_string(GetCurrentProcessId());
-+        std::filesystem::create_directories(fixture);
-+        require(rejected(fixture),"Missing mod must fail instead of silently losing logos.");
-+        const auto partial=fixture/L"Mods"/dingosdk::mods::native_package::folder;
-+        std::filesystem::create_directories(partial);
-+        const auto& first=dingosdk::mods::native_package::files.front();
-+        const auto file=partial/first.path;
-+        {std::ofstream out(file,std::ios::binary);out<<std::string(static_cast<std::size_t>(first.bytes),'x');}
-+        require(rejected(fixture),"Same-size corrupt native content must be rejected by hash.");
-+        std::filesystem::remove(file);std::filesystem::remove(partial);std::filesystem::remove(fixture/L"Mods");std::filesystem::remove(fixture);
-+        std::cout<<"Required asset mod: full payload validated; missing and corrupted packages rejected.\n";
++        const auto source=mods::required_throwdown_asset_mod(argv[1]);
++        require(source.provides_layout && source.directory==fs::path(argv[1])/L"Mods"/mods::native_package::folder,"The standard package mounts directly.");
++        require(source.studio_marker && source.skate_sha256.size()==64,"Supported game stamp retained.");
++        require(mods::native_package::files.size()==17,"All 17 native files retained.");
++        const auto base=std::wstring(mods::native_package::folder),versioned=base+L"-1.0.0";
++        require(mods::throwdown_asset_folder_name(base) && mods::throwdown_asset_folder_name(versioned),"Plain and versioned extraction names are recognized.");
++        require(mods::throwdown_asset_folder_name(L"smokeydawg58-reskate_throwdown_assets-12.34.56"),"Windows folder matching is case insensitive.");
++        for(const auto suffix:{L"-backup",L"-1",L"-1.0",L"-1..0",L"-1.0.0.1",L"-1.0.0-extra"})
++            require(!mods::throwdown_asset_folder_name(base+suffix),"Unrelated folders must not be claimed as required assets.");
++
++        Fixture fixture(argv[2]);
++        const auto missing=fixture.path/L"missing";
++        require(rejected(missing),"Missing mod must fail instead of silently losing logos.");
++        const auto partial=missing/L"Mods"/base;
++        fs::create_directories(partial);
++        const auto& first=mods::native_package::files.front();
++        {std::ofstream out(partial/first.path,std::ios::binary);out<<std::string(static_cast<std::size_t>(first.bytes),'x');}
++        require(rejected(missing),"Same-size corrupt native content must be rejected by hash.");
++
++        const auto canonical_root=fixture.path/L"canonical";
++        const auto canonical=pack(canonical_root,base,source.directory);
++        disable(canonical_root,canonical.filename().string());
++        single_catalog(canonical_root,canonical);
++
++        const auto versioned_root=fixture.path/L"versioned";
++        const auto installed=pack(versioned_root,versioned,source.directory);
++        const auto resolved=mods::required_throwdown_asset_mod(versioned_root);
++        require(resolved.directory==installed && resolved.name==installed.filename().string(),"Windows Extract All version suffix mounts with the real folder identity.");
++        disable(versioned_root,installed.filename().string());
++        single_catalog(versioned_root,installed);
++
++        const auto duplicate_root=fixture.path/L"duplicates";
++        const auto preferred=pack(duplicate_root,base,source.directory);
++        pack(duplicate_root,versioned,source.directory);
++        require(mods::required_throwdown_asset_mod(duplicate_root).directory==preferred,"Canonical installation has deterministic priority.");
++        single_catalog(duplicate_root,preferred);
++
++        // A complete versioned pack must not conceal a broken canonical install.
++        pack(missing,versioned,source.directory);
++        require(rejected(missing),"Corrupt canonical assets still fail when a valid versioned copy exists.");
++        const auto wrong=fixture.path/L"unrelated";
++        pack(wrong,base+L"-backup",source.directory);
++        require(rejected(wrong),"Backup directories must not be silently mounted.");
++        std::cout<<"PASS: canonical/versioned packs, disabled dependency, duplicate suppression, integrity and missing/backup errors.\n";
 +        return 0;
 +    } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 +}
 diff --git a/Engine/Vfs/mod_catalog.cpp b/Engine/Vfs/mod_catalog.cpp
-index d0cd48d..73f457c 100644
+index d0cd48d..b3a3194 100644
 --- a/Engine/Vfs/mod_catalog.cpp
 +++ b/Engine/Vfs/mod_catalog.cpp
-@@ -1,6 +1,7 @@
+@@ -1,6 +1,10 @@
  #include "mod_catalog.h"
  
  #include "mod_merge.h"
 +#include "one_up_core_assets.h"
++#if defined(DINGOSDK_LEAN_PLAYTEST)
++#include "native_asset_mod.h"
++#endif
  #include "native_db.h"
  #include "Engine/Core/Json/json.h"
  
-@@ -293,6 +294,16 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
+@@ -293,6 +297,16 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
      auto list = scan_mods(data_root);
      result.root = std::move(list.root);
      result.present = list.present;
@@ -826,14 +884,14 @@ index d0cd48d..73f457c 100644
      if (!result.present) return result;
      for (auto& note : list.notes) result.notes.push_back(std::move(note));
      if (!list.issue.empty()) {
-@@ -366,6 +377,11 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
+@@ -366,6 +380,11 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
              }
          }
          for (auto& entry : list.entries) {
 +#if defined(DINGOSDK_LEAN_PLAYTEST)
-+            // This required mod is already mounted first. Do not merge it twice
-+            // when the ordinary mod scan discovers the same visible folder.
-+            if(!result.mods.empty() && entry.mod.directory==result.mods.front().directory)continue;
++            // The verified dependency is already mounted first. Older/versioned
++            // copies must not become extra native layers in the normal scan.
++            if(throwdown_asset_folder_name(entry.mod.directory.filename().wstring()))continue;
 +#endif
              if (!entry.enabled) {
                  if (std::find(result.set_aside.begin(), result.set_aside.end(), entry.mod.name) == result.set_aside.end()) {
@@ -896,42 +954,92 @@ index 295576a..a38be8a 100644
              // Each carried asset is gone through once, for all the chunks together: looking for
 diff --git a/Engine/Vfs/native_asset_mod.cpp b/Engine/Vfs/native_asset_mod.cpp
 new file mode 100644
-index 0000000..8531ea2
+index 0000000..696d1b2
 --- /dev/null
 +++ b/Engine/Vfs/native_asset_mod.cpp
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,70 @@
 +#include "native_asset_mod.h"
 +#include "native_asset_mod_manifest.h"
 +#include "Engine/Core/Platform/launcher_support.h"
++#include <algorithm>
 +#include <stdexcept>
++#include <vector>
 +
 +namespace dingosdk::mods {
-+Mod required_throwdown_asset_mod(const std::filesystem::path& game) {
-+    const auto directory=game/L"Mods"/native_package::folder;
++namespace {
++std::wstring lower(std::wstring_view name) {
++    std::wstring result(name);
++    for(auto& ch:result)if(ch>=L'A' && ch<=L'Z')ch+=L'a'-L'A';
++    return result;
++}
++std::string asset_issue(const std::filesystem::path& directory) {
 +    for(const auto& file:native_package::files) {
 +        const auto path=directory/file.path;
 +        std::error_code error;
 +        if(!std::filesystem::is_regular_file(path,error) || error)
-+            throw std::runtime_error("The required ReSkate Throwdown Assets mod is missing or incomplete. Extract the complete playtest package beside Skate.exe.");
++            return "The ReSkate Throwdown Assets mod is incomplete: "+directory.filename().string()+"/"+file.path+" is missing. Extract the complete asset ZIP into your active Mods folder.";
 +        if(std::filesystem::file_size(path,error)!=file.bytes || error || launcher::sha256_file(path)!=file.sha256)
-+            throw std::runtime_error("The ReSkate Throwdown Assets mod does not match this DLL. Install the complete matching playtest package.");
++            return "The ReSkate Throwdown Assets mod does not match this DLL: "+directory.filename().string()+"/"+file.path+". Install the complete matching playtest package.";
 +    }
-+    Mod core;core.name="SmokeyDawg58-ReSkate_Throwdown_Assets";core.directory=directory;core.provides_layout=true;
++    return {};
++}
++Mod verified_mod(const std::filesystem::path& directory) {
++    Mod core;core.name=directory.filename().string();core.directory=directory;core.provides_layout=true;
 +    core.title="ReSkate Throwdown Assets";core.author="SmokeyDawg58";core.version="1.0.0";
 +    core.description="Required native logos, gates, flags, menus and HUD assets.";
 +    core.studio_marker=true;core.skate_sha256=std::string(launcher::expected_game_sha256);
 +    return core;
 +}
 +}
++bool throwdown_asset_folder_name(std::wstring_view name) {
++    if(name.size()>maximum_mod_name)return false;
++    const auto base=lower(native_package::folder),normalized=lower(name);
++    if(normalized==base)return true;
++    if(!normalized.starts_with(base+L"-"))return false;
++    const auto suffix=std::wstring_view(normalized).substr(base.size()+1);
++    unsigned dots=0,digits=0;
++    for(const auto ch:suffix) {
++        if(ch>=L'0' && ch<=L'9'){++digits;continue;}
++        if(ch!=L'.' || !digits || ++dots>2)return false;
++        digits=0;
++    }
++    return dots==2 && digits!=0;
++}
++Mod required_throwdown_asset_mod(const std::filesystem::path& game) {
++    const auto mods=game/L"Mods",canonical=mods/native_package::folder;
++    // Prefer the installer's exact destination. Do not hide a broken canonical
++    // installation by selecting another copy behind the user's back.
++    if(std::filesystem::exists(canonical)) {
++        if(auto issue=asset_issue(canonical);!issue.empty())throw std::runtime_error(issue);
++        return verified_mod(canonical);
++    }
++    std::vector<std::filesystem::path> candidates;
++    std::error_code error;
++    for(std::filesystem::directory_iterator at(mods,error),end;!error && at!=end;at.increment(error))
++        if(at->is_directory(error) && throwdown_asset_folder_name(at->path().filename().wstring()))candidates.push_back(at->path());
++    std::sort(candidates.begin(),candidates.end());
++    std::string issue;
++    for(const auto& directory:candidates) {
++        auto current=asset_issue(directory);
++        if(current.empty())return verified_mod(directory);
++        if(issue.empty())issue=std::move(current);
++    }
++    if(!issue.empty())throw std::runtime_error(issue);
++    throw std::runtime_error("The required ReSkate Throwdown Assets mod is missing. Extract its ZIP into the active Mods folder, with layout.toc and Win32 directly inside SmokeyDawg58-ReSkate_Throwdown_Assets or SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.0.");
++}
++}
 diff --git a/Engine/Vfs/native_asset_mod.h b/Engine/Vfs/native_asset_mod.h
 new file mode 100644
-index 0000000..155aee3
+index 0000000..06a85c1
 --- /dev/null
 +++ b/Engine/Vfs/native_asset_mod.h
-@@ -0,0 +1,8 @@
+@@ -0,0 +1,11 @@
 +#pragma once
 +#include "mod_list.h"
 +namespace dingosdk::mods {
++// Manual ZIP extraction and mod managers append a numeric x.y.z version.
++// These names are reserved for the required dependency, including old copies.
++bool throwdown_asset_folder_name(std::wstring_view name);
 +// Validates every required file before mounting the visible Thunderstore mod.
 +// Missing or altered packs fail clearly; a disabled duplicate cannot hide the
 +// runtime's own required dependency and is never mounted a second time.
@@ -1408,15 +1516,16 @@ index 3564fb3..ca260b9 100644
      } catch (...) {
 diff --git a/Extension/Modes/Test/mode_rules_tests.cpp b/Extension/Modes/Test/mode_rules_tests.cpp
 new file mode 100644
-index 0000000..9ce51e5
+index 0000000..d9d682f
 --- /dev/null
 +++ b/Extension/Modes/Test/mode_rules_tests.cpp
-@@ -0,0 +1,842 @@
+@@ -0,0 +1,862 @@
 +// The game modes' rules and wire format without the game: referees are driven by hand with
 +// the events players would send.
 +#include "Extension/Modes/mode_rules.h"
 +#include "Extension/Modes/race_route.h"
 +#include "Extension/Modes/mode_transport.h"
++#include "Extension/Modes/mode_participation.h"
 +#include "Engine/Game/Multiplayer/session_tools.h"
 +#include "Engine/Game/Multiplayer/session_physics.h"
 +#include "Extension/Modes/placement_camera.h"
@@ -1809,6 +1918,25 @@ index 0000000..9ce51e5
 +    set_session_tools_allowed(false,true,false);set_session_tuning_enforced(true);set_competition_stock_physics(true);set_competition_stock_physics(false);
 +    check(!session_noclip_allowed() && session_no_bail_allowed() && !session_boosts_allowed() && session_tuning_enforced(),"leaving race respects existing session policy");
 +    set_session_tools_allowed(true,true,true);set_session_tuning_enforced(false);
++    Settings course;course.mode=Mode::race;course.points={{0,0,0},{10,0,0},{20,0,0}};course.race_finish=true;
++    Message race;race.phase=Phase::playing;race.standings={{a,1},{b,1},{c,1}};
++    check(local_competition_active(course,race,a),"unfinished local racer retains the stock-tools restriction");
++    race.standings[0].score=3;
++    check(!local_competition_active(course,race,a) && local_competition_active(course,race,b),"finishing releases only that player's tool/binding gate while others race");
++    race.standings[1].out=true;
++    check(!local_competition_active(course,race,b) && local_competition_active(course,race,c),"DNF releases its local gate without releasing another racer");
++    check(!local_competition_active(course,race,999),"spectators do not lose their bindings");
++    check(local_quit_kind(false)==Message::Kind::leave && local_quit_kind(true)==Message::Kind::end,"guest Quit sends only Leave; only the leader can send End");
++    Referee continuing(course,a,99);continuing.add_player(a);continuing.add_player(b);continuing.add_player(c);
++    continuing.start(0);continuing.tick(countdown_ms);continuing.remove_player(b,countdown_ms+100);
++    check(continuing.phase()==Phase::playing,"a guest leaving does not end the other racers' challenge");
++    continuing.event(c,Event::checkpoint,1,course.points[1],1,countdown_ms+200);
++    continuing.event(c,Event::checkpoint,2,course.points[2],2,countdown_ms+300);
++    continuing.remove_player(c,countdown_ms+400);
++    const auto after_leave=continuing.state(countdown_ms+500);
++    const auto finisher=std::find_if(after_leave.standings.begin(),after_leave.standings.end(),[](const auto& row){return row.player==c;});
++    check(continuing.phase()==Phase::playing && finisher!=after_leave.standings.end() && !finisher->out && finisher->aux==300,
++        "a finished guest can leave while the host races without losing their finish time or ending the race");
 +}
 +
 +// Each Deathrace gate has its own width: it goes over the wire, bad ones are refused, and the
@@ -3323,10 +3451,10 @@ index 0000000..b265f56
 +} // namespace dingosdk::console
 diff --git a/Extension/Modes/game_modes.cpp b/Extension/Modes/game_modes.cpp
 new file mode 100644
-index 0000000..8b73de1
+index 0000000..120a90c
 --- /dev/null
 +++ b/Extension/Modes/game_modes.cpp
-@@ -0,0 +1,2667 @@
+@@ -0,0 +1,2710 @@
 +#include "game_modes.h"
 +#include "bone_cam.h"
 +#include "mode_rules.h"
@@ -3334,6 +3462,7 @@ index 0000000..8b73de1
 +#include "Engine/Game/Multiplayer/session_competition.h"
 +#include "Extension/Skater/physics_tuning.h"
 +#include "race_route.h"
++#include "mode_participation.h"
 +#include "placement_camera.h"
 +#include "race_world.h"
 +#include "Extension/Throwdowns/one_up_runtime.h"
@@ -4263,8 +4392,11 @@ index 0000000..8b73de1
 +    ControllerInput pad;
 +    DingoSDKOverlayReadControllerInput(&pad);
 +    const bool a_held = pad.available && (pad.buttons & pad_a);
++    const bool native_flag=s.join_target && multiplayer::custom_throwdown_flag_available(s.join_target->first,s.join_target->second);
 +    // The hold starts once there is something to join: pushing up to a banner does not count.
-+    if (!a_held || !s.join_target) s.join_hold_since = 0;
++    // Once its physical flag exists, A belongs to the native interaction and
++    // Join page. Do not concurrently run the older direct-join shortcut.
++    if (!a_held || !s.join_target || native_flag) s.join_hold_since = 0;
 +    else if (!s.join_hold_since) s.join_hold_since = now;
 +    const bool a = s.join_hold_since && now - s.join_hold_since >= join_hold_ms;
 +    const bool key = overlay::key_down('J');
@@ -5272,7 +5404,8 @@ index 0000000..8b73de1
 +        native.state_sampled_ms=g.state_sampled_ms;
 +        native.flag_placed=g.native_flag_placed;
 +        native.pending_flag=g.native_lobby && !g.native_flag_placed && !g.referee;
-+        native.waiting=g.native_lobby && g.native_flag_placed && !g.referee && !native.placing;
++        native.waiting=g.native_lobby && g.native_flag_placed && !g.referee && !native.placing &&
++            (!g.state || g.state->phase==Phase::setup);
 +        if(native.waiting) {
 +            native.waiting_status=missing(g.settings);
 +            if(g.settings.mode==Mode::race && !race_route_ready(g.settings,g.race_finish_placed))
@@ -5292,14 +5425,16 @@ index 0000000..8b73de1
 +    }
 +    native.names.emplace_back(self_id(s),name_of(s,self_id(s)));
 +    for(const auto& [id,name]:s.names)if(id!=self_id(s))native.names.emplace_back(id,name);
-+    const auto local_racer=native.state?std::find_if(native.state->standings.begin(),native.state->standings.end(),[&](const auto& row){return row.player==native.local;}):std::vector<Standing>::const_iterator{};
 +    const auto oneup=multiplayer::one_up::view();
++    const auto oneup_player=std::find_if(oneup.state.players.begin(),oneup.state.players.end(),[&](const auto& player){return player.id==oneup.local;});
 +    const bool oneup_competing=oneup.participant && oneup.state.match &&
++        oneup_player!=oneup.state.players.end() && oneup_player->eligible() &&
 +        oneup.state.phase!=multiplayer::one_up::Phase::lobby && oneup.state.phase!=multiplayer::one_up::Phase::finished && oneup.state.phase!=multiplayer::one_up::Phase::cancelled;
 +    set_competition_stock_physics(oneup_competing || (native.active && native.state &&
-+        (native.state->phase==Phase::countdown || native.state->phase==Phase::playing) && local_racer!=native.state->standings.end()));
++        local_competition_active(native.settings,*native.state,native.local)));
 +    s.input_locked.store(native.state && native.state->phase==Phase::countdown,std::memory_order_release);
-+    s.markers_restricted.store(native.state && (native.state->phase==Phase::countdown || native.state->phase==Phase::playing),std::memory_order_release);
++    s.markers_restricted.store(native.active && native.state &&
++        local_competition_active(native.settings,*native.state,native.local),std::memory_order_release);
 +    std::lock_guard lock(s.hud_mutex);
 +    s.native=std::move(native);
 +    s.hud = std::move(h);
@@ -5340,9 +5475,10 @@ index 0000000..8b73de1
 +        s.lobby_leader = 0;
 +    }
 +    s.barred = input.barred;
-+    if (input.local != s.local || (input.world != s.world && s.game)) {
++    if (input.local != s.local || input.world != s.world) {
 +        if (s.game) end_game(s, "The game ended: the session or map changed.");
 +        s.sat_out.clear();
++        s.offers.clear();s.join_target.reset();s.invite_at=s.invite_leader=0;s.invite_game=0;s.join_hold_since=0;
 +    }
 +    s.local = input.local;
 +    s.world = input.world;
@@ -5716,11 +5852,8 @@ index 0000000..8b73de1
 +    if(v=="quit") {
 +        // Quit leaves immediately; Stop deliberately presents match results.
 +        // Followers also suppress the same host's still-advertised match.
-+        if(g.leading)send(s,header(g,Message::Kind::end));
-+        else {
-+            send(s,header(g,Message::Kind::leave));
-+            s.sat_out.insert({g.leader,g.id});
-+        }
++        send(s,header(g,local_quit_kind(g.leading)));
++        if(!g.leading)s.sat_out.insert({g.leader,g.id});
 +        end_game(s,{});
 +        return "You quit the Throwdown.";
 +    }
@@ -5917,6 +6050,44 @@ index 0000000..8b73de1
 +}
 +
 +NativeView native_view() { auto& s=state();std::lock_guard lock(s.hud_mutex);return s.native; }
++std::vector<NativeFlagOffer> native_flag_offers(std::uint64_t world) {
++    const auto& s=state();std::vector<NativeFlagOffer> result;
++    if(!s.session || !s.world || s.world!=world || s.barred || (s.game && (!s.game->state || s.game->state->phase!=Phase::results)))return result;
++    const auto now=now_ms();
++    for(const auto& offer:s.offers) {
++        if(result.size()==64)break;
++        if(!offer_open(offer) || now-offer.heard>leader_timeout_ms || !s.present.contains(offer.leader))continue;
++        if(offer.settings.mode==Mode::race && !race_route_ready(offer.settings,offer.settings.race_finish))continue;
++        if(const auto at=game_spot(offer.settings))
++            result.push_back({offer.leader,offer.game,std::string(mode_key(offer.settings.mode)),*at,
++                offer.settings.mode==Mode::race?gate_heading(offer.settings,0):0.f,
++                static_cast<unsigned>(offer.players),offer.settings.duration_s,
++                static_cast<unsigned>(mandatory_gates(offer.settings,offer.settings.points.size()))});
++    }
++    return result;
++}
++bool join_native_flag_offer(const NativeFlagOffer& requested,std::uint32_t mmid) {
++    auto& s=state();
++    if(!mmid || s.barred || !s.present.contains(requested.leader))return false;
++    const auto offer=std::find_if(s.offers.begin(),s.offers.end(),[&](const Offer& candidate){
++        return candidate.leader==requested.leader && candidate.game==requested.game && offer_open(candidate) &&
++            now_ms()-candidate.heard<=leader_timeout_ms && mode_key(candidate.settings.mode)==requested.key;
++    });
++    const bool already=s.game && !s.game->leading && s.game->leader==requested.leader && s.game->id==requested.game;
++    if(!already && offer==s.offers.end())return false;
++    if(s.game && !already && (!s.game->state || s.game->state->phase!=Phase::results))return false;
++    const auto settings=already?s.game->settings:offer->settings;
++    if(!multiplayer::one_up::adopt_native_mode_flag(s.world,requested.game,mmid,requested.at,requested.yaw,
++        settings.duration_s,6,settings.mode==Mode::race))return false;
++    if(!already) {
++        const auto copy=*offer;
++        if(join_offer(s,copy,now_ms()).starts_with("error:")) {
++            multiplayer::one_up::flag_registration_left();return false;
++        }
++    }
++    s.game->native_lobby=s.game->native_flag_placed=true;s.game->native_flag_yaw=requested.yaw;
++    return true;
++}
 +void accept_race_start(std::uint64_t world,std::uint32_t game,const Vec3& at,float yaw) {
 +    if(!world || !game || !std::isfinite(yaw) ||
 +       !std::all_of(at.begin(),at.end(),[](float n){return std::isfinite(n) && std::abs(n)<100000;}))return;
@@ -5996,10 +6167,10 @@ index 0000000..8b73de1
 +} // namespace dingosdk::modes
 diff --git a/Extension/Modes/game_modes.h b/Extension/Modes/game_modes.h
 new file mode 100644
-index 0000000..292a28e
+index 0000000..2e7c58f
 --- /dev/null
 +++ b/Extension/Modes/game_modes.h
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,97 @@
 +#pragma once
 +#include "Extension/UI/Overlay/overlay.h"
 +#include "mode_view.h"
@@ -6068,6 +6239,22 @@ index 0000000..292a28e
 +    std::vector<std::pair<std::uint64_t,std::string>> names;
 +};
 +NativeView native_view();
++struct NativeFlagOffer {
++    std::uint64_t leader{};
++    std::uint32_t game{};
++    std::string key;
++    Vec3 at{};
++    float yaw{};
++    unsigned players=1,duration_s=120,required_gates{};
++    bool operator==(const NativeFlagOffer&) const=default;
++    bool same_registration(const NativeFlagOffer& other) const {
++        return leader==other.leader && game==other.game && key==other.key && at==other.at && yaw==other.yaw;
++    }
++};
++// Game-thread bridge: the existing mode invitation owns the race; a native
++// registration supplies its physical flag, POI and stock Join interaction.
++std::vector<NativeFlagOffer> native_flag_offers(std::uint64_t world);
++bool join_native_flag_offer(const NativeFlagOffer& offer,std::uint32_t mmid);
 +void accept_race_start(std::uint64_t world, std::uint32_t game, const Vec3& at, float yaw);
 +// The native flag callback only registers a matching draft's spawn. Starting
 +// stays an explicit waiting-HUD hold action, dispatched on the client tick.
@@ -6081,12 +6268,34 @@ index 0000000..292a28e
 +bool placement_camera_requested() noexcept;
 +bool restricts_session_markers() noexcept;
 +} // namespace dingosdk::modes
+diff --git a/Extension/Modes/mode_participation.h b/Extension/Modes/mode_participation.h
+new file mode 100644
+index 0000000..102d429
+--- /dev/null
++++ b/Extension/Modes/mode_participation.h
+@@ -0,0 +1,16 @@
++#pragma once
++#include "mode_rules.h"
++#include <algorithm>
++
++namespace dingosdk::modes {
++inline Message::Kind local_quit_kind(bool leader) {return leader?Message::Kind::end:Message::Kind::leave;}
++// Restrict tools only while this player can still affect the result. Their
++// saved settings/bindings are never edited by a temporary competition lease.
++inline bool local_competition_active(const Settings& settings,const Message& state,std::uint64_t local) {
++    if(state.phase!=Phase::countdown && state.phase!=Phase::playing)return false;
++    const auto player=std::find_if(state.standings.begin(),state.standings.end(),
++        [&](const Standing& row){return row.player==local;});
++    if(player==state.standings.end() || player->out)return false;
++    return settings.mode!=Mode::race || player->score<static_cast<std::int32_t>(settings.points.size());
++}
++}
 diff --git a/Extension/Modes/mode_rules.cpp b/Extension/Modes/mode_rules.cpp
 new file mode 100644
-index 0000000..42af63c
+index 0000000..953072c
 --- /dev/null
 +++ b/Extension/Modes/mode_rules.cpp
-@@ -0,0 +1,1191 @@
+@@ -0,0 +1,1194 @@
 +#include "mode_rules.h"
 +#include <algorithm>
 +#include <bit>
@@ -6709,6 +6918,9 @@ index 0000000..42af63c
 +        std::erase_if(players_, [&](const Player &q) { return q.id == player; });
 +        return;
 +    }
++    // A completed race result belongs to this run even when its owner leaves
++    // the waiting/results UI while the other racers are still finishing.
++    if(settings_.mode==Mode::race && p->finished)return;
 +    if(settings_.mode==Mode::race && phase_==Phase::playing && !p->finished)
 +        p->aux=static_cast<std::int32_t>(std::min<std::uint64_t>(now_ms>=play_at_?now_ms-play_at_:0,0x7fffffff));
 +    p->out = true;
@@ -10458,10 +10670,10 @@ index 0000000..578945f
 +}
 diff --git a/Extension/Throwdowns/Test/one_up_placement_tests.cpp b/Extension/Throwdowns/Test/one_up_placement_tests.cpp
 new file mode 100644
-index 0000000..d57c578
+index 0000000..9407a19
 --- /dev/null
 +++ b/Extension/Throwdowns/Test/one_up_placement_tests.cpp
-@@ -0,0 +1,529 @@
+@@ -0,0 +1,547 @@
 +#include <Windows.h>
 +static ULONGLONG test_now=1000;
 +static ULONGLONG placement_test_clock() { return test_now; }
@@ -10512,6 +10724,7 @@ index 0000000..d57c578
 +bool available=true;
 +}
 +namespace dingosdk::multiplayer {
++bool local_throwdown_event_active() noexcept {return false;}
 +void release_one_up_native_placeholder() noexcept { ++released; }
 +bool prepare_throwdown_injection() noexcept { return true; }
 +bool queue_throwdown_destroy(std::uint32_t id) noexcept { destroyed.push_back(id); return true; }
@@ -10987,6 +11200,23 @@ index 0000000..d57c578
 +        test_now+=1501;tick();check(!flag_registration_owned());
 +        test_mode_active=false;
 +        check(arm_native_setup(20,1) && native_setup_mode_game()==0);abandon_flag_placement();
++        current_view.world=901;current_view.local=77;current_view.state={};
++        current_mode_view={};current_mode_view.active=true;current_mode_view.leading=false;
++        current_mode_view.world=901;current_mode_view.game=401;current_mode_view.settings.mode=dingosdk::modes::Mode::race;
++        current_mode_view.state=dingosdk::modes::Message{};current_mode_view.state->phase=dingosdk::modes::Phase::setup;
++        test_mode_active=true;
++        const auto handoffs_before_guest=race_handoffs;
++        check(!adopt_native_mode_flag(900,401,5001,{10,20,30},90,120,6,true));
++        check(adopt_native_mode_flag(901,401,5001,{10,20,30},90,120,6,true));
++        check(owns_flag_registration(5001) && known_custom_flag_queue(5001) && native_flag_mode_waiting() && race_flag_registration_owned());
++        check(!adopt_native_mode_flag(901,402,5002,{10,20,30},90,120,6,true));
++        tick();check(race_handoffs==handoffs_before_guest && native_flag_mode_waiting());
++        const auto guest_destroy_before=destroyed.size();
++        current_mode_view.state->phase=dingosdk::modes::Phase::countdown;tick();
++        check(destroyed.size()==guest_destroy_before+1 && destroyed.back()==5001 && test_mode_active);
++        observe_flag_destroyed(5001);tick();check(!flag_registration_owned() && test_mode_active);
++        current_mode_view.state->phase=dingosdk::modes::Phase::results;tick();check(native_flag_mode_game()==0);
++        abandon_flag_placement();
 +        std::cout<<count<<" flag bridge checks passed\n";
 +        return 0;
 +    } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
@@ -11433,6 +11663,99 @@ index 0000000..8dc729e
 +        std::cout << checks << " 1-Up checks passed\n"; return 0;
 +    } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 +}
+diff --git a/Extension/Throwdowns/Test/throwdown_relay_tests.cpp b/Extension/Throwdowns/Test/throwdown_relay_tests.cpp
+index da28c45..63f9b02 100644
+--- a/Extension/Throwdowns/Test/throwdown_relay_tests.cpp
++++ b/Extension/Throwdowns/Test/throwdown_relay_tests.cpp
+@@ -6,6 +6,7 @@
+ #include "Extension/Throwdowns/native_throwdowns.h"
+ #include "Extension/Multiplayer/Hud/native_party.h"
+ #include "Extension/Settings/named_settings.h"
++#include "Extension/Modes/game_modes.h"
+ #include <Windows.h>
+ #include <chrono>
+ #include <cmath>
+@@ -26,6 +27,15 @@ std::map<std::string, std::string> settings_changed;
+ bool leaderboard_live = true;
+ bool types_ready = true; // stands in for the event types of the level being found
+ std::uint64_t last_token{};
++std::vector<dingosdk::modes::NativeFlagOffer> custom_offers;
++std::vector<std::pair<dingosdk::modes::NativeFlagOffer,std::uint32_t>> custom_joins;
++bool accept_custom_join=true;
++}
++namespace dingosdk::modes {
++std::vector<NativeFlagOffer> native_flag_offers(std::uint64_t) {return custom_offers;}
++bool join_native_flag_offer(const NativeFlagOffer& offer,std::uint32_t mmid) {
++    custom_joins.emplace_back(offer,mmid);if(accept_custom_join)custom_offers.clear();return accept_custom_join;
++}
+ }
+ 
+ namespace dingosdk {
+@@ -45,6 +55,10 @@ bool queue_throwdown_spawn(std::uint64_t token, std::uint32_t host, const std::s
+     calls.push_back({"spawn", series, host, 0, 0, token});
+     return true;
+ }
++bool queue_custom_throwdown_flag(std::uint64_t token,std::uint32_t host,const std::string& key,
++    const std::array<float,3>& at,float yaw) noexcept {
++    last_token=token;calls.push_back({"custom flag",key,host,static_cast<std::uint32_t>(at[0]),static_cast<std::int32_t>(yaw),token});return true;
++}
+ bool queue_throwdown_add(std::uint32_t player, const std::string &series, std::uint32_t mmid) noexcept {
+     calls.push_back({"add", series, player, mmid});
+     return true;
+@@ -778,6 +792,45 @@ void level_change_flow() {
+     check(count("spawn") == 1, "The drop was not shown once the event types were found again");
+     end_session();
+ }
++void custom_flag_flow() {
++    const ThrowdownRelayInput in{me,{{leader,3,"Host"},{other,5,"Other"}},true,777};
++    custom_offers={{leader,23,"race",{100,2,30},90,1,180,4}};
++    tick(in);
++    check(count("custom flag")==1 && find("custom flag")->id==0x303 && find("custom flag")->series=="race" &&
++        find("custom flag")->mmid==100 && find("custom flag")->value==90,"custom invitation spawns a native race registration at the saved start, hosted by its remote player");
++    const auto first=last_token;
++    tick(in);check(count("custom flag")==1,"repeat snapshots do not duplicate a physical flag");
++    throwdown_relay_spawned(first,501,10);tick(in);
++    check(custom_throwdown_flag_key(501)=="race","native POI/bubble resolves its own queue's custom logo");
++    check(custom_throwdown_flag_available(leader,23) && !custom_throwdown_flag_available(other,23) && !custom_throwdown_flag_available(leader,24),
++        "only the exact advertised native flag takes over the A interaction");
++    custom_offers.front().players=2;custom_offers.front().duration_s=300;
++    tick(in);
++    const auto info=custom_throwdown_flag_info(501);
++    check(info && info->players==2 && info->duration_s==300 && count("custom flag")==1 && count("destroy")==0,"updated player/time stats do not respawn or flash the flag");
++    local(Local::joined,501);tick(in);
++    check(custom_joins.size()==1 && custom_joins.back().second==501 && custom_joins.back().first.game==23 &&
++        count("start")==0 && count("destroy")==0,"native Join hands the registration to the custom lobby without starting or destroying a Spot Battle");
++    check(custom_throwdown_flag_key(501).empty(),"the guest placement owner takes over the joined flag's lifetime");
++
++    calls.clear();custom_offers={{leader,24,"race",{101,2,30},45}};tick(in);
++    const auto pending=last_token;custom_offers.clear();tick(in);
++    throwdown_relay_spawned(pending,502,10);tick(in);
++    check(count("destroy")==1 && find("destroy")->mmid==502 && custom_throwdown_flag_key(502).empty(),"withdrawal while spawning destroys the late flag instead of reviving a stale invitation");
++
++    calls.clear();custom_offers={{leader,25,"race",{102,2,30},30}};tick(in);
++    throwdown_relay_spawned(last_token,503,10);tick(in);
++    accept_custom_join=false;local(Local::joined,503);tick(in);
++    check(count("remove")==1 && find("remove")->id==2 && count("start")==0,"a rejected stale native Join removes only the local donor participant");
++    accept_custom_join=true;custom_offers.clear();tick(in);
++    check(count("destroy")==1 && find("destroy")->mmid==503,"withdrawn open flags are removed");
++
++    calls.clear();custom_offers={{leader,26,"race",{103,2,30},20}};tick(in);
++    const auto same_tick=last_token;
++    throwdown_relay_spawned(same_tick,504,10);local(Local::joined,504);tick(in);
++    check(custom_joins.back().second==504 && count("destroy")==0,"native Join in the spawn callback's tick resolves the correct mode");
++    custom_offers.clear();end_session();
++}
+ } // namespace
+ 
+ int main() {
+@@ -791,6 +844,7 @@ int main() {
+         challenge_flow();
+         beacon_flow();
+         level_change_flow();
++        custom_flag_flow();
+         std::cout << "Throwdown relay: guest, leader, removal, Spot Battle, S.K.A.T.E., last-player, coop challenge, party beacon and level change flows passed.\n";
+         return 0;
+     } catch (const std::exception &e) {
 diff --git a/Extension/Throwdowns/challenge_registry.cpp b/Extension/Throwdowns/challenge_registry.cpp
 new file mode 100644
 index 0000000..f8e66ea
@@ -11885,7 +12208,7 @@ index 0000000..4398f08
 +};
 +}
 diff --git a/Extension/Throwdowns/native_throwdowns.cpp b/Extension/Throwdowns/native_throwdowns.cpp
-index 68a8335..3c3e6a5 100644
+index 68a8335..24a6e62 100644
 --- a/Extension/Throwdowns/native_throwdowns.cpp
 +++ b/Extension/Throwdowns/native_throwdowns.cpp
 @@ -1,4 +1,12 @@
@@ -12201,7 +12524,7 @@ index 68a8335..3c3e6a5 100644
      ModeParameter{"ThrowdownSkate", "Privacy", 0, 1, 0}};
  
  // Builds the array exactly as the native response flattener
-@@ -403,14 +609,229 @@ std::uint32_t local_native_player_id() noexcept {
+@@ -403,14 +609,232 @@ std::uint32_t local_native_player_id() noexcept {
      profile_runtime::PreserveError preserve;
      try { return active() ? sole_offline_player_id() : 0; } catch (...) { return 0; }
  }
@@ -12220,6 +12543,9 @@ index 68a8335..3c3e6a5 100644
  bool local_throwdown_active() noexcept {
 -    return state().throwdown_active.load(std::memory_order_acquire) || state().throwdown_joined.load(std::memory_order_acquire);
 +    return state().lifetime.active();
++}
++bool local_throwdown_event_active() noexcept {
++    try {return state().lifetime.has_activity();} catch(...) {return true;}
 +}
 +void set_custom_activity_menu_request(Address address) noexcept {
 +    auto& s=state();
@@ -12433,7 +12759,7 @@ index 68a8335..3c3e6a5 100644
      // The throwdown is over once a client throwdown enters its end state or
      // leaves in progress. (Starting the round destroys the registration point
      // through MPThrowdownCoordinator.OnRequestThrowdownDestroy, so neither that
-@@ -421,8 +842,7 @@ void complete_native_throwdown_parameters(Address vm) noexcept {
+@@ -421,8 +845,7 @@ void complete_native_throwdown_parameters(Address vm) noexcept {
              const auto resource = vm ? read<Address>(vm + 0x38) : 0;
              switch (resource ? read<std::uint32_t>(resource + 0x10) : 0) {
              case 0x224de9ab: case 0xd373badf: case 0x2ea80cac: case 0x1d82a056: // Client*Throwdown.EnterEnd
@@ -12443,7 +12769,7 @@ index 68a8335..3c3e6a5 100644
                      logging::log(logging::Level::info, logging::Channel::progression,
                          "Throwdown: ended (graph {:#x}).", read<std::uint32_t>(resource + 0x10));
                  break;
-@@ -572,6 +992,7 @@ void initialize_native_throwdowns(Address base) noexcept {
+@@ -572,6 +995,7 @@ void initialize_native_throwdowns(Address base) noexcept {
      s.attempted = true; s.base = base;
      struct Hook { Address rva; std::array<unsigned char, 19> prefix; void* replacement; void** original; };
      const std::array hooks{
@@ -12452,10 +12778,10 @@ index 68a8335..3c3e6a5 100644
          Hook{throwdowns::player_info, throwdowns::player_info_prefix, reinterpret_cast<void*>(&player_info_hook), reinterpret_cast<void**>(&s.player_info)},
          Hook{throwdowns::service_player_info, throwdowns::service_player_info_prefix, reinterpret_cast<void*>(&service_player_info_hook), reinterpret_cast<void**>(&s.service_player_info)},
 diff --git a/Extension/Throwdowns/native_throwdowns.h b/Extension/Throwdowns/native_throwdowns.h
-index bd35fcf..c68630e 100644
+index bd35fcf..66bbec4 100644
 --- a/Extension/Throwdowns/native_throwdowns.h
 +++ b/Extension/Throwdowns/native_throwdowns.h
-@@ -17,12 +17,40 @@ bool native_throwdown_ready(unsigned predicate) noexcept;
+@@ -17,12 +17,41 @@ bool native_throwdown_ready(unsigned predicate) noexcept;
  // Call after an expression returns: delivers a parameter request that the
  // absent throwdowns_v1 service left pending for that expression.
  void complete_native_throwdown_parameters(std::uintptr_t vm) noexcept;
@@ -12471,6 +12797,7 @@ index bd35fcf..c68630e 100644
  // ends, is left or destroyed. Retail mirrors this onto UIPlayerInfo, where the
  // throwdown Quit action reads it; offline the SDK owns that record.
  bool local_throwdown_active() noexcept;
++bool local_throwdown_event_active() noexcept;
 +// Client UI thread only. Match availability owns the observed native client
 +// activity flag; results, Quit and real world teardown relinquish it.
 +void sync_custom_activity_ui_presence(bool participant) noexcept;
@@ -13134,10 +13461,10 @@ index 0000000..fea2c04
 +} // namespace dingosdk::multiplayer::one_up
 diff --git a/Extension/Throwdowns/one_up_placement.cpp b/Extension/Throwdowns/one_up_placement.cpp
 new file mode 100644
-index 0000000..f4870d7
+index 0000000..00d21ea
 --- /dev/null
 +++ b/Extension/Throwdowns/one_up_placement.cpp
-@@ -0,0 +1,446 @@
+@@ -0,0 +1,465 @@
 +#include "one_up_placement.h"
 +#include "one_up_runtime.h"
 +#include "Extension/Modes/game_modes.h"
@@ -13339,6 +13666,25 @@ index 0000000..f4870d7
 +    return p.step!=Step::idle && (p.step!=Step::waiting || p.mmid!=0);
 +}
 +bool owns_flag_registration(std::uint32_t mmid) noexcept { auto& p=placement(); std::lock_guard lock(p.mutex); return mmid && p.step!=Step::idle && p.mmid==mmid; }
++bool adopt_native_mode_flag(std::uint64_t world,std::uint32_t game,std::uint32_t mmid,
++    const std::array<float,3>& at,float yaw,unsigned seconds,unsigned players,bool race) noexcept {
++    try {
++        const auto local=view();
++        if(!world || world!=local.world || !local.local || local.state.match || local_throwdown_event_active() || !game || !mmid ||
++           !std::isfinite(yaw) || !std::all_of(at.begin(),at.end(),[](float n){return std::isfinite(n) && std::abs(n)<100000.f;}))return false;
++        auto& p=placement();std::lock_guard lock(p.mutex);
++        if(p.step!=Step::idle)return p.step==Step::waiting && p.world==world && p.race_game==game && p.mmid==mmid;
++        reset(p);p.step=Step::waiting;p.world=world;p.local=local.local;p.race_game=game;p.mmid=mmid;
++        p.generic_mode=!race;p.spawn=at;p.seconds=seconds;p.players=players;
++        const float radians=yaw*3.14159265f/180.f,co=std::cos(radians),si=std::sin(radians);
++        p.facing={co,0,-si,0,1,0,si,0,co};
++        p.handed_off=p.match_seen=p.exited=true;
++        p.changed=GetTickCount64();p.until=p.changed+15000;p.status.clear();
++        if(std::find(p.custom_mmids.begin(),p.custom_mmids.end(),mmid)==p.custom_mmids.end())p.custom_mmids.push_back(mmid);
++        release_one_up_native_placeholder(); // Only this donor queue's activity-presence lease; no actual event exists.
++        return true;
++    } catch(...) {return false;}
++}
 +bool flag_registration_waiting() noexcept {
 +    auto& p=placement();std::lock_guard lock(p.mutex);
 +    return p.step==Step::waiting && p.handed_off && p.spawn && p.mmid;
@@ -13586,10 +13932,10 @@ index 0000000..f4870d7
 +}
 diff --git a/Extension/Throwdowns/one_up_placement.h b/Extension/Throwdowns/one_up_placement.h
 new file mode 100644
-index 0000000..c779313
+index 0000000..14dedbb
 --- /dev/null
 +++ b/Extension/Throwdowns/one_up_placement.h
-@@ -0,0 +1,63 @@
+@@ -0,0 +1,67 @@
 +#pragma once
 +#include <array>
 +#include <cstdint>
@@ -13632,6 +13978,10 @@ index 0000000..c779313
 +bool flag_registration_waiting() noexcept;
 +bool flag_registration_retiring() noexcept;
 +bool owns_flag_registration(std::uint32_t mmid) noexcept;
++// A guest joined a mirrored native registration for an advertised custom mode.
++// It keeps the stock Join/waiting/Leave flow, without starting its donor event.
++bool adopt_native_mode_flag(std::uint64_t world,std::uint32_t game,std::uint32_t mmid,
++    const std::array<float,3>& at,float yaw,unsigned seconds,unsigned players,bool race) noexcept;
 +struct FlagSetupOptions { unsigned seconds{}, players{}; };
 +// The accepted flag keeps its selected limits before the custom lobby has
 +// received its first state. UI must not borrow the Spot Battle donor defaults.
@@ -14291,7 +14641,7 @@ index 0000000..51f7fe9
 +bool apply_snapshot(State& current, const Message&, PlayerId authenticated_sender, std::uint64_t world);
 +} // namespace dingosdk::multiplayer::one_up
 diff --git a/Extension/Throwdowns/throwdown_lab.cpp b/Extension/Throwdowns/throwdown_lab.cpp
-index 1aef52b..dcba758 100644
+index 1aef52b..1833a8a 100644
 --- a/Extension/Throwdowns/throwdown_lab.cpp
 +++ b/Extension/Throwdowns/throwdown_lab.cpp
 @@ -1,4 +1,7 @@
@@ -14342,7 +14692,16 @@ index 1aef52b..dcba758 100644
  struct Handled { std::uint32_t event; std::array<std::uint32_t, 3> graphs; };
  constexpr std::array handled_events{
      Handled{0xb2fc396c, {0x04e2faaf}},                 // RequestTurnEnd: TurnBasedServer.OnRequestTurnEnd
-@@ -219,6 +230,7 @@ struct Lab {
+@@ -155,6 +166,8 @@ struct Job {
+     std::uint64_t token{};
+     std::vector<std::uint8_t> placement, settings;
+     std::array<std::uint8_t, 28> trick{}; // attempt (flag = landed)
++    std::string instance;
++    float spawn_yaw{};
+ };
+ struct Lab {
+     Address base{};
+@@ -219,6 +232,7 @@ struct Lab {
      std::uint32_t hosted_mmid{};          // MMID of the local player's own drop (Update/HostSet)
      std::atomic<bool> leaderboard_live{}; // leaderboards[0] belongs to the throwdown running now
      std::atomic<bool> local_entered{};    // the server just made an event of the local player's queue
@@ -14350,7 +14709,7 @@ index 1aef52b..dcba758 100644
      std::atomic<std::uint32_t> server_active{}; // turn-based: whose turn the local server started last
      std::array<std::atomic<std::uint32_t>, 16> players{};
      // `throwdown trace`: every authored graph run in the window, per realm.
-@@ -502,6 +514,7 @@ void participants_changed_hook(Address activity, const Address* added, const Add
+@@ -502,6 +516,7 @@ void participants_changed_hook(Address activity, const Address* added, const Add
              auto& l = lab();
              const auto current = realm();
              const auto joined = id_list(added);
@@ -14358,7 +14717,7 @@ index 1aef52b..dcba758 100644
              if (l.participant_logs.fetch_add(1) < 400) {
                  const auto text = [](const std::vector<std::uint32_t>& ids) {
                      std::string out;
-@@ -510,16 +523,18 @@ void participants_changed_hook(Address activity, const Address* added, const Add
+@@ -510,16 +525,18 @@ void participants_changed_hook(Address activity, const Address* added, const Add
                  };
                  logging::log(logging::Level::info, logging::Channel::progression,
                      "Throwdown lab: participants changed ({} realm, activity {:#x}): added [{}] removed [{}].",
@@ -14380,7 +14739,7 @@ index 1aef52b..dcba758 100644
                  if (activity && activity == l.challenge_activity.load(std::memory_order_acquire) &&
                      std::ranges::find(left, local) != left.end()) {
                      l.challenge_activity.store(0, std::memory_order_release);
-@@ -527,7 +542,7 @@ void participants_changed_hook(Address activity, const Address* added, const Add
+@@ -527,7 +544,7 @@ void participants_changed_hook(Address activity, const Address* added, const Add
                  }
              }
              if (current == server_realm && local) {
@@ -14389,7 +14748,7 @@ index 1aef52b..dcba758 100644
                  if (std::ranges::find(left, local) != left.end()) {
                      // Quit (LeaveInProgress), or the event let the player go: its boards are
                      // no longer the local player's and nothing is relayed for it any more.
-@@ -542,6 +557,8 @@ void participants_changed_hook(Address activity, const Address* added, const Add
+@@ -542,6 +559,8 @@ void participants_changed_hook(Address activity, const Address* added, const Add
              }
              if (current == server_realm && local && std::ranges::find(joined, local) != joined.end()) {
                  l.local_entered.store(true, std::memory_order_release);
@@ -14398,7 +14757,25 @@ index 1aef52b..dcba758 100644
                  ThrowdownLocalAction action{ThrowdownLocalAction::Kind::entered};
                  action.participants = joined;
                  throwdown_relay_local(std::move(action));
-@@ -1330,6 +1347,7 @@ std::string run_job(const Job& job) {
+@@ -1079,7 +1098,7 @@ std::string run_job(const Job& job) {
+             const auto vector = [&](std::uint32_t hash, std::size_t count) {
+                 const auto f = find_field(p->type, hash);
+                 if (!f || f->size < count * 4) throw std::runtime_error(std::format("Throwdown lab: vector field {:#x} missing", hash));
+-                std::array<float, 4> v{pos[0], pos[1], pos[2], 0};
++                std::array<float, 4> v{pos[0], pos[1], pos[2], job.spawn_yaw};
+                 std::memcpy(reinterpret_cast<void*>(at + f->offset), v.data(), count * 4);
+             };
+             vector(field_spawn, 4);
+@@ -1123,7 +1142,7 @@ std::string run_job(const Job& job) {
+         // Party-only resolves the host's game group through its native player,
+         // which a virtual host lacks, so the host would never enter the queue.
+         if (const auto f = find_field(p->type, field_party_only); f && f->size == 1) *reinterpret_cast<std::uint8_t*>(at + f->offset) = 0;
+-        if (const auto f = find_field(p->type, field_instance); f && f->kind == kind_string) assign_string(at + f->offset, "");
++        if (const auto f = find_field(p->type, field_instance); f && f->kind == kind_string) assign_string(at + f->offset, job.instance);
+         e.set_u32(field_number_of_events, 1);
+         const auto summary = describe_params(p->type, at);
+         std::uint32_t player_limit{};
+@@ -1330,6 +1349,7 @@ std::string run_job(const Job& job) {
          Instance e(type_of(event_destroy));
          e.set_u32(field_mmid, mmid);
          e.send();
@@ -14406,7 +14783,7 @@ index 1aef52b..dcba758 100644
          return std::format("RequestThrowdownDestroyGlobal sent for MMID {:#x}", mmid);
      }
      }
-@@ -1430,6 +1448,7 @@ void initialize_throwdown_lab(Address base) noexcept {
+@@ -1430,6 +1450,7 @@ void initialize_throwdown_lab(Address base) noexcept {
              throw std::runtime_error("Throwdown lab: cannot enable hooks");
          l.installed.store(true, std::memory_order_release);
      } catch (const std::exception& e) { logging::write(logging::Level::warning, logging::Channel::progression, e.what()); }
@@ -14414,7 +14791,7 @@ index 1aef52b..dcba758 100644
      // The condition probe replaces the game's AND / OR / NOT, which every authored
      // condition runs through; opt in with RESKATE_THROWDOWN_PROBE=1.
      if (!GetEnvironmentVariableW(L"RESKATE_THROWDOWN_PROBE", nullptr, 0)) return;
-@@ -1445,9 +1464,27 @@ void initialize_throwdown_lab(Address base) noexcept {
+@@ -1445,9 +1466,27 @@ void initialize_throwdown_lab(Address base) noexcept {
                  hook_enable(reinterpret_cast<void*>(base + op.rva)) == HookOk) ++count;
          logging::log(logging::Level::info, logging::Channel::progression, "Throwdown lab: condition probe on {} of 3 boolean ops.", count);
      } catch (...) {}
@@ -14442,7 +14819,7 @@ index 1aef52b..dcba758 100644
      auto& l = lab();
      if (!l.installed.load(std::memory_order_acquire) || injecting || !type || !payload) return;
      if (handled(hash)) { try { note_sent(hash, 0); } catch (...) {} }
-@@ -1552,6 +1589,7 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
+@@ -1552,6 +1591,7 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
              ThrowdownLocalAction action{ThrowdownLocalAction::Kind::exited};
              if (const auto f = find_field(type, field_is_cancelling); f && f->size == 1)
                  action.cancelling = read<std::uint8_t>(payload + f->offset) != 0;
@@ -14450,7 +14827,7 @@ index 1aef52b..dcba758 100644
              {
                  std::lock_guard lock(l.mutex);
                  action.series = l.series; action.mmid = l.hosted_mmid;
-@@ -1633,15 +1671,31 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
+@@ -1633,15 +1673,31 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
          std::string series; std::uint32_t mmid{};
          std::vector<std::uint8_t> params; std::string note;
          bool placed{};
@@ -14483,7 +14860,7 @@ index 1aef52b..dcba758 100644
              placed = spawn[0] != 0 || spawn[1] != 0 || spawn[2] != 0;
          }
          {
-@@ -1662,6 +1716,19 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
+@@ -1662,6 +1718,19 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
                  "Throwdown lab: local client sent {:#x}; series {} MMID {:#x}{}{}.", hash, l.series, l.mmid,
                  note.empty() ? "" : "; ", note);
          }
@@ -14503,7 +14880,7 @@ index 1aef52b..dcba758 100644
          using Kind = ThrowdownLocalAction::Kind;
          const auto kind = hash == event_create ? Kind::created : hash == event_add_participant ? Kind::joined
                          : hash == event_force_start ? Kind::force_started : hash == event_destroy ? Kind::destroy_requested
-@@ -1675,12 +1742,122 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
+@@ -1675,12 +1744,128 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
      } catch (...) {}
  }
  
@@ -14532,6 +14909,12 @@ index 1aef52b..dcba758 100644
 +}
 +
 +bool consume_one_up_throwdown_send(std::uint32_t hash,Address type,Address payload) noexcept {
++    if(!injecting && (hash==event_leave_in_progress || hash==event_force_destroy) && modes::active()) {
++        const auto mode=modes::native_view();
++        if(mode.active && mode.state && (mode.state->phase==modes::Phase::countdown || mode.state->phase==modes::Phase::playing) &&
++           std::any_of(mode.state->standings.begin(),mode.state->standings.end(),[&](const auto& row){return row.player==mode.local;}) &&
++           modes::request_native_quit(mode.world,mode.game))return true;
++    }
 +    if(!injecting && one_up::restricts_session_markers() &&
 +       (hash==event_leave_in_progress || hash==event_force_destroy)) {
 +        // The native activity pause modal uses these same Quit Match requests.
@@ -14626,7 +15009,7 @@ index 1aef52b..dcba758 100644
      auto& l = lab();
      const auto now = now_ms();
      if (now >= l.trace_end_ms) {
-@@ -1714,6 +1891,7 @@ void trace_expression(Address vm) {
+@@ -1714,6 +1899,7 @@ void trace_expression(Address vm) {
      auto& seen = l.trace[key];
      if (!seen.count++) seen.first_ms = now;
      seen.last_ms = now;
@@ -14634,7 +15017,7 @@ index 1aef52b..dcba758 100644
  }
  
  // The pump runs after every expression the game executes, thousands a frame, and almost all
-@@ -1726,6 +1904,7 @@ bool lab_graph(Address vm) noexcept {
+@@ -1726,6 +1912,7 @@ bool lab_graph(Address vm) noexcept {
          std::vector<std::uint32_t> v{graph_celebration, graph_criteria_attempt, graph_queue_filled, graph_round_end_update,
                                       graph_turn_start, graph_skate_timer, graph_turn_end_begin,
                                       0xc33322b2, 0xc4a37359, 0xcc6467cf, 0xf073dd02};
@@ -14642,7 +15025,7 @@ index 1aef52b..dcba758 100644
          for (const auto& h : handled_events) v.insert(v.end(), h.graphs.begin(), h.graphs.end());
          std::ranges::sort(v);
          v.erase(std::unique(v.begin(), v.end()), v.end());
-@@ -1737,6 +1916,143 @@ bool lab_graph(Address vm) noexcept {
+@@ -1737,6 +1924,143 @@ bool lab_graph(Address vm) noexcept {
  }
  } // namespace
  
@@ -14786,7 +15169,7 @@ index 1aef52b..dcba758 100644
  void pump_throwdown_lab(Address vm) noexcept {
      auto& l = lab();
      if (vm && l.installed.load(std::memory_order_acquire) && lab_graph(vm)) {
-@@ -1744,6 +2060,61 @@ void pump_throwdown_lab(Address vm) noexcept {
+@@ -1744,6 +2068,61 @@ void pump_throwdown_lab(Address vm) noexcept {
          try {
              const auto resource = *reinterpret_cast<const Address*>(vm + 0x38);
              const auto graph = resource ? *reinterpret_cast<const std::uint32_t*>(resource + 0x10) : 0U;
@@ -14848,7 +15231,7 @@ index 1aef52b..dcba758 100644
              if (graph == graph_celebration && realm() == client_realm) {
                  // CoopChallengeCelebrationLocation as the graph built it in its locals (page 2).
                  const auto frame = read<std::uint32_t>(resource + 0x20);
-@@ -1783,6 +2154,9 @@ void pump_throwdown_lab(Address vm) noexcept {
+@@ -1783,6 +2162,9 @@ void pump_throwdown_lab(Address vm) noexcept {
                  const auto frame = read<std::uint32_t>(resource + 0x20);
                  const auto locals = read<Address>(read<Address>(vm + 0x30) + ((frame + 15U) & ~15U) + 16);
                  if (locals && graph == graph_queue_filled && l.local_entered.exchange(false, std::memory_order_acq_rel)) {
@@ -14858,7 +15241,7 @@ index 1aef52b..dcba758 100644
                      const auto handle = read<std::uint32_t>(locals + queue_filled_handle_local);
                      const auto seed = read<std::uint32_t>(locals + queue_filled_seed_local);
                      { std::lock_guard lock(l.mutex); l.event_handle = handle; }
-@@ -1927,17 +2301,26 @@ void pump_throwdown_lab(Address vm) noexcept {
+@@ -1927,17 +2309,26 @@ void pump_throwdown_lab(Address vm) noexcept {
  }
  
  void throwdown_lab_before_level_transition(unsigned next) noexcept {
@@ -14885,7 +15268,25 @@ index 1aef52b..dcba758 100644
  bool throwdown_lab_player(std::uint32_t player_id) noexcept {
      if (!player_id) return false;
      for (const auto& slot : lab().players) if (slot.load(std::memory_order_relaxed) == player_id) return true;
-@@ -2132,6 +2515,10 @@ std::string throwdown_lab_command(std::string_view arguments, std::optional<std:
+@@ -2015,6 +2406,17 @@ bool queue_throwdown_spawn(std::uint64_t token, std::uint32_t host, const std::s
+         return queue_relay_job(std::move(job), event_debug_spawn);
+     } catch (...) { return false; }
+ }
++bool queue_custom_throwdown_flag(std::uint64_t token,std::uint32_t host,const std::string& key,
++    const std::array<float,3>& at,float yaw) noexcept {
++    if(!token || !host || !modes::parse_mode(key) || key=="oneup" || key=="skate" || !std::isfinite(yaw) ||
++       !std::all_of(at.begin(),at.end(),[](float n){return std::isfinite(n) && std::abs(n)<100000.f;}))return false;
++    try {
++        Job job{Job::Kind::spawn,host};job.token=token;job.series="SpotBattle";
++        job.instance="ReSkate."+key;job.position=at;job.spawn_yaw=yaw*3.14159265f/180.f;
++        job.max_players=10; // A flag must never auto-start the Spot Battle donor.
++        return queue_relay_job(std::move(job),event_debug_spawn);
++    } catch(...) {return false;}
++}
+ bool queue_throwdown_add(std::uint32_t player, const std::string& series, std::uint32_t mmid) noexcept {
+     if (!player || !mmid) return false;
+     try {
+@@ -2132,6 +2534,10 @@ std::string throwdown_lab_command(std::string_view arguments, std::optional<std:
          at = end == std::string_view::npos ? arguments.size() : end;
      }
      const auto verb = words.empty() ? std::string_view("status") : words[0];
@@ -14896,7 +15297,7 @@ index 1aef52b..dcba758 100644
      if (verb == "relay") return throwdown_relay_status();
      const auto number = [&](std::size_t i) { return i < words.size() ? parse_u32(words[i]) : std::nullopt; };
      const auto current = [&] {
-@@ -2147,6 +2534,7 @@ std::string throwdown_lab_command(std::string_view arguments, std::optional<std:
+@@ -2147,6 +2553,7 @@ std::string throwdown_lab_command(std::string_view arguments, std::optional<std:
                 "  throwdown mirror <host id>          replace your placed drop by the same drop hosted by <host id>\n"
                 "  throwdown join                      join the current queue as the local player (the Join button)\n"
                 "  throwdown start | destroy           force start / destroy the current queue (MMID above)\n"
@@ -14905,7 +15306,7 @@ index 1aef52b..dcba758 100644
                 "  throwdown trace [seconds]           log every authored graph run\n"
                 "  throwdown relay                     multiplayer: linked drops, mirrors and players\n"
 diff --git a/Extension/Throwdowns/throwdown_lab.h b/Extension/Throwdowns/throwdown_lab.h
-index 7d64463..80142eb 100644
+index 7d64463..78abbc1 100644
 --- a/Extension/Throwdowns/throwdown_lab.h
 +++ b/Extension/Throwdowns/throwdown_lab.h
 @@ -17,11 +17,29 @@ void initialize_throwdown_lab(std::uintptr_t base) noexcept;
@@ -14938,8 +15339,190 @@ index 7d64463..80142eb 100644
  // True for ids the lab put into a throwdown; the UI player lookups answer them with
  // the local player's record so rows and host lookups resolve.
  bool throwdown_lab_player(std::uint32_t player_id) noexcept;
+@@ -42,6 +60,10 @@ bool prepare_throwdown_injection() noexcept;
+ // throwdown_relay_spawned(token, ...).
+ bool queue_throwdown_spawn(std::uint64_t token, std::uint32_t host, const std::string &series,
+                            const std::vector<std::uint8_t> &placement, const std::vector<std::uint8_t> &settings) noexcept;
++// The native registration/POI for a custom mode offer. Its donor queue remains
++// open; mode rules, membership and start stay on the existing mode protocol.
++bool queue_custom_throwdown_flag(std::uint64_t token,std::uint32_t host,const std::string& key,
++    const std::array<float,3>& at,float yaw) noexcept;
+ bool queue_throwdown_add(std::uint32_t player, const std::string &series, std::uint32_t mmid) noexcept;
+ bool queue_throwdown_remove(std::uint32_t player) noexcept; // RemoveParticipantFromCommunityEvent as `player`
+ bool queue_throwdown_start(const std::string &series, std::uint32_t mmid) noexcept;
+diff --git a/Extension/Throwdowns/throwdown_relay.cpp b/Extension/Throwdowns/throwdown_relay.cpp
+index 1057718..5af167e 100644
+--- a/Extension/Throwdowns/throwdown_relay.cpp
++++ b/Extension/Throwdowns/throwdown_relay.cpp
+@@ -2,6 +2,7 @@
+ #include "throwdown_lab.h"
+ #include "throwdown_wire.h"
+ #include "native_throwdowns.h"
++#include "Extension/Modes/game_modes.h"
+ #include "Engine/Core/Log/logging.h"
+ #include "Engine/Core/Platform/memory.h"
+ #include "Engine/Game/Build/addresses.h"
+@@ -112,6 +113,12 @@ struct Mirror {
+     bool joined{}; // the local player is in it
+     std::optional<std::vector<std::uint64_t>> start; // the leader started before the copy existed
+ };
++struct CustomFlag {
++    modes::NativeFlagOffer offer;
++    std::uint64_t token{},spawning_since{},retry_at{};
++    std::uint32_t mmid{};
++    bool spawning{},claimed{};
++};
+ const char *state_name(Mirror::State s) {
+     switch (s) {
+     case Mirror::State::waiting: return "waiting";
+@@ -157,6 +164,8 @@ struct Relay {
+     std::map<std::uint64_t, std::size_t> peers; // Steam ID -> slot
+     std::optional<Hosted> hosted;
+     std::map<Key, Mirror> mirrors;
++    std::map<Key,CustomFlag> custom_flags; // game thread; separate from official match mirrors
++    std::map<std::uint32_t,CustomThrowdownFlagInfo> custom_flag_keys; // published under mutex for native UI
+     std::optional<Key> running;
+     std::string running_series;
+     std::map<std::uint64_t, Score> scores;                          // remote totals in `running`
+@@ -472,6 +481,16 @@ void on_local(Relay &r, ThrowdownLocalAction &a, std::uint64_t now) {
+         break;
+     }
+     case Local::joined:
++        for(auto& [key,flag]:r.custom_flags)if(flag.mmid==a.mmid && !flag.claimed) {
++            // Native Join has already enrolled the local player in the flag's
++            // registration. Hand that registration to the custom lobby so its
++            // normal waiting/Leave flow and later teardown remain native.
++            if(modes::join_native_flag_offer(flag.offer,flag.mmid)) {
++                close_hosted(r);leave_mirrors(r,a.mmid);flag.claimed=true;
++            }
++            else if(const auto local=local_native_player_id())queue_throwdown_remove(local);
++            return;
++        }
+         // Joining a queue removes the player from any other one and destroys a drop it hosts.
+         if (r.hosted && a.mmid != r.hosted->id) close_hosted(r);
+         leave_mirrors(r, a.mmid);
+@@ -723,6 +742,10 @@ void on_message(Relay &r, std::uint64_t sender, const ThrowdownMessage &m, std::
+ }
+ 
+ void on_spawned(Relay &r, std::uint64_t token, std::uint32_t mmid, std::uint32_t capacity, std::uint64_t now) {
++    for(auto& [key,flag]:r.custom_flags)if(token && flag.token==token) {
++        flag.spawning=false;flag.mmid=mmid;flag.retry_at=mmid?0:now+1000;
++        return;
++    }
+     for (auto &[key, m] : r.mirrors) {
+         if (m.token != token) continue;
+         if (!mmid) {
+@@ -1051,6 +1074,10 @@ void reset(Relay &r, bool destroy_copies, std::uint64_t now) {
+     if (destroy_copies && r.in_world && r.prepared)
+         for (auto &[key, m] : r.mirrors) destroy_mirror(r, m, now);
+     r.mirrors.clear();
++    if(destroy_copies && r.in_world && r.prepared)
++        for(const auto& [key,flag]:r.custom_flags)if(flag.mmid && !flag.claimed)queue_throwdown_destroy(flag.mmid);
++    r.custom_flags.clear();
++    {std::lock_guard lock(r.mutex);r.custom_flag_keys.clear();}
+     r.spawn_refused.clear();
+     r.declined.clear();
+     r.running.reset();
+@@ -1203,6 +1230,40 @@ void apply_queue_timer(Relay &r, bool linked, std::uint64_t now) {
+     }
+ }
+ 
++void maintain_custom_flags(Relay& r,std::uint64_t now) {
++    std::map<Key,modes::NativeFlagOffer> wanted;
++    for(const auto& offer:modes::native_flag_offers(r.world))
++        if(offer.leader!=r.local && r.peers.contains(offer.leader))wanted.try_emplace(Key{offer.leader,offer.game},offer);
++    for(const auto& [key,offer]:wanted)
++        if(!r.custom_flags.contains(key) && r.custom_flags.size()<64)r.custom_flags[key].offer=offer;
++    for(auto it=r.custom_flags.begin();it!=r.custom_flags.end();) {
++        auto& flag=it->second;const auto desired=wanted.find(it->first);
++        const bool keep=desired!=wanted.end() && desired->second.same_registration(flag.offer);
++        if(keep)flag.offer=desired->second;
++        if(flag.claimed) {it=r.custom_flags.erase(it);continue;} // placement owner now performs native teardown
++        if(flag.spawning && now-flag.spawning_since>spawning_wait_ms) {flag.spawning=false;flag.token=0;flag.retry_at=now+1000;}
++        if(!keep && !flag.spawning) {
++            if(flag.mmid && (!r.prepared || !queue_throwdown_destroy(flag.mmid))) {++it;continue;}
++            it=r.custom_flags.erase(it);continue;
++        }
++        ++it;
++    }
++    const bool spawning=std::any_of(r.custom_flags.begin(),r.custom_flags.end(),[](const auto& row){return row.second.spawning;}) ||
++        std::any_of(r.mirrors.begin(),r.mirrors.end(),[](const auto& row){return row.second.state==Mirror::State::spawning;});
++    if(r.prepared && !spawning)for(auto& [key,flag]:r.custom_flags) {
++        if(flag.mmid || flag.claimed || now<flag.retry_at || !wanted.contains(key) || !wanted.at(key).same_registration(flag.offer))continue;
++        const auto host=virtual_id(r,key.leader);if(!host)continue;
++        const auto token=r.next_token++;
++        if(queue_custom_throwdown_flag(token,host,flag.offer.key,flag.offer.at,flag.offer.yaw)) {
++            flag.token=token;flag.spawning=true;flag.spawning_since=now;
++        } else flag.retry_at=now+250;
++        break;
++    }
++    std::map<std::uint32_t,CustomThrowdownFlagInfo> published;
++    for(const auto& [key,flag]:r.custom_flags)if(flag.mmid && !flag.claimed)
++        published[flag.mmid]={flag.offer.key,flag.offer.players,flag.offer.duration_s,flag.offer.required_gates,key.leader,key.id};
++    {std::lock_guard lock(r.mutex);r.custom_flag_keys=std::move(published);}
++}
+ void maintain(Relay &r, std::uint64_t now) {
+     if (!r.in_world) return;
+     // The event types belong to the level: each one's are found by a background heap scan,
+@@ -1215,6 +1276,7 @@ void maintain(Relay &r, std::uint64_t now) {
+     }
+     std::erase_if(r.spawn_refused, [&](const auto &entry) { return now >= entry.second; });
+     std::erase_if(r.declined, [&](const auto &entry) { return now < entry.second || now - entry.second >= decline_interval_ms; });
++    maintain_custom_flags(r,now);
+     if (r.prepared) {
+         // A spawn nothing answered (the lab reports failures; this is the backstop) must not
+         // hold every other copy back.
+@@ -1226,7 +1288,8 @@ void maintain(Relay &r, std::uint64_t now) {
+                 note("a linked {} never spawned here; giving up on it.", m.series);
+             }
+         // One spawn at a time: the server reports MMIDs in order.
+-        if (std::none_of(r.mirrors.begin(), r.mirrors.end(),
++        if (std::none_of(r.custom_flags.begin(),r.custom_flags.end(),[](const auto& row){return row.second.spawning;}) &&
++            std::none_of(r.mirrors.begin(), r.mirrors.end(),
+                          [](const auto &entry) { return entry.second.state == Mirror::State::spawning; }))
+             for (auto &[key, m] : r.mirrors) {
+                 if (m.state != Mirror::State::waiting) continue;
+@@ -1397,6 +1460,14 @@ std::vector<std::vector<std::uint8_t>> tick_throwdown_relay(std::uintptr_t base,
+         }
+         update_peers(r, input, now);
+         refresh_player_info(r, now);
++        // Registration callbacks can arrive in the same tick as native Join.
++        // Resolve custom tokens first so that Join cannot miss its new MMID.
++        std::erase_if(spawned,[&](const auto& result) {
++            const auto token=std::get<0>(result);
++            if(!token)return false;
++            if(std::none_of(r.custom_flags.begin(),r.custom_flags.end(),[&](const auto& row){return row.second.token==token;}))return false;
++            on_spawned(r,token,std::get<1>(result),std::get<2>(result),now);return true;
++        });
+         for (auto &action : actions) on_local(r, action, now);
+         for (const auto &[token, mmid, max] : spawned) on_spawned(r, token, mmid, max, now);
+         for (const auto &[sender, bytes] : inbox) {
+@@ -1429,6 +1500,23 @@ std::vector<std::vector<std::uint8_t>> tick_throwdown_relay(std::uintptr_t base,
+     return std::exchange(r.outgoing, {});
+ }
+ 
++std::string custom_throwdown_flag_key(std::uint32_t mmid) {
++    const auto info=custom_throwdown_flag_info(mmid);return info?info->key:std::string{};
++}
++bool has_custom_throwdown_flags() {
++    auto& r=relay();std::lock_guard lock(r.mutex);return !r.custom_flag_keys.empty();
++}
++bool custom_throwdown_flag_available(std::uint64_t leader,std::uint32_t game) {
++    auto& r=relay();std::lock_guard lock(r.mutex);
++    return std::any_of(r.custom_flag_keys.begin(),r.custom_flag_keys.end(),[&](const auto& row){
++        return row.second.leader==leader && row.second.game==game;
++    });
++}
++std::optional<CustomThrowdownFlagInfo> custom_throwdown_flag_info(std::uint32_t mmid) {
++    auto& r=relay();std::lock_guard lock(r.mutex);
++    const auto found=r.custom_flag_keys.find(mmid);
++    return found==r.custom_flag_keys.end()?std::optional<CustomThrowdownFlagInfo>{}:found->second;
++}
+ void receive_throwdown_relay(std::uint64_t sender, std::span<const std::uint8_t> message) {
+     auto &r = relay();
+     std::lock_guard lock(r.mutex);
 diff --git a/Extension/Throwdowns/throwdown_relay.h b/Extension/Throwdowns/throwdown_relay.h
-index d28caca..c62e0ef 100644
+index d28caca..f65b2a3 100644
 --- a/Extension/Throwdowns/throwdown_relay.h
 +++ b/Extension/Throwdowns/throwdown_relay.h
 @@ -25,6 +25,7 @@ struct ThrowdownPeer {
@@ -14959,6 +15542,25 @@ index d28caca..c62e0ef 100644
  };
  // Multiplayer session tick (game thread). Returns the encoded messages to send to
  // every other player.
+@@ -44,6 +47,18 @@ std::vector<std::vector<std::uint8_t>> tick_throwdown_relay(std::uintptr_t base,
+ // One message from another player, as relayed by the session (game thread).
+ void receive_throwdown_relay(std::uint64_t sender, std::span<const std::uint8_t> message);
+ std::string throwdown_relay_status();
++// Custom offer registrations use the same native physical flag/POI as retail.
++// The local MMID identifies its mode for map/bubble branding before joining.
++std::string custom_throwdown_flag_key(std::uint32_t mmid);
++bool has_custom_throwdown_flags();
++struct CustomThrowdownFlagInfo {
++    std::string key;
++    unsigned players{},duration_s{},required_gates{};
++    std::uint64_t leader{};
++    std::uint32_t game{};
++};
++std::optional<CustomThrowdownFlagInfo> custom_throwdown_flag_info(std::uint32_t mmid);
++bool custom_throwdown_flag_available(std::uint64_t leader,std::uint32_t game);
+ // Lines for the local player's chat since the last call (a linked throwdown ended because
+ // everyone else left it). Game thread.
+ std::vector<std::string> take_throwdown_relay_notices();
 diff --git a/Extension/Throwdowns/throwdown_wire.cpp b/Extension/Throwdowns/throwdown_wire.cpp
 index 775d0a9..0c13877 100644
 --- a/Extension/Throwdowns/throwdown_wire.cpp
@@ -21603,10 +22205,10 @@ index 0000000..209e392
 +}
 diff --git a/Extension/UI/NativeMenu/throwdown_map_identity.inl b/Extension/UI/NativeMenu/throwdown_map_identity.inl
 new file mode 100644
-index 0000000..ca9f91e
+index 0000000..d503f04
 --- /dev/null
 +++ b/Extension/UI/NativeMenu/throwdown_map_identity.inl
-@@ -0,0 +1,219 @@
+@@ -0,0 +1,231 @@
 +// MapObjectData.DataContext carries the registration's native MMID. The map's
 +// focused object is a POI handle, not a StackItem ID (the latter is allocated
 +// separately when the details card opens). Never identify a custom card by its
@@ -21703,10 +22305,16 @@ index 0000000..ca9f91e
 +    b.map=map;
 +    const auto game=one_up::native_flag_mode_game();
 +    const auto mode=modes::native_view();
-+    const auto* definition=game?(mode.active && mode.game==game?
++    const auto* own_definition=game?(mode.active && mode.game==game?
 +        throwdowns::registry().mode(static_cast<unsigned>(mode.settings.mode)):nullptr):
 +        throwdowns::registry().find("native.oneup");
-+    if(!definition || !one_up::flag_registration_owned()) {restore_map_branding(c);return;}
++    if(!one_up::flag_registration_owned() && !has_custom_throwdown_flags()) {restore_map_branding(c);return;}
++    const auto definition_for=[&](std::uint32_t mmid) -> const throwdowns::Definition* {
++        if(one_up::owns_flag_registration(mmid))return own_definition;
++        const auto key=custom_throwdown_flag_key(mmid);
++        if(const auto value=modes::parse_mode(key))return throwdowns::registry().mode(static_cast<unsigned>(*value));
++        return nullptr;
++    };
 +
 +    const auto table=read<Address>(map+0x48);
 +    const auto buckets=read<std::uint32_t>(map+0x50),count=read<std::uint32_t>(map+0x54);
@@ -21731,7 +22339,7 @@ index 0000000..ca9f91e
 +                const Value context{data,c.type_of(data)};
 +                if(context.type && read<std::uint32_t>(read<Address>(context.type))==0x9b16ae26 && size(context.type)==80) {
 +                    const auto mmid=read<std::uint32_t>(c.address(c.field(context,0x66ba7ea4)));
-+                    if(one_up::owns_flag_registration(mmid)) {
++                    if(const auto* definition=definition_for(mmid)) {
 +                        current.insert(handle);
 +                        brand_flag_bubble(c,poi,data,mmid,definition->logo);
 +                        if(handle==focused)selected_mmid=mmid;
@@ -21780,7 +22388,8 @@ index 0000000..ca9f91e
 +    if(!panel.handle || panel.handle!=b.panel.handle || selected_mmid!=b.card_mmid) {
 +        restore_branding_presenters(c,b.card);b.panel={};b.card_mmid=0;
 +    }
-+    if(!panel.handle)return;
++    const auto* definition=definition_for(selected_mmid);
++    if(!panel.handle || !definition)return;
 +    if(std::any_of(b.card.begin(),b.card.end(),[&](const auto& p) {
 +        return !branding_presenter_attached(c,p);
 +    }))restore_branding_presenters(c,b.card);
@@ -21810,7 +22419,12 @@ index 0000000..ca9f91e
 +    require(read<std::uint32_t>(read<Address>(stats.type))==linear_list.hash,"Native Throwdown map stat list differs.");
 +    const auto rows=c.field(stats,0x345b75b1);
 +    unsigned n{},stride{};c.array(rows,8,n,stride);require(n==3,"Native Throwdown map stat count differs.");
-+    if(!game) {
++    if(const auto remote=custom_throwdown_flag_info(selected_mmid)) {
++        brand_map_stat(c,c.element(rows,0),"Players",std::to_string(remote->players));
++        brand_map_stat(c,c.element(rows,1),remote->key=="race"?"Required Gates":"Duration",
++            remote->key=="race"?std::to_string(remote->required_gates):std::to_string(remote->duration_s)+"s");
++        brand_map_stat(c,c.element(rows,2),"Time Limit",native_hud_race_time(static_cast<std::uint64_t>(remote->duration_s)*1000));
++    } else if(definition->adapter==throwdowns::Adapter::native_one_up) {
 +        const auto v=one_up::view();
 +        const auto players=std::count_if(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.connected;});
 +        brand_map_stat(c,c.element(rows,0),"Players",std::to_string(players)+"/"+std::to_string(v.state.config.max_players));
@@ -27844,7 +28458,7 @@ index 0000000..c785368
 +}
 diff --git a/contrib/throwdown-flags/package_asset_mod.py b/contrib/throwdown-flags/package_asset_mod.py
 new file mode 100644
-index 0000000..0d0e860
+index 0000000..9afcc4a
 --- /dev/null
 +++ b/contrib/throwdown-flags/package_asset_mod.py
 @@ -0,0 +1,65 @@
@@ -27903,11 +28517,11 @@ index 0000000..0d0e860
 +
 +Native logos, placement flags, Deathrace gates, menus, HUD materials and map registrations for the matching custom ReSkate 2.0.7 lean playtest.
 +
-+Install as `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets/`, with `layout.toc`, `Win32` and `initfs_win32` directly inside. The launcher also accepts the standalone package ZIP. Install into your active Mods directory; ModData installations use `ModData/Default/Mods`. The full playtest installer selects that directory automatically.
++Install as `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets/`, with `layout.toc`, `Win32` and `initfs_win32` directly inside. The corrected runtime also accepts `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.0/`, the folder Windows creates when extracting this ZIP. Older lean runtimes require the unversioned name. The launcher also accepts the standalone package ZIP. Install into your active Mods directory; ModData installations use `ModData/Default/Mods`. The full playtest installer selects that directory automatically.
 +
 +Everyone needs this asset mod and the matching custom DLL/launcher. The assets alone do not add custom modes to the stock runtime. No new DLL or game executable is included in this asset-only mod.
 +
-+The custom runtime verifies all 17 native file hashes and mounts this required dependency once, ahead of optional mods. Keep its folder name unchanged. An incomplete or different pack stops preparation with an error instead of silently losing artwork. Asset contents are byte-identical to the previous working embedded pack; no route, HUD, font or logo artwork was rebuilt.
++The custom runtime verifies all 17 native file hashes and mounts this required dependency once, ahead of optional mods. Use the plain folder name or its numeric version suffix; avoid extra nested folders. An incomplete or different pack stops preparation with an error instead of silently losing artwork. Asset contents are byte-identical to the previous working embedded pack; no route, HUD, font or logo artwork was rebuilt.
 +
 +Download the matching runtime and full playtest instructions from https://github.com/SmokeyDawg58/reskate-custom-mods/releases . This is a local/shareable Thunderstore-format package, not evidence of a published Thunderstore listing.
 +''',encoding='utf-8')

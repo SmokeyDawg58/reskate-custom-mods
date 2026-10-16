@@ -624,6 +624,9 @@ bool consume_one_up_marker_expression(Address vm,std::uint32_t pc) noexcept {
 bool local_throwdown_active() noexcept {
     return state().lifetime.active();
 }
+bool local_throwdown_event_active() noexcept {
+    try {return state().lifetime.has_activity();} catch(...) {return true;}
+}
 void set_custom_activity_menu_request(Address address) noexcept {
     auto& s=state();
     s.menu_trace_address.store(0,std::memory_order_release);

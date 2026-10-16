@@ -28,6 +28,7 @@ std::uint32_t local_native_player_id() noexcept;
 // ends, is left or destroyed. Retail mirrors this onto UIPlayerInfo, where the
 // throwdown Quit action reads it; offline the SDK owns that record.
 bool local_throwdown_active() noexcept;
+bool local_throwdown_event_active() noexcept;
 // Client UI thread only. Match availability owns the observed native client
 // activity flag; results, Quit and real world teardown relinquish it.
 void sync_custom_activity_ui_presence(bool participant) noexcept;

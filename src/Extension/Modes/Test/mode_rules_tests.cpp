@@ -3,6 +3,7 @@
 #include "Extension/Modes/mode_rules.h"
 #include "Extension/Modes/race_route.h"
 #include "Extension/Modes/mode_transport.h"
+#include "Extension/Modes/mode_participation.h"
 #include "Engine/Game/Multiplayer/session_tools.h"
 #include "Engine/Game/Multiplayer/session_physics.h"
 #include "Extension/Modes/placement_camera.h"
@@ -395,6 +396,25 @@ void race_stock_policy_flow() {
     set_session_tools_allowed(false,true,false);set_session_tuning_enforced(true);set_competition_stock_physics(true);set_competition_stock_physics(false);
     check(!session_noclip_allowed() && session_no_bail_allowed() && !session_boosts_allowed() && session_tuning_enforced(),"leaving race respects existing session policy");
     set_session_tools_allowed(true,true,true);set_session_tuning_enforced(false);
+    Settings course;course.mode=Mode::race;course.points={{0,0,0},{10,0,0},{20,0,0}};course.race_finish=true;
+    Message race;race.phase=Phase::playing;race.standings={{a,1},{b,1},{c,1}};
+    check(local_competition_active(course,race,a),"unfinished local racer retains the stock-tools restriction");
+    race.standings[0].score=3;
+    check(!local_competition_active(course,race,a) && local_competition_active(course,race,b),"finishing releases only that player's tool/binding gate while others race");
+    race.standings[1].out=true;
+    check(!local_competition_active(course,race,b) && local_competition_active(course,race,c),"DNF releases its local gate without releasing another racer");
+    check(!local_competition_active(course,race,999),"spectators do not lose their bindings");
+    check(local_quit_kind(false)==Message::Kind::leave && local_quit_kind(true)==Message::Kind::end,"guest Quit sends only Leave; only the leader can send End");
+    Referee continuing(course,a,99);continuing.add_player(a);continuing.add_player(b);continuing.add_player(c);
+    continuing.start(0);continuing.tick(countdown_ms);continuing.remove_player(b,countdown_ms+100);
+    check(continuing.phase()==Phase::playing,"a guest leaving does not end the other racers' challenge");
+    continuing.event(c,Event::checkpoint,1,course.points[1],1,countdown_ms+200);
+    continuing.event(c,Event::checkpoint,2,course.points[2],2,countdown_ms+300);
+    continuing.remove_player(c,countdown_ms+400);
+    const auto after_leave=continuing.state(countdown_ms+500);
+    const auto finisher=std::find_if(after_leave.standings.begin(),after_leave.standings.end(),[](const auto& row){return row.player==c;});
+    check(continuing.phase()==Phase::playing && finisher!=after_leave.standings.end() && !finisher->out && finisher->aux==300,
+        "a finished guest can leave while the host races without losing their finish time or ending the race");
 }
 
 // Each Deathrace gate has its own width: it goes over the wire, bad ones are refused, and the

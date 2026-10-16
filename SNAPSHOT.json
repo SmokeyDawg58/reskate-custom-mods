@@ -2,21 +2,21 @@
   "upstream": "https://github.com/Dingo-Shenanigans/ReSkate",
   "upstream_commit": "0f8af627105c1079ef25f36ad83b159ae9d1df1f",
   "version": "2.0.7",
-  "variant": "custom-lean-playtest-20261015",
-  "release_tag": "v2.0.7-custom-20261015-lean-playtest",
+  "variant": "custom-multiplayer-flags-20261015",
+  "release_tag": "v2.0.7-custom-20261015-multiplayer-flags",
   "tests_passed": 79,
   "multiplayer_protocol_version": 50,
   "mode_wire_version": 12,
   "one_up_wire_version": 5,
-  "release_dll_sha256": "4e6a767d4252e7f02ee4bf17d2dddfe07bd790cd681ffa49799f0af6bc5c7163",
-  "release_launcher_sha256": "55411938ebe0a363fea40962ad3b3d17c03b554c9ba479faaa845c887cc43e21",
+  "release_dll_sha256": "57821316505c32aab541f083754a085392ea1c3f8337f1697ad6f06c4dcd8cca",
+  "release_launcher_sha256": "e3caf15e2560b18c83468ce53b98ae074e0368ea17c60ad663a8c023bf6043b8",
   "native_assets_sha256": "d6364defe09be71447108a204d5470771e7444a85d6220f4989bc7ab0226a3f4",
   "native_assets_bytes": 405097123,
   "files": [
     {
       "path": "CMakeLists.txt",
-      "sha256": "fce158291900495f6e42c56977cc6a458ba08963842a7bf9bb212b7f87b08351",
-      "bytes": 31178
+      "sha256": "76a5dd83cf9d9feab9176b711af0034c3e4e201e03110664de36c0cf7a9c6b61",
+      "bytes": 31347
     },
     {
       "path": "CMakePresets.json",
@@ -110,13 +110,13 @@
     },
     {
       "path": "Engine/Vfs/Test/native_asset_package_tests.cpp",
-      "sha256": "5ce9c6513c1903624e36b1554a5a171ab6a9d386d8ff52e513a1cad8648f9628",
-      "bytes": 3269
+      "sha256": "55ea104216622eecbdb39b1dd0528a4962b24c417a96fae415c082f821cf223f",
+      "bytes": 5930
     },
     {
       "path": "Engine/Vfs/mod_catalog.cpp",
-      "sha256": "e61d57978b9c1228c67467c01f889ca26812af8dbecf6859d6559b688734f3c5",
-      "bytes": 30413
+      "sha256": "b20311e2dd89e833757e1b959f1011ab0645f0542cd4231cb3504fcfd9be04a9",
+      "bytes": 30482
     },
     {
       "path": "Engine/Vfs/mod_merge_overrides.cpp",
@@ -125,13 +125,13 @@
     },
     {
       "path": "Engine/Vfs/native_asset_mod.cpp",
-      "sha256": "7715f808d95740448b2e8eaa05cc149d0e6f22f801dea5f9326392ae8e111aaf",
-      "bytes": 1329
+      "sha256": "8cbd6046342b67d2e6c511ceea2a37c19baa23f599f1a0223ba10132d6d4b33b",
+      "bytes": 3566
     },
     {
       "path": "Engine/Vfs/native_asset_mod.h",
-      "sha256": "7ae16cf9b3de9707e949979a49050b0c7f94e288ae89d1c935e8f0a2d8c7e2ec",
-      "bytes": 364
+      "sha256": "0e580e2ce11cccf288e5874cac722b945dd18deb47074ce553664dbadcd6b4bc",
+      "bytes": 575
     },
     {
       "path": "Engine/Vfs/native_asset_mod_manifest.h",
@@ -200,8 +200,8 @@
     },
     {
       "path": "Extension/Modes/Test/mode_rules_tests.cpp",
-      "sha256": "da2fa9d8ad3a78e4cfd4b95a6e2a3263b361b073e468d864e427da59ddceed06",
-      "bytes": 51063
+      "sha256": "1b0d8c172a37fafad0de16d09b01e047dd9ffafac9092ca02d04ea200a5bfc0b",
+      "bytes": 53035
     },
     {
       "path": "Extension/Modes/Test/race_asset_contract_tests.cpp",
@@ -235,18 +235,23 @@
     },
     {
       "path": "Extension/Modes/game_modes.cpp",
-      "sha256": "16a6f56872bd0751cc152e19e27d1a67ed5462bb9e7326cfb30cc44b15746bfc",
-      "bytes": 148709
+      "sha256": "57a643ef7a2059a84b23d88aa2197026805855c4ebda7a0e2caf91c17607f219",
+      "bytes": 151515
     },
     {
       "path": "Extension/Modes/game_modes.h",
-      "sha256": "50a950a7560eb59e0014b0d7982c186c28a70f4de4b001b1b1933cbda3ac650c",
-      "bytes": 3939
+      "sha256": "4c1a1bfa0a0568190bf14ea2d82635e65c30f3533254b582edc831ec238ad188",
+      "bytes": 4669
+    },
+    {
+      "path": "Extension/Modes/mode_participation.h",
+      "sha256": "bb583aa4231ae46c75c7c5b896f7bcb84c44b001c118eb20e6a07810062553b6",
+      "bytes": 855
     },
     {
       "path": "Extension/Modes/mode_rules.cpp",
-      "sha256": "4545140dff91072b5e8b4fdcc817244b4f8483c952d7b8af41bbc97e6c42050d",
-      "bytes": 56742
+      "sha256": "140ff99c685089731938f03efe6eb46cfecfae9eb2bd431d40a2614e037dfc9b",
+      "bytes": 56951
     },
     {
       "path": "Extension/Modes/mode_rules.h",
@@ -470,8 +475,8 @@
     },
     {
       "path": "Extension/Throwdowns/Test/one_up_placement_tests.cpp",
-      "sha256": "37444fe98b5e73d2f514a9189169292543e8d7db981bf02198b5b39536dc26f8",
-      "bytes": 38784
+      "sha256": "2aa3e0d4e77e79891ccaba27d1ab628249ca1bb3504ace9d4f96c5b3fa3dc634",
+      "bytes": 40301
     },
     {
       "path": "Extension/Throwdowns/Test/one_up_runtime_tests.cpp",
@@ -482,6 +487,11 @@
       "path": "Extension/Throwdowns/Test/one_up_tests.cpp",
       "sha256": "b3c47af2b88e3fde1fa2834797c31d076a0c3481a0ae6260d22fedcc28727e3c",
       "bytes": 12110
+    },
+    {
+      "path": "Extension/Throwdowns/Test/throwdown_relay_tests.cpp",
+      "sha256": "98de93964d2914f6790dda7cb4f607d3dc6c892f047183642a82f2d1ea869c47",
+      "bytes": 42128
     },
     {
       "path": "Extension/Throwdowns/challenge_registry.cpp",
@@ -510,13 +520,13 @@
     },
     {
       "path": "Extension/Throwdowns/native_throwdowns.cpp",
-      "sha256": "bb07fe765989642c95d1f855e14d58dc43cb68203e98cf0131259e19ee893b36",
-      "bytes": 63253
+      "sha256": "96bea8dbf5c5842f9f6391cc54204a60fef4e1af68ab8706403d2a929e1dd969",
+      "bytes": 63378
     },
     {
       "path": "Extension/Throwdowns/native_throwdowns.h",
-      "sha256": "6935c9f5847c865133e36aa0ca2863bb137f1477d7825ba6143e000d0055346c",
-      "bytes": 3738
+      "sha256": "93ca2ef25f4ccaf76e70d425ff8e651f06355f6eeaf44c651b9f39192f286976",
+      "bytes": 3784
     },
     {
       "path": "Extension/Throwdowns/one_up_input_contract.h",
@@ -550,13 +560,13 @@
     },
     {
       "path": "Extension/Throwdowns/one_up_placement.cpp",
-      "sha256": "618909c9e3144296656de2cb988654255f7dfe7959ff9003256cdbcdb769eeeb",
-      "bytes": 24849
+      "sha256": "1cfdd725f67a6a33dda25bf90efad19d4af46ebb01975b769d4211193c19a908",
+      "bytes": 26272
     },
     {
       "path": "Extension/Throwdowns/one_up_placement.h",
-      "sha256": "a0f55fb69e68f654b1c09932485043e872c0bfc6c85b0df25beb4a8ab417478b",
-      "bytes": 3643
+      "sha256": "990672829af3737f183b46dd6217f9d4c3e1bbd5cb6e2038d922dc6ad4466d6f",
+      "bytes": 3990
     },
     {
       "path": "Extension/Throwdowns/one_up_runtime.cpp",
@@ -590,18 +600,23 @@
     },
     {
       "path": "Extension/Throwdowns/throwdown_lab.cpp",
-      "sha256": "8baf0c109eacd8860d8d4132efcca52493adebf1f81b699bcdcbc30d08d00e9c",
-      "bytes": 161392
+      "sha256": "16e5e5903b7486efed03e28695a2ea6f19e69ac4478505368801cf4f74123fca",
+      "bytes": 162702
     },
     {
       "path": "Extension/Throwdowns/throwdown_lab.h",
-      "sha256": "6dbde7aa8617781c1628ccf975b22691f5bd9ed4f24464a87bc60460d31f39c6",
-      "bytes": 7567
+      "sha256": "d458a448c5731331f919f1f1eac75273e33ae7d75691f1046f87ee4c6865d43b",
+      "bytes": 7876
+    },
+    {
+      "path": "Extension/Throwdowns/throwdown_relay.cpp",
+      "sha256": "ec0bd82ba428b3f9d849f753a6820181fbc9b790645a318de3abd72b5f5a6eef",
+      "bytes": 84037
     },
     {
       "path": "Extension/Throwdowns/throwdown_relay.h",
-      "sha256": "d0295ba157c781f972d26c003b55f64e526460e70edea6f35a2b1c5cf3278066",
-      "bytes": 9059
+      "sha256": "80eb0984601850ab08c9967f558c395c3baa307b6c9475dc8eb3b612e53ace3d",
+      "bytes": 9641
     },
     {
       "path": "Extension/Throwdowns/throwdown_wire.cpp",
@@ -695,8 +710,8 @@
     },
     {
       "path": "Extension/UI/NativeMenu/throwdown_map_identity.inl",
-      "sha256": "28837f4191ce4e207fb2635831b218b9cd33473c1db876cf7b08f1e6868f41ac",
-      "bytes": 13249
+      "sha256": "43100a8d142758d4d955dc0651a00b7acb6d9fcc27167c62309775ff48b6094a",
+      "bytes": 14266
     },
     {
       "path": "Extension/UI/NativeMenu/throwdown_modes_ui.inl",
@@ -910,8 +925,8 @@
     },
     {
       "path": "contrib/throwdown-flags/package_asset_mod.py",
-      "sha256": "12c8dd4bfa962f7d913a3f4fff04c499e0f209d01f2a329ee94f24581574572f",
-      "bytes": 4764
+      "sha256": "dd5c64f0a0e9a997196b8fe22e608ee739beed292f1a0d663d33a04a3e0e7ee6",
+      "bytes": 5008
     },
     {
       "path": "contrib/throwdown-flags/shader_depot.cpp",
@@ -935,13 +950,12 @@
     "assets/throwdowns/placeholder-badges.png"
   ],
   "manual_verification": [
-    "Original native asset bytes and functional HUD/menu source retained."
+    "guest_sees_native_deathrace_flag_and_joins_through_it",
+    "local_controls_return_after_finish_or_dnf",
+    "guest_quit_leaves_host_race_running"
   ],
   "manual_verification_pending": [
-    "Two separate Steam accounts/PCs: host/invite/join, shared gates/spawn facing, finish order/time and remote identity.",
-    "Two consecutive races, native Start/Back/Quit, leader/guest departure and reconnect.",
-    "Matching custom maps, map changes, larger route transfer and latency.",
-    "First manual launch of this lean external-mod packaging variant."
+    "The guest flag currently inherits some Spot Battle wording and its waiting action can say Start. Only the host can start the custom race. Correct Deathrace wording and a guest Ready counter are being worked on separately; they are not included in this tested snapshot."
   ],
   "readiness": "READY_FOR_CONTROLLED_MULTIPLAYER_PLAYTEST",
   "publication_policy": "Publish only when the owner asks; include matching runtime, launcher, archive, checksums, manifest and source.",

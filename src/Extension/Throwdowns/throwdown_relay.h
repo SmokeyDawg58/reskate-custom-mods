@@ -47,6 +47,18 @@ std::vector<std::vector<std::uint8_t>> tick_throwdown_relay(std::uintptr_t base,
 // One message from another player, as relayed by the session (game thread).
 void receive_throwdown_relay(std::uint64_t sender, std::span<const std::uint8_t> message);
 std::string throwdown_relay_status();
+// Custom offer registrations use the same native physical flag/POI as retail.
+// The local MMID identifies its mode for map/bubble branding before joining.
+std::string custom_throwdown_flag_key(std::uint32_t mmid);
+bool has_custom_throwdown_flags();
+struct CustomThrowdownFlagInfo {
+    std::string key;
+    unsigned players{},duration_s{},required_gates{};
+    std::uint64_t leader{};
+    std::uint32_t game{};
+};
+std::optional<CustomThrowdownFlagInfo> custom_throwdown_flag_info(std::uint32_t mmid);
+bool custom_throwdown_flag_available(std::uint64_t leader,std::uint32_t game);
 // Lines for the local player's chat since the last call (a linked throwdown ended because
 // everyone else left it). Game thread.
 std::vector<std::string> take_throwdown_relay_notices();

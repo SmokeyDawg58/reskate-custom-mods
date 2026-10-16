@@ -5,6 +5,7 @@
 #include "Engine/Game/Multiplayer/session_competition.h"
 #include "Extension/Skater/physics_tuning.h"
 #include "race_route.h"
+#include "mode_participation.h"
 #include "placement_camera.h"
 #include "race_world.h"
 #include "Extension/Throwdowns/one_up_runtime.h"
@@ -934,8 +935,11 @@ void run_invites(State &s, std::uint64_t now) {
     ControllerInput pad;
     DingoSDKOverlayReadControllerInput(&pad);
     const bool a_held = pad.available && (pad.buttons & pad_a);
+    const bool native_flag=s.join_target && multiplayer::custom_throwdown_flag_available(s.join_target->first,s.join_target->second);
     // The hold starts once there is something to join: pushing up to a banner does not count.
-    if (!a_held || !s.join_target) s.join_hold_since = 0;
+    // Once its physical flag exists, A belongs to the native interaction and
+    // Join page. Do not concurrently run the older direct-join shortcut.
+    if (!a_held || !s.join_target || native_flag) s.join_hold_since = 0;
     else if (!s.join_hold_since) s.join_hold_since = now;
     const bool a = s.join_hold_since && now - s.join_hold_since >= join_hold_ms;
     const bool key = overlay::key_down('J');
@@ -1943,7 +1947,8 @@ void build_hud(State &s, std::uint64_t now) {
         native.state_sampled_ms=g.state_sampled_ms;
         native.flag_placed=g.native_flag_placed;
         native.pending_flag=g.native_lobby && !g.native_flag_placed && !g.referee;
-        native.waiting=g.native_lobby && g.native_flag_placed && !g.referee && !native.placing;
+        native.waiting=g.native_lobby && g.native_flag_placed && !g.referee && !native.placing &&
+            (!g.state || g.state->phase==Phase::setup);
         if(native.waiting) {
             native.waiting_status=missing(g.settings);
             if(g.settings.mode==Mode::race && !race_route_ready(g.settings,g.race_finish_placed))
@@ -1963,14 +1968,16 @@ void build_hud(State &s, std::uint64_t now) {
     }
     native.names.emplace_back(self_id(s),name_of(s,self_id(s)));
     for(const auto& [id,name]:s.names)if(id!=self_id(s))native.names.emplace_back(id,name);
-    const auto local_racer=native.state?std::find_if(native.state->standings.begin(),native.state->standings.end(),[&](const auto& row){return row.player==native.local;}):std::vector<Standing>::const_iterator{};
     const auto oneup=multiplayer::one_up::view();
+    const auto oneup_player=std::find_if(oneup.state.players.begin(),oneup.state.players.end(),[&](const auto& player){return player.id==oneup.local;});
     const bool oneup_competing=oneup.participant && oneup.state.match &&
+        oneup_player!=oneup.state.players.end() && oneup_player->eligible() &&
         oneup.state.phase!=multiplayer::one_up::Phase::lobby && oneup.state.phase!=multiplayer::one_up::Phase::finished && oneup.state.phase!=multiplayer::one_up::Phase::cancelled;
     set_competition_stock_physics(oneup_competing || (native.active && native.state &&
-        (native.state->phase==Phase::countdown || native.state->phase==Phase::playing) && local_racer!=native.state->standings.end()));
+        local_competition_active(native.settings,*native.state,native.local)));
     s.input_locked.store(native.state && native.state->phase==Phase::countdown,std::memory_order_release);
-    s.markers_restricted.store(native.state && (native.state->phase==Phase::countdown || native.state->phase==Phase::playing),std::memory_order_release);
+    s.markers_restricted.store(native.active && native.state &&
+        local_competition_active(native.settings,*native.state,native.local),std::memory_order_release);
     std::lock_guard lock(s.hud_mutex);
     s.native=std::move(native);
     s.hud = std::move(h);
@@ -2011,9 +2018,10 @@ std::vector<std::vector<std::uint8_t>> tick(const SessionInput &input) {
         s.lobby_leader = 0;
     }
     s.barred = input.barred;
-    if (input.local != s.local || (input.world != s.world && s.game)) {
+    if (input.local != s.local || input.world != s.world) {
         if (s.game) end_game(s, "The game ended: the session or map changed.");
         s.sat_out.clear();
+        s.offers.clear();s.join_target.reset();s.invite_at=s.invite_leader=0;s.invite_game=0;s.join_hold_since=0;
     }
     s.local = input.local;
     s.world = input.world;
@@ -2387,11 +2395,8 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
     if(v=="quit") {
         // Quit leaves immediately; Stop deliberately presents match results.
         // Followers also suppress the same host's still-advertised match.
-        if(g.leading)send(s,header(g,Message::Kind::end));
-        else {
-            send(s,header(g,Message::Kind::leave));
-            s.sat_out.insert({g.leader,g.id});
-        }
+        send(s,header(g,local_quit_kind(g.leading)));
+        if(!g.leading)s.sat_out.insert({g.leader,g.id});
         end_game(s,{});
         return "You quit the Throwdown.";
     }
@@ -2588,6 +2593,44 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
 }
 
 NativeView native_view() { auto& s=state();std::lock_guard lock(s.hud_mutex);return s.native; }
+std::vector<NativeFlagOffer> native_flag_offers(std::uint64_t world) {
+    const auto& s=state();std::vector<NativeFlagOffer> result;
+    if(!s.session || !s.world || s.world!=world || s.barred || (s.game && (!s.game->state || s.game->state->phase!=Phase::results)))return result;
+    const auto now=now_ms();
+    for(const auto& offer:s.offers) {
+        if(result.size()==64)break;
+        if(!offer_open(offer) || now-offer.heard>leader_timeout_ms || !s.present.contains(offer.leader))continue;
+        if(offer.settings.mode==Mode::race && !race_route_ready(offer.settings,offer.settings.race_finish))continue;
+        if(const auto at=game_spot(offer.settings))
+            result.push_back({offer.leader,offer.game,std::string(mode_key(offer.settings.mode)),*at,
+                offer.settings.mode==Mode::race?gate_heading(offer.settings,0):0.f,
+                static_cast<unsigned>(offer.players),offer.settings.duration_s,
+                static_cast<unsigned>(mandatory_gates(offer.settings,offer.settings.points.size()))});
+    }
+    return result;
+}
+bool join_native_flag_offer(const NativeFlagOffer& requested,std::uint32_t mmid) {
+    auto& s=state();
+    if(!mmid || s.barred || !s.present.contains(requested.leader))return false;
+    const auto offer=std::find_if(s.offers.begin(),s.offers.end(),[&](const Offer& candidate){
+        return candidate.leader==requested.leader && candidate.game==requested.game && offer_open(candidate) &&
+            now_ms()-candidate.heard<=leader_timeout_ms && mode_key(candidate.settings.mode)==requested.key;
+    });
+    const bool already=s.game && !s.game->leading && s.game->leader==requested.leader && s.game->id==requested.game;
+    if(!already && offer==s.offers.end())return false;
+    if(s.game && !already && (!s.game->state || s.game->state->phase!=Phase::results))return false;
+    const auto settings=already?s.game->settings:offer->settings;
+    if(!multiplayer::one_up::adopt_native_mode_flag(s.world,requested.game,mmid,requested.at,requested.yaw,
+        settings.duration_s,6,settings.mode==Mode::race))return false;
+    if(!already) {
+        const auto copy=*offer;
+        if(join_offer(s,copy,now_ms()).starts_with("error:")) {
+            multiplayer::one_up::flag_registration_left();return false;
+        }
+    }
+    s.game->native_lobby=s.game->native_flag_placed=true;s.game->native_flag_yaw=requested.yaw;
+    return true;
+}
 void accept_race_start(std::uint64_t world,std::uint32_t game,const Vec3& at,float yaw) {
     if(!world || !game || !std::isfinite(yaw) ||
        !std::all_of(at.begin(),at.end(),[](float n){return std::isfinite(n) && std::abs(n)<100000;}))return;

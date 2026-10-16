@@ -1,23 +1,26 @@
-# ReSkate custom Throwdowns — lean playtest
+# ReSkate custom Throwdowns — multiplayer playtest
 
-Download the **complete client ZIP** from the [lean playtest release](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.0.7-custom-20261015-lean-playtest). It contains the matching ReSkate.dll, launcher, installer, preflight checker and the required **SmokeyDawg58-ReSkate_Throwdown_Assets** mod folder.
+## Downloads
 
-The DLL is about 14 MB instead of 420 MB. The native artwork and game-data pack now lives in the visible Mods folder. Every player needs it for custom logos, flags, gates, menus and HUD artwork. The full ZIP still includes the complete native data; its overall size reflects those assets. A separate Thunderstore-format asset ZIP is available for mod-manager installation. It has not been published to a Thunderstore account.
+Use the [latest tested multiplayer release](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.0.7-custom-20261015-multiplayer-flags). **Every player needs the matching DLL and launcher plus the required asset mod.**
 
-File logging, debugger/console log sinks, intensive native traces, model dumps, profiling, memory tracing, crash reporting, pose recording and trainer telemetry are disabled. No PDB or CodeView/COFF symbols are shipped. Native gameplay, protective cleanup hooks, HUD behavior, fonts and artwork are retained. The installer preserves unrelated mods/settings and backs up replaced files; it never starts or closes programs.
+| Download | Use |
+| --- | --- |
+| [Full playtest package](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-multiplayer-flags/ReSkate-2.0.7-Multiplayer-Playtest-Full-20261015.zip) | Recommended for new players: matching DLL, launcher, complete required asset mod, backup installer and preflight checker. |
+| [Small runtime update](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-multiplayer-flags/ReSkate-2.0.7-Multiplayer-Runtime-Update-20261015.zip) | Existing players with the complete asset mod: replace both DLL and launcher together. |
+| [Required asset mod](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-multiplayer-flags/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.0.zip) | Logos, physical flags, gates, menus and HUD artwork. Extract as a mod folder; matching runtime also required. |
+| [DLL](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-multiplayer-flags/ReSkate.dll) / [Launcher](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-multiplayer-flags/ReSkateLauncher.exe) | Individual matching runtime files. Both are already in the packages above. |
 
-**79 automated checks passed.** Asset integrity, duplicate mount prevention, disabled diagnostics and installation rollback were checked. Fresh server simulations retained 4 and 16 clients with zero failed sends, including a simulated stall. **Live Steam multiplayer and first-launch rendering of this lean packaging variant still need verification.** See [DIAGNOSTICS.md](DIAGNOSTICS.md) and [PLAYTEST.md](PLAYTEST.md).
+The DLL is about14MB; assets are supplied in the visible Mods folder. Existing version1.0.0 native asset files are unchanged. The runtime accepts the plain mod name or a numeric version suffix added by extraction. Keep layout.toc, Win32 and initfs_win32 directly inside the mod folder. See [PLAYTEST.md](PLAYTEST.md) for installation.
 
-## Build
+## Tested behavior
 
-1. Start from official [ReSkate](https://github.com/Dingo-Shenanigans/ReSkate) commit `0f8af627105c1079ef25f36ad83b159ae9d1df1f`. Apply `mods.patch` after `git apply --check` succeeds.
-2. Download native_assets.bin from this same release into assets/one_up/native_assets.bin. Verify its SHA-256 against SNAPSHOT.json. It is a source/build archive; the lean game loads the extracted mod folder.
-3. Run `python contrib/throwdown-flags/package_asset_mod.py --output build/lean-playtest-x64/playtest-package/Mods/SmokeyDawg58-ReSkate_Throwdown_Assets`.
-4. With Visual Studio 2022 C++ tools, CMake 3.24+ and Python 3.11+, configure `cmake --preset lean-playtest-x64`, then build `cmake --build --preset lean-playtest-release --parallel 4`.
-5. Run `ctest --test-dir build/lean-playtest-x64 -C Release --output-on-failure`. Distribute the Release DLL/launcher plus the exported required mod folder together.
+79 automated checks pass. The owner confirmed on two PCs that the guest sees and joins through the native Deathrace flag, controls return after finish/DNF, and guest Quit leaves the host race running. The working fast, steady HUD and native Start/Back/Quit flow are retained. Logging/profiling/crash capture and shipped debug symbols are disabled. See [DIAGNOSTICS.md](DIAGNOSTICS.md) for scope.
 
-The normal vs2022-x64 preset remains available for development with embedded assets and diagnostics. The lean preset is the published playtest configuration. src/ is the modified overlay; mods.patch reconstructs it against the pinned upstream commit. SNAPSHOT.json pins source and assets. Large binaries and the source asset archive are release downloads.
+Known follow-up: The guest flag currently inherits some Spot Battle wording and its waiting action can say Start. Only the host can start the custom race. Correct Deathrace wording and a guest Ready counter are being worked on separately; they are not included in this tested snapshot.
 
-The assets use the mod layout documented by the user-provided Studio source: layout.toc/Win32 directly inside a named mod folder. The standalone ZIP includes root manifest.json, README.md and a 256×256 PNG icon as specified by [Thunderstore's package guide](https://wiki.thunderstore.io/mods/creating-a-package). No Studio process is launched and no native asset was reauthored.
+## Build from source
 
-ReSkate and its modified source use GPL-3.0; see LICENSE. No game executable or unrelated third-party maps/cosmetics/settings are distributed. Publish only when explicitly requested, with matching source, runtime, launcher, native archive and checksums; never publish credentials or personal logs.
+Start from [official ReSkate](https://github.com/Dingo-Shenanigans/ReSkate) commit `0f8af627105c1079ef25f36ad83b159ae9d1df1f` and apply mods.patch after git apply --check succeeds. src/ contains the modified overlay. SNAPSHOT.json pins each source file and the original native asset archive. Download native_assets.bin from the same release into assets/one_up/native_assets.bin, verify its checksum, then export the required mod with contrib/throwdown-flags/package_asset_mod.py. Configure lean-playtest-x64, build lean-playtest-release and run the full Release CTest suite. The normal development preset retains optional diagnostics and embedded assets.
+
+The standalone asset ZIP follows the Studio-supported mod layout and Thunderstore package format. No Thunderstore account listing is claimed. No game executable, Steam DLL, unrelated mods or personal settings are distributed. ReSkate and its modified source use GPL-3.0; see LICENSE.

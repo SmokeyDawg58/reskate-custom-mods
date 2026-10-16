@@ -66,6 +66,22 @@ struct NativeView {
     std::vector<std::pair<std::uint64_t,std::string>> names;
 };
 NativeView native_view();
+struct NativeFlagOffer {
+    std::uint64_t leader{};
+    std::uint32_t game{};
+    std::string key;
+    Vec3 at{};
+    float yaw{};
+    unsigned players=1,duration_s=120,required_gates{};
+    bool operator==(const NativeFlagOffer&) const=default;
+    bool same_registration(const NativeFlagOffer& other) const {
+        return leader==other.leader && game==other.game && key==other.key && at==other.at && yaw==other.yaw;
+    }
+};
+// Game-thread bridge: the existing mode invitation owns the race; a native
+// registration supplies its physical flag, POI and stock Join interaction.
+std::vector<NativeFlagOffer> native_flag_offers(std::uint64_t world);
+bool join_native_flag_offer(const NativeFlagOffer& offer,std::uint32_t mmid);
 void accept_race_start(std::uint64_t world, std::uint32_t game, const Vec3& at, float yaw);
 // The native flag callback only registers a matching draft's spawn. Starting
 // stays an explicit waiting-HUD hold action, dispatched on the client tick.

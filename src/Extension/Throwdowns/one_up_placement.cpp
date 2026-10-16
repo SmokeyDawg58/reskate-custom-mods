@@ -199,6 +199,25 @@ bool flag_registration_owned() noexcept {
     return p.step!=Step::idle && (p.step!=Step::waiting || p.mmid!=0);
 }
 bool owns_flag_registration(std::uint32_t mmid) noexcept { auto& p=placement(); std::lock_guard lock(p.mutex); return mmid && p.step!=Step::idle && p.mmid==mmid; }
+bool adopt_native_mode_flag(std::uint64_t world,std::uint32_t game,std::uint32_t mmid,
+    const std::array<float,3>& at,float yaw,unsigned seconds,unsigned players,bool race) noexcept {
+    try {
+        const auto local=view();
+        if(!world || world!=local.world || !local.local || local.state.match || local_throwdown_event_active() || !game || !mmid ||
+           !std::isfinite(yaw) || !std::all_of(at.begin(),at.end(),[](float n){return std::isfinite(n) && std::abs(n)<100000.f;}))return false;
+        auto& p=placement();std::lock_guard lock(p.mutex);
+        if(p.step!=Step::idle)return p.step==Step::waiting && p.world==world && p.race_game==game && p.mmid==mmid;
+        reset(p);p.step=Step::waiting;p.world=world;p.local=local.local;p.race_game=game;p.mmid=mmid;
+        p.generic_mode=!race;p.spawn=at;p.seconds=seconds;p.players=players;
+        const float radians=yaw*3.14159265f/180.f,co=std::cos(radians),si=std::sin(radians);
+        p.facing={co,0,-si,0,1,0,si,0,co};
+        p.handed_off=p.match_seen=p.exited=true;
+        p.changed=GetTickCount64();p.until=p.changed+15000;p.status.clear();
+        if(std::find(p.custom_mmids.begin(),p.custom_mmids.end(),mmid)==p.custom_mmids.end())p.custom_mmids.push_back(mmid);
+        release_one_up_native_placeholder(); // Only this donor queue's activity-presence lease; no actual event exists.
+        return true;
+    } catch(...) {return false;}
+}
 bool flag_registration_waiting() noexcept {
     auto& p=placement();std::lock_guard lock(p.mutex);
     return p.step==Step::waiting && p.handed_off && p.spawn && p.mmid;

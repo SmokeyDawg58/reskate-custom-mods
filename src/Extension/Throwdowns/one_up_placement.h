@@ -40,6 +40,10 @@ bool flag_registration_owned() noexcept;
 bool flag_registration_waiting() noexcept;
 bool flag_registration_retiring() noexcept;
 bool owns_flag_registration(std::uint32_t mmid) noexcept;
+// A guest joined a mirrored native registration for an advertised custom mode.
+// It keeps the stock Join/waiting/Leave flow, without starting its donor event.
+bool adopt_native_mode_flag(std::uint64_t world,std::uint32_t game,std::uint32_t mmid,
+    const std::array<float,3>& at,float yaw,unsigned seconds,unsigned players,bool race) noexcept;
 struct FlagSetupOptions { unsigned seconds{}, players{}; };
 // The accepted flag keeps its selected limits before the custom lobby has
 // received its first state. UI must not borrow the Spot Battle donor defaults.
