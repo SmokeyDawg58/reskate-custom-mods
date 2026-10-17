@@ -338,14 +338,15 @@ void mode_hud_publish(const Context& c,bool show,bool countdown,bool intro,bool 
     std::vector<Value> visible;
     const auto append=[&](Value item) {if(item.handle)visible.push_back(item);};
     if(show && h.placing_layout)append(h.editor_panel_item);
-    if(show && h.race_layout && !h.placing_layout)append(h.race_header_item);
+    if(race && h.gate_compass_visible)append(h.gate_compass_item);
+    // Challenge titles now sit compactly above the compass; no large racing header panel.
     if(results)append(h.results_panel_item);
     for(const auto item:{blind?h.blind_item:Value{},show?h.item:Value{},show?h.badge_item:Value{},show && h.placing_layout?h.placement_item:Value{},show && !h.placing_layout && h.clock_visible?h.clock_item:Value{},show && !h.placing_layout && !h.race_layout?h.score_item:Value{},countdown?h.countdown_item:Value{},intro?h.intro_item:Value{},results?h.results_item:Value{},race?h.race_item:Value{},race?h.race_position_item:Value{},race?h.race_elapsed_item:Value{},race?h.race_deadline_item:Value{},race?h.race_deadline_caption_item:Value{},race?h.race_progress_item:Value{},show && h.race_warning_visible?h.race_warning_item:Value{},show && h.placing_layout && h.clear_ring_visible?h.clear_ring_item:Value{},show && h.exit_visible?h.exit_panel_item:Value{},show && h.exit_visible?h.exit_item:Value{}})append(item);
     if(show && !blind && !results)for(const auto item:h.world_items)append(item);
     publish_hud_surface(c,h.stack,visible,true);
 }
 Address mode_hud_art(const Context& c,modes::Mode mode,const char* part) {
-    return asset(c,(std::string("UI/ReSkate/Throwdowns/HUD_")+std::string(modes::mode_key(mode))+"_"+part+"_Widget").c_str());
+    return asset(c,(std::string("UI/ReSkate/Throwdowns/HUD_")+std::string(native_hud_theme_key(modes::mode_key(mode)))+"_"+part+"_Widget").c_str());
 }
 std::uint64_t mode_racer_elapsed(const modes::NativeView& v,const modes::Standing& row,std::uint64_t now) {
     const bool running=v.state && v.state->phase==modes::Phase::playing && !row.out &&
@@ -397,6 +398,63 @@ void mode_hud_list_cell_size(const Context& c,Value list,unsigned i,float width,
         if(old.blueprint!=display.blueprint || old.data.handle!=display.data.handle)c.set_if_changed(slot,display);
     }
 }
+void challenge_header(const Context& c,ChallengeHeader& h,std::string_view theme,const std::string& name,
+        const std::string& logo,Value status,std::int32_t frame_id,std::int32_t content_id) {
+    const auto size=native_hud_header_geometry(name);
+    const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
+    const auto label_widget=asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget");
+    const auto texture_widget=asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget");
+    if(!h.frame.handle)h.frame=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+    mode_hud_cell(c,h.frame,"",float(size.frame_width),float(size.height),"TextStylesList/D78-Caps-Bold_Bright");
+    const auto frame_art=asset(c,("UI/ReSkate/Throwdowns/HUD_"+std::string(theme)+"_Title_"+std::to_string(size.frame_width)+"_Widget").c_str());
+    mount_hud(c,h.frame,frame_art,h.frame_anchor,h.frame_item,frame_id,false);
+    c.set_if_changed(c.field(h.frame_anchor,widget),Widget{frame_art,{0,h.frame.handle}});
+    plain_label(c,h.title,native_hud_title_text(name));label_styles(c,h.title,"TextStylesList/D78-Caps-Bold_Bright","TextStylesList/D78-Caps-Bold_Bright");
+    c.set_if_changed(c.field(h.title,0x3d8639d0),0);c.set_if_changed(c.field(h.title,0x87ad624c),2);
+    c.set_if_changed(c.field(h.title,0xc13ba637),false);c.set_if_changed(c.field(h.title,0xfc53d427),false);
+    // Use the native texture view's measured dimensions. Private static logo
+    // widgets carry a 144px image and ignore an 80px surrounding anchor.
+    c.set_if_changed(c.field(h.badge,0xf524c836),float(size.icon));c.set_if_changed(c.field(h.badge,0x6fbd254e),float(size.icon));
+    c.set_if_changed(c.field(h.badge,0xd1997d0c),false);
+    c.set_if_changed(c.field(h.badge,0xcd4a53c0),record_ref(c,"InteractivityColorStylesList/InteractiveColors.Core.AllWhite"));
+    mode_art(c,std::array{c.field(h.badge,0x6e469d2a)},logo);
+    if(!hud_list_has_items(c,h.row,2))hud_list(c,h.row,{{texture_widget,{0,h.badge.handle}},{label_widget,{0,h.title.handle}}},true,float(size.content_height),float(size.gap));
+    mode_hud_list_cell_size(c,h.row,0,float(size.icon),float(size.icon),{texture_widget,{0,h.badge.handle}});
+    const auto badge_cell_handle=read<Handle>(c.address(c.element(c.field(h.row,0xf2c90867),0)));
+    const Value badge_cell{badge_cell_handle,c.type_of(badge_cell_handle)};
+    const auto badge_offset=native_hud_translation(float(size.content_height-size.icon)*.5f+size.badge_y_shift);
+    c.set_if_changed(c.path(badge_cell,{0x185a5736U,0x40bfbff4U}),badge_offset[0]);
+    c.set_if_changed(c.path(badge_cell,{0x185a5736U,0x1d233266U}),badge_offset[1]);
+    mode_hud_list_cell_size(c,h.row,1,float(size.title_width),float(size.text_height),{label_widget,{0,h.title.handle}});
+    const auto title_cell_handle=read<Handle>(c.address(c.element(c.field(h.row,0xf2c90867),1)));
+    const Value title_cell{title_cell_handle,c.type_of(title_cell_handle)};
+    const auto title_offset=native_hud_translation(size.title_y_shift);
+    c.set_if_changed(c.path(title_cell,{0x185a5736U,0x40bfbff4U}),title_offset[0]);
+    c.set_if_changed(c.path(title_cell,{0x185a5736U,0x1d233266U}),title_offset[1]);
+    const unsigned count=status.handle?2:1;
+    if(!hud_list_has_items(c,h.content,count)) {
+        std::vector<Widget> rows{{list_widget,{0,h.row.handle}}};if(status.handle)rows.push_back({label_widget,{0,status.handle}});
+        hud_list(c,h.content,rows,false,float(size.content_height),8.f,0.f,float(size.content_width));
+    }
+    mode_hud_list_cell_size(c,h.content,0,float(size.content_width),float(size.content_height));
+    if(status.handle)mode_hud_list_cell_size(c,h.content,1,float(size.content_width),48.f);
+    mount_hud(c,h.content,list_widget,h.anchor,h.item,content_id,false);
+    for(const auto anchor:{h.frame_anchor,h.anchor}) {
+        const bool frame=anchor.handle==h.frame_anchor.handle;
+        c.set_if_changed(c.field(anchor,0x1cff7243),std::array<float,2>{float(frame?size.frame_width:size.content_width),frame?float(size.height):status.handle?float(size.content_height)+56.f:float(size.content_height)});
+        for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
+            const bool vertical=axis==0x185a5736U;
+            for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(anchor,{axis,key}),vertical?native_hud_screen_anchor(.008f):.5f);
+            c.set_if_changed(c.path(anchor,{axis,0xfec5e0b1}),vertical?0.f:.5f);
+            c.set_if_changed(c.path(anchor,{axis,0xd01f4a21}),1.f);
+            const bool race=theme=="race";
+            const float move=vertical?(frame?0.f:float(size.height-size.content_height)*.5f)-(race?6.f:0.f):(race?16.f:0.f);
+            const auto offsets=native_hud_translation(move);
+            c.set_if_changed(c.path(anchor,{axis,0x40bfbff4U}),offsets[0]);
+            c.set_if_changed(c.path(anchor,{axis,0x1d233266U}),offsets[1]);
+        }
+    }
+}
 Address mode_hud_caption_art(const Context& c,float width) {
     return asset(c,("UI/ReSkate/Throwdowns/Caption_"+std::to_string(static_cast<unsigned>(width))+"_Widget").c_str());
 }
@@ -413,8 +471,8 @@ void mode_board_columns(const Context& c,Value& list,std::array<Value,3>& labels
     if(!hud_list_has_items(c,list,3))hud_list(c,list,cells,true,52.f,8.f);
     for(unsigned i=0;i<3;++i)mode_hud_list_cell_size(c,list,i,widths[i],52.f,cells[i]);
 }
-void mode_race_standings(const Context& c,const modes::NativeView& v,const overlay::ModesHud& feed) {
-    auto& h=state().mode_hud;
+void mode_race_standings(const Context& c,const modes::NativeView& v,const overlay::ModesHud& feed,ModeHud* target=nullptr) {
+    auto& h=target?*target:state().mode_hud;
     const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
     const bool race=v.settings.mode==modes::Mode::race;
     float name_width=224.f,value_width=race?320.f:224.f;
@@ -437,9 +495,9 @@ void mode_race_standings(const Context& c,const modes::NativeView& v,const overl
                 column==1?feed.rows[i].name:race?mode_racer_time(v,player,now):player.out?"OUT":feed.rows[i].value;
             mode_hud_cell(c,*values[column],text,h.race_widths[column],height,"TextStylesList/H52-XBold_White");
             std::string art;
-            if(column==0)art="UI/ReSkate/Throwdowns/"+std::string(race?"RaceRank":"HUD_"+std::string(modes::mode_key(v.settings.mode))+"_Rank")+"_Widget";
-            else if(column==1)art="UI/ReSkate/Throwdowns/"+std::string(race?"RaceName":"HUD_"+std::string(modes::mode_key(v.settings.mode))+"_Name")+"_"+std::to_string(static_cast<unsigned>(name_width))+"_Widget";
-            else art="UI/ReSkate/Throwdowns/"+std::string(race?"RaceTime":"HUD_"+std::string(modes::mode_key(v.settings.mode))+"_Value")+"_"+std::to_string(static_cast<unsigned>(value_width))+"_Widget";
+            if(column==0)art="UI/ReSkate/Throwdowns/"+std::string(race?"RaceRank":"HUD_"+std::string(native_hud_theme_key(modes::mode_key(v.settings.mode)))+"_Rank")+"_Widget";
+            else if(column==1)art="UI/ReSkate/Throwdowns/"+std::string(race?"RaceName":"HUD_"+std::string(native_hud_theme_key(modes::mode_key(v.settings.mode)))+"_Name")+"_"+std::to_string(static_cast<unsigned>(name_width))+"_Widget";
+            else art="UI/ReSkate/Throwdowns/"+std::string(race?"RaceTime":"HUD_"+std::string(native_hud_theme_key(modes::mode_key(v.settings.mode)))+"_Value")+"_"+std::to_string(static_cast<unsigned>(value_width))+"_Widget";
             cells.push_back({asset(c,art.c_str()),{0,values[column]->handle}});
         }
         if(!hud_list_has_items(c,row.list,3))hud_list(c,row.list,cells,true,height,8.f);
@@ -465,7 +523,7 @@ void mode_race_standings(const Context& c,const modes::NativeView& v,const overl
     c.set_if_changed(c.field(h.race_anchor,0x1cff7243),std::array<float,2>{width,140.f+rows_height});
     for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
         const bool vertical=axis==0x185a5736U;
-        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.race_anchor,{axis,field}),vertical?.60f:.95f);
+        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.race_anchor,{axis,field}),vertical?native_hud_screen_anchor(native_hud_side_center):native_hud_screen_anchor(.994f));
         c.set_if_changed(c.path(h.race_anchor,{axis,0xfec5e0b1}),vertical?.5f:1.f);
         c.set_if_changed(c.path(h.race_anchor,{axis,0xd01f4a21}),1.f);
         for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(h.race_anchor,{axis,field}),0.f);
@@ -494,16 +552,16 @@ void mode_race_standings(const Context& c,const modes::NativeView& v,const overl
         c.set_if_changed(c.field(anchor,0x1cff7243),std::array<float,2>{w,height});
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
             const bool vertical=axis==0x185a5736U;
-            for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(anchor,{axis,field}),vertical?.08f:.03f);
+            for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(anchor,{axis,field}),vertical?native_hud_screen_anchor(.008f):native_hud_screen_anchor(.006f));
             c.set_if_changed(c.path(anchor,{axis,0xfec5e0b1}),0.f);
             c.set_if_changed(c.path(anchor,{axis,0xd01f4a21}),1.f);
             for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(anchor,{axis,field}),vertical?y:x);
         }
     };
-    place(h.race_position_anchor,480.f,300.f,24.f,198.f);
-    place(h.race_elapsed_anchor,clock_width,100.f,520.f,198.f);
-    place(h.race_deadline_caption_anchor,clock_width,56.f,520.f,308.f);
-    place(h.race_deadline_anchor,clock_width,100.f,520.f,370.f);
+    place(h.race_position_anchor,480.f,300.f,24.f,0.f);
+    place(h.race_elapsed_anchor,clock_width,100.f,520.f,0.f);
+    place(h.race_deadline_caption_anchor,clock_width,56.f,520.f,110.f);
+    place(h.race_deadline_anchor,clock_width,100.f,520.f,172.f);
     if(!h.race_progress.handle)h.race_progress=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
     std::size_t cleared{};
     for(const auto& row:v.state->standings)if(row.player==v.local)
@@ -513,11 +571,11 @@ void mode_race_standings(const Context& c,const modes::NativeView& v,const overl
     mount_hud(c,h.race_progress,mode_hud_art(c,modes::Mode::race,"Score"),h.race_progress_anchor,h.race_progress_item,mode_hud_id+46,false);
     // Slot 46 is already reserved in the fixed 64-slot mode catalog. Revealing
     // it updates Content only; the stable native stack is never rebuilt.
-    place(h.race_progress_anchor,480.f,72.f,24.f,522.f);
+    place(h.race_progress_anchor,480.f,72.f,24.f,324.f);
     mode_race_clocks(c,v,now);
 }
-void mode_results(const Context& c,const modes::NativeView& v,const overlay::ModesHud& feed,const throwdowns::Definition& d) {
-    auto& h=state().mode_hud;mode_race_standings(c,v,feed);
+void mode_results(const Context& c,const modes::NativeView& v,const overlay::ModesHud& feed,const throwdowns::Definition& d,ModeHud* target=nullptr) {
+    auto& h=target?*target:state().mode_hud;mode_race_standings(c,v,feed,&h);
     const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
     const float row_width=h.race_widths[0]+h.race_widths[1]+h.race_widths[2]+16.f;
     const auto panel_width=static_cast<unsigned>(std::ceil(std::max(1164.f,row_width+64.f)/32.f))*32u;
@@ -535,7 +593,7 @@ void mode_results(const Context& c,const modes::NativeView& v,const overlay::Mod
     mode_hud_list_cell_size(c,h.results_header,1,title_width,144.f,{heading,{0,h.results_title.handle}});
     if(!h.results_notice.handle)h.results_notice=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
     mode_hud_cell(c,h.results_notice,feed.winner.empty()?(v.settings.mode==modes::Mode::race?"NO FINISHERS / DNF":"MATCH COMPLETE"):feed.winner+" WINS!",inside_width,96.f,"TextStylesList/H52-XBold_White");
-    const auto notice=asset(c,("UI/ReSkate/Throwdowns/HUD_"+std::string(modes::mode_key(v.settings.mode))+"_Results_"+std::to_string(panel_width-64)+"_Widget").c_str());
+    const auto notice=asset(c,("UI/ReSkate/Throwdowns/HUD_"+std::string(native_hud_theme_key(modes::mode_key(v.settings.mode)))+"_Results_"+std::to_string(panel_width-64)+"_Widget").c_str());
     mode_board_columns(c,h.results_columns,h.results_captions,h.race_widths,v.settings.mode==modes::Mode::race);
     if(!hud_list_has_items(c,h.results,4))hud_list(c,h.results,{{list_widget,{0,h.results_header.handle}},
         {notice,{0,h.results_notice.handle}},{list_widget,{0,h.results_columns.handle}},{list_widget,{0,h.race_rows.handle}}},false,144.f,24.f,0.f,inside_width);
@@ -609,9 +667,52 @@ void mode_world_markers(const Context& c,const overlay::ModesHud& feed) {
         mark(feed.points[i],label);
     }
     const auto placement=modes::native_view();
-    if(feed.placing && placement.cursor_valid)mark(feed.cursor,feed.route?"PLACE: "+std::string(placement.route_object==0?"START FLAG":placement.route_object==2?"FINISH":placement.route_object==3?"GUIDE":"REQUIRED"):"PLACE HERE");
+    if(feed.placing && placement.cursor_valid)mark(feed.cursor,feed.route?"PLACE: "+std::string(placement.route_object==0?"START FLAG":placement.route_object==2?"FINISH":placement.route_object==3?"GUIDE":placement.route_object==4?"CHEVRON":"REQUIRED"):"PLACE HERE");
     for(const auto& player:feed.players)if(!player.self && player.it)mark(player.at,player.name+(feed.infection?"  INFECTED":"  IT"));
     for(const auto& tag:feed.tags)if(!tag.path.empty())mark(tag.path[tag.path.size()/2],"TAGGED");
+}
+void mode_gate_compass_position(const Context& c,ModeHud& h,float offset) {
+    constexpr float size=modes::race_compass_icon_size;
+    c.set_if_changed(c.field(h.gate_compass_anchor,0x1cff7243),std::array<float,2>{size,size});
+    c.set_if_changed(c.field(h.gate_compass_anchor,0x6efc1a61),false);
+    c.set_if_changed(c.field(h.gate_compass_anchor,0xbe5683d9),false);
+    for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
+        const bool vertical=axis==0x185a5736U;
+        // Center the larger visible gate on the native compass strip.
+        for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.gate_compass_anchor,{axis,key}),vertical?0.f:.5f);
+        const auto offsets=native_hud_translation(vertical?modes::race_compass_center_y:offset);
+        c.set_if_changed(c.path(h.gate_compass_anchor,{axis,0x40bfbff4U}),offsets[0]);
+        c.set_if_changed(c.path(h.gate_compass_anchor,{axis,0x1d233266U}),offsets[1]);
+        c.set_if_changed(c.path(h.gate_compass_anchor,{axis,0xfec5e0b1}),.5f);
+        c.set_if_changed(c.path(h.gate_compass_anchor,{axis,0xd01f4a21}),1.f);
+    }
+}
+void mode_gate_compass_motion(const Context& c,const modes::NativeView& view,const overlay::ModesHud& feed) {
+    auto& h=state().mode_hud;
+    if(!h.gate_compass_visible || !h.gate_compass_anchor.handle || view.placing || !view.state ||
+       c.type_of(h.gate_compass_anchor.handle)!=h.gate_compass_anchor.type)return;
+    const auto next=modes::race_compass_gate(view.settings,*view.state,view.local);if(!next)return;
+    const auto offset=modes::race_compass_offset(view.settings.points[*next],feed.camera);if(!offset)return;
+    mode_gate_compass_position(c,h,*offset);
+}
+void mode_gate_compass(const Context& c,const modes::NativeView& view,const overlay::ModesHud& feed) {
+    auto& h=state().mode_hud;h.gate_compass_visible=false;
+    if(view.placing || !view.state)return;
+    const auto next=modes::race_compass_gate(view.settings,*view.state,view.local);if(!next)return;
+    const auto offset=modes::race_compass_offset(view.settings.points[*next],feed.camera);if(!offset)return;
+    if(!h.gate_compass.handle)h.gate_compass=make(c,texture_schema);
+    constexpr float size=modes::race_compass_icon_size;
+    c.set_if_changed(c.field(h.gate_compass,0xf524c836),size);c.set_if_changed(c.field(h.gate_compass,0x6fbd254e),size);
+    c.set_if_changed(c.field(h.gate_compass,0xd1997d0c),false);
+    c.set_if_changed(c.field(h.gate_compass,0xcd4a53c0),record_ref(c,"InteractivityColorStylesList/InteractiveColors.Core.AllWhite"));
+    mode_art(c,std::array{c.field(h.gate_compass,0x6e469d2a)},"UI/ReSkate/Throwdowns/img_GateCompass");
+    const auto texture_widget=asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget");
+    const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
+    if(!hud_list_has_items(c,h.gate_compass_list,1))hud_list(c,h.gate_compass_list,{{texture_widget,{0,h.gate_compass.handle}}},true,size,0.f);
+    mode_hud_list_cell_size(c,h.gate_compass_list,0,size,size,{texture_widget,{0,h.gate_compass.handle}});
+    mount_hud(c,h.gate_compass_list,list_widget,h.gate_compass_anchor,h.gate_compass_item,mode_hud_id+57,false);
+    mode_gate_compass_position(c,h,*offset);
+    h.gate_compass_visible=true;
 }
 void mode_hud_transients(const Context& c,const modes::NativeView& view,std::uint64_t now) {
     auto& h=state().mode_hud;
@@ -639,6 +740,7 @@ void mode_hud(const Context& c) {
     const auto label_widget=asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget");
     const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
     const bool race=v.settings.mode==modes::Mode::race;
+    mode_gate_compass(c,v,feed);
     if(!h.title.handle) {
         h.title=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");label_styles(c,h.title,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
         h.status=make(c,label_schema);c.copy(h.status,c.address(h.title));
@@ -653,10 +755,9 @@ void mode_hud(const Context& c) {
         h.clock=record_model(c,"Activities_HudElementData_ContentResource/A_ActivityCountdown");
     }
     plain_label(c,h.title,race?"DEATHRACE":d->name);
-    const bool racing_header=race && !feed.placing;
-    const auto title_style=racing_header?"TextStylesList/D140-Caps_White":"TextStylesList/D94-Caps-Bold_White";
+    const auto title_style="TextStylesList/H64-XBold_White";
     label_styles(c,h.title,title_style,title_style);
-    c.set_if_changed(c.field(h.title,0x3d8639d0),racing_header?2:0);
+    c.set_if_changed(c.field(h.title,0x3d8639d0),2);
     plain_label(c,h.status,feed.placing && race?"":feed.placing?feed.hint:feed.status);
     label_styles(c,h.status,"TextStylesList/SP38-SemiB_White",
                  "TextStylesList/SP38-SemiB_White");
@@ -670,16 +771,8 @@ void mode_hud(const Context& c) {
         mount_hud(c,{},asset(c,"UI/ReSkate/Throwdowns/EditorPanel_Widget"),h.editor_panel_anchor,h.editor_panel_item,mode_hud_id+43,false);
         c.set_if_changed(c.field(h.editor_panel_anchor,0x1cff7243),std::array<float,2>{880.f,1150.f});
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
-            for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.editor_panel_anchor,{axis,key}),axis==0xde7d30c7U?.03f:.08f);
+            for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.editor_panel_anchor,{axis,key}),axis==0xde7d30c7U?native_hud_screen_anchor(.006f):native_hud_screen_anchor(.008f));
             for(const auto key:{0x40bfbff4U,0x1d233266U,0xfec5e0b1U})c.set_if_changed(c.path(h.editor_panel_anchor,{axis,key}),0.f);
-        }
-    }
-    if(race && !h.placing_layout) {
-        mount_hud(c,{},asset(c,"UI/ReSkate/Throwdowns/RaceHeaderPanel_Widget"),h.race_header_anchor,h.race_header_item,mode_hud_id+57,false);
-        c.set_if_changed(c.field(h.race_header_anchor,0x1cff7243),std::array<float,2>{880.f,180.f});
-        for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
-            for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.race_header_anchor,{axis,key}),axis==0xde7d30c7U?.03f:.08f);
-            for(const auto key:{0x40bfbff4U,0x1d233266U,0xfec5e0b1U})c.set_if_changed(c.path(h.race_header_anchor,{axis,key}),0.f);
         }
     }
     if(feed.placing && race) {
@@ -690,10 +783,10 @@ void mode_hud(const Context& c) {
             std::pair{"UI_TabSecondaryNavRight","Gate types"},
             std::pair{"UI_TabPrimaryNavLeft",""},
             std::pair{"UI_TabPrimaryNavRight","Camera down / up"},
-            std::pair{"UI_PrimaryAction","Place gate"},
-            std::pair{"UI_SecondaryAction","Undo last gate"},
+            std::pair{"UI_PrimaryAction","Place object"},
+            std::pair{"UI_SecondaryAction","Rotate"},
             std::pair{"UI_DpadLeft",""},
-            std::pair{"UI_DpadRight","Rotate"},
+            std::pair{"UI_DpadRight","Undo / Redo"},
             std::pair{"UI_DpadUp",""},
             std::pair{"UI_DpadDown","Size"},
             std::pair{"UI_Activities_AccessPause","Save route"},
@@ -769,10 +862,13 @@ void mode_hud(const Context& c) {
                 c.set_if_changed(c.field(label,0x87ad624c),2);c.set_if_changed(c.field(label,0x3d8639d0),0);
             }
             std::string dynamic_caption=caption;
-            if(i==1)dynamic_caption=std::string("Gate types: ")+(v.route_object==2?"Finish":v.route_object==3?"Guide":"Required");
-            if(i==9)dynamic_caption="Size "+std::to_string(static_cast<int>(std::lround(v.cursor_width/6.f*100.f)))+"%";
-            if(i==12)dynamic_caption=v.route_snap?std::format("Snap ON ({:.1f}m reach)",std::clamp(v.snap_degrees*.1f,.5f,6.f)):"Snap OFF";
-            if(i==14)dynamic_caption="Angle - / + : "+std::to_string(static_cast<int>(v.snap_degrees))+" deg";
+            if(i==1)dynamic_caption=std::string("Object: ")+(v.route_object==2?"Finish":v.route_object==3?"Guide":v.route_object==4?"Chevron":"Required");
+            if(i==5)dynamic_caption=v.rotating?"Rotate: ON (X to finish)":"Rotate";
+            if(i==7)dynamic_caption=v.rotating?"Yaw - / +":"Undo / Redo";
+            if(i==10 && !v.editor_warning.empty())dynamic_caption=v.route_finish?"Check route":"Finish line required";
+            if(i==9)dynamic_caption=v.rotating?"Tilt up / down":"Size "+std::to_string(static_cast<int>(std::lround(v.cursor_width/6.f*100.f)))+"%";
+            if(i==12)dynamic_caption=v.route_snap?(v.arrow_height_snapped?"Snap ON (Chevron line locked)":std::format("Snap ON ({:.1f}m reach)",std::clamp(v.snap_degrees*.1f,.5f,6.f))):"Snap OFF";
+            if(i==14)dynamic_caption="Rotation step: "+std::to_string(static_cast<int>(v.snap_degrees))+" deg";
             plain_label(c,label,dynamic_caption);
             auto& line=h.placement_lines[line_index];
             if(!line.handle || created) {
@@ -834,42 +930,28 @@ void mode_hud(const Context& c) {
         mount_hud(c,h.placement_list,list_widget,h.placement_anchor,h.placement_item,mode_hud_id+7,false);
         c.set_if_changed(c.field(h.placement_anchor,0x1cff7243),std::array<float,2>{820.f,930.f});
         for(const auto field:{0x99bbed5aU,0x49943bedU}) {
-            c.set_if_changed(c.path(h.placement_anchor,{0xde7d30c7,field}),.03f);
-            c.set_if_changed(c.path(h.placement_anchor,{0x185a5736,field}),.08f);
+            c.set_if_changed(c.path(h.placement_anchor,{0xde7d30c7,field}),native_hud_screen_anchor(.006f));
+            c.set_if_changed(c.path(h.placement_anchor,{0x185a5736,field}),native_hud_screen_anchor(.008f));
         }
         c.set_if_changed(c.path(h.placement_anchor,{0xde7d30c7,0xfec5e0b1}),0.f);
         c.set_if_changed(c.path(h.placement_anchor,{0x185a5736,0xfec5e0b1}),0.f);
         for(const auto axis:{0xde7d30c7U,0x185a5736U})for(const auto field:{0x40bfbff4U,0x1d233266U})
-            c.set_if_changed(c.path(h.placement_anchor,{axis,field}),axis==0xde7d30c7U?24.f:200.f);
+            c.set_if_changed(c.path(h.placement_anchor,{axis,field}),axis==0xde7d30c7U?24.f:24.f);
 
     }
     if(!feed.blind.empty())plain_label(c,h.status,"Hiding time: "+feed.blind);
     else if(feed.heat>=0)plain_label(c,h.status,feed.status+"  |  "+feed.heat_label);
-    if(h.theme_mode!=static_cast<unsigned>(v.settings.mode) || !hud_list_has_items(c,h.content,race && !h.placing_layout?1:2)) {
+    if(h.theme_mode!=static_cast<unsigned>(v.settings.mode) || !hud_list_has_items(c,h.score,2)) {
         h.theme_mode=static_cast<unsigned>(v.settings.mode);h.race_layout=race;
-        std::vector<Widget> header{{label_widget,{0,h.title.handle}}};
-        if(!race || h.placing_layout)header.push_back({label_widget,{0,h.status.handle}});
-        hud_list(c,h.content,header,false,racing_header?156.f:64.f,8.f,0.f,racing_header?660.f:680.f);
-        const auto cells=c.field(h.content,0xf2c90867);
-        for(unsigned i=0;i<header.size();++i) {
-            const auto ref=read<Handle>(c.address(c.element(cells,i)));
-            c.set_if_changed(c.field({ref,c.type_of(ref)},0x1cff7243),std::array<float,2>{racing_header?660.f:680.f,racing_header?156.f:i==0?96.f:48.f});
-        }
         hud_list(c,h.score,{{mode_hud_art(c,v.settings.mode,"Score"),{0,h.target.handle}},
             {mode_hud_art(c,v.settings.mode,"Score"),{0,h.current.handle}}},false,72.f,8.f,0.f,480.f);
     }
     if(!h.badge.handle)h.badge=make(c,texture_schema);
-    const auto logo=mode_hud_art(c,v.settings.mode,"Logo");
-    mount_hud(c,h.badge,logo,h.badge_anchor,h.badge_item,mode_hud_id+40,false);
-    const auto logoSlot=c.field(h.badge_anchor,widget);
-    if(read<Widget>(c.address(logoSlot)).blueprint!=logo)c.set_if_changed(logoSlot,Widget{logo,{0,h.badge.handle}});
-    c.set_if_changed(c.field(h.badge_anchor,0x1cff7243),std::array<float,2>{144.f,144.f});
-    for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
-        const auto layout=c.field(h.badge_anchor,axis);
-        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.field(layout,field),axis==0xde7d30c7U?.03f:.08f);
-        for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.field(layout,field),24.f);
-        c.set_if_changed(c.field(layout,0xfec5e0b1),0.f);
-    }
+    h.header.title=h.title;h.header.badge=h.badge;
+    challenge_header(c,h.header,native_hud_theme_key(modes::mode_key(v.settings.mode)),race?"DEATHRACE":d->name,d->logo,
+        race?Value{}:h.status,mode_hud_id,mode_hud_id+40);
+    h.anchor=h.header.frame_anchor;h.item=h.header.frame_item;
+    h.badge_anchor=h.header.anchor;h.badge_item=h.header.item;
     h.race_warning_visible=race && v.missed_gate>0;
     if(h.race_warning_visible) {
         if(!h.race_warning.handle)h.race_warning=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
@@ -891,33 +973,23 @@ void mode_hud(const Context& c) {
         c.set_if_changed(c.field(h.score_anchor,0x1cff7243),std::array<float,2>{480.f,152.f});
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
             const bool y=axis==0x185a5736U;
-            for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.score_anchor,{axis,key}),y?.40f:.95f);
-            c.set_if_changed(c.path(h.score_anchor,{axis,0xfec5e0b1}),y?1.f:1.f);
-            for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(h.score_anchor,{axis,key}),0.f);
-            c.set_if_changed(c.path(h.score_anchor,{axis,0xd01f4a21}),.85f);
+            for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.score_anchor,{axis,key}),y?native_hud_screen_anchor(native_hud_side_center):native_hud_screen_anchor(.994f));
+            c.set_if_changed(c.path(h.score_anchor,{axis,0xfec5e0b1}),1.f);
+            for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(h.score_anchor,{axis,key}),y?-(140.f+84.f*static_cast<float>(std::min<std::size_t>(6,feed.rows.size())))*.5f-24.f:0.f);
+            c.set_if_changed(c.path(h.score_anchor,{axis,0xd01f4a21}),1.f);
         }
     }
-    mount_hud(c,h.content,list_widget,h.anchor,h.item,mode_hud_id,false);
     if(h.stack.handle!=s.hud_stack.handle) {mode_hud_publish(c,false);h.stack=s.hud_stack;}
-    c.set_if_changed(c.field(h.anchor,0x1cff7243),racing_header?std::array<float,2>{660.f,156.f}:std::array<float,2>{720.f,168.f});
-    // This anchor is reused after the editor closes. Reconcile both layouts
-    // so another mode cannot inherit the editor's compact header position.
-    for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
-        const bool vertical=axis==0x185a5736U;
-        const float at=vertical?.08f:.03f;
-        const float offset=racing_header?(vertical?12.f:196.f):(vertical?24.f:190.f);
-        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.anchor,{axis,field}),at);
-        for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(h.anchor,{axis,field}),offset);
-        c.set_if_changed(c.path(h.anchor,{axis,0xfec5e0b1}),0.f);
-    }
     mount_hud(c,h.clock,asset(c,"UI/Foundations/Components/Countdown/Countdown_Widget"),h.clock_anchor,h.clock_item,mode_hud_id+1,false);
     c.set_if_changed(c.field(h.clock_anchor,0x1cff7243),std::array<float,2>{320.f,90.f});
-    const auto vertical=c.field(h.clock_anchor,0x185a5736);
-    c.set_if_changed(c.field(vertical,0x99bbed5a),race?.9f:.83f);c.set_if_changed(c.field(vertical,0x49943bed),race?.9f:.83f);
-    const auto horizontal=c.field(h.clock_anchor,0xde7d30c7);
-    for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.field(horizontal,key),race?.5f:0.f);
-    c.set_if_changed(c.field(horizontal,0xfec5e0b1),race?.5f:0.f);
-    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.field(horizontal,key),race?0.f:110.f);
+    for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
+        const auto layout=c.field(h.clock_anchor,axis);
+        const bool vertical=axis==0x185a5736U;
+        for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.field(layout,key),vertical?native_hud_screen_anchor(.988f):.5f);
+        c.set_if_changed(c.field(layout,0xfec5e0b1),vertical?1.f:.5f);
+        c.set_if_changed(c.field(layout,0xd01f4a21),1.f);
+        for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.field(layout,key),0.f);
+    }
     c.set_if_changed(c.field(h.clock,0x703c4d93),false);c.set_if_changed(c.field(h.clock,0x167131bb),true);c.set_if_changed(c.field(h.clock,0x6186003c),true);c.set_if_changed(c.field(h.clock,0xc11082ee),true);
     h.clock_visible=!race && !feed.clock.empty();
     native_timer_seconds(c,h.clock,0x4cc5ec89,race?modes::race_warning_ms:static_cast<std::uint64_t>(v.settings.duration_s)*1000);

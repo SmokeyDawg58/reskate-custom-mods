@@ -21,10 +21,11 @@ bool prepare_on_board_teleport(std::uintptr_t client, std::uintptr_t entity) noe
 // markers). Publish the skater to watch from the client tick; it expires if ticks stop.
 struct PhysicsStateWatch {
     bool valid{};
+    bool ragdoll_known{}, ragdoll{}; // native offboard substate, distinct from walking
     std::uint32_t state{};
     std::uint32_t previous{}; // the state before this one
     float previous_seconds{}; // how long that one lasted
-    std::uint64_t changes{}, wipeouts{}; // counted since the process started
+    std::uint64_t changes{}, wipeouts{}, runouts{}; // counted since the process started
 };
 void watch_physics_state(std::uintptr_t client, std::uintptr_t entity) noexcept;
 PhysicsStateWatch watched_physics_state() noexcept;

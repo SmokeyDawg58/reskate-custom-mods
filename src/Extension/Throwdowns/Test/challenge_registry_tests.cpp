@@ -32,6 +32,9 @@ int main() {
         check(modes.size()==9,"All supplied compatible game modes have adapters.");
         check(builtins.find("native.oneup")->palette.primary==0xffef8b22U,
             "1-Up uses its approved blue instead of a fallback challenge hue.");
+        check(builtins.find("native.oneup")->adapter==throwdowns::Adapter::native_one_up &&
+              !builtins.mode(static_cast<unsigned>(dingosdk::modes::Mode::one_up)),
+            "Native 1-UP results resolve its canonical record rather than a nonexistent custom adapter.");
         const auto* reskate=builtins.find("native.skate");
         check(reskate && reskate->name=="R.E.S.K.A.T.E." && reskate->mode==8 && reskate->adapter==throwdowns::Adapter::game_mode,
             "The replacement card uses the seven-letter referee rather than the stock five-letter challenge.");

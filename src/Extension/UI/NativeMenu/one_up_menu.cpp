@@ -1,6 +1,7 @@
 #include "one_up_menu.h"
 #include "Extension/Throwdowns/challenge_registry.h"
 #include "Extension/Modes/game_modes.h"
+#include "Extension/Modes/race_navigation.h"
 #include "Extension/Modes/mode_lobby.h"
 #include "native_menu_data.h"
 #include "native_menu_lifetime.h"
@@ -65,7 +66,7 @@ struct MatchPanel {
     float camera_fov_before{};
     std::string match_key;
     Value page, panel, header, header_rows, header_titles, header_anchor, badge, notice, settings, columns, outer_anchor;
-    Value quit, board, prompt, prompt_anchor, prompt_item;
+    Value quit, board, prompt, prompt_list, rewind_prompt, prompt_anchor, prompt_item;
     std::array<float,3> board_widths{};
     std::vector<std::uint64_t> player_order;
     Value mounted_slot, saved_slot;
@@ -76,7 +77,7 @@ struct MatchPanel {
     std::uint64_t retry_after{};
     bool quitting{};
     bool menu_was_open{};
-    bool prompt_visible{};
+    bool prompt_visible{},rewind_visible{};
 };
 struct ModeCard { Value tile, category, description, logo; };
 struct BrandingPresenter { Value slot, saved, model; };
@@ -104,7 +105,13 @@ struct NativeSetupRows {
     std::map<std::string,Value> extra;
 };
 struct NativeSetupActions { std::size_t callback_offset{};std::vector<OwnedNativeAction> rows; };
+// One bounded header owns background, icon and title. It never positions a
+// fixed-size logo independently over the centered title's text.
+struct ChallengeHeader {
+    Value frame,row,content,title,badge,frame_anchor,frame_item,anchor,item;
+};
 struct ModeHud {
+    ChallengeHeader header;
     HudPublicationGate publication;
     HudCountdownLifecycle countdown_lifecycle;
     HudCountdownVisibility transients;
@@ -130,6 +137,8 @@ struct ModeHud {
     bool exit_visible{},clear_ring_visible{};
     Value clear_ring_anchor,clear_ring_item;
     Value race_header_anchor,race_header_item;
+    Value gate_compass,gate_compass_list,gate_compass_anchor,gate_compass_item;
+    bool gate_compass_visible{};
     Value score_anchor,score_item;
     unsigned theme_mode=~0U;
     std::array<Value,11> editor_row_anchors,editor_row_items;
@@ -160,12 +169,14 @@ struct HudSurface {
     std::size_t displayed_count{};
 };
 struct State {
+    ChallengeHeader hud_heading;
     HudPublicationGate hud_publication;
     HudStackActiveBudget hud_active_budget;
     std::map<Handle,HudSurface> hud_surfaces;
     std::map<std::string,ModeCard> mode_cards;
     std::string selected_mode, mode_status;
-    ModeHud mode_hud;
+    ModeHud mode_hud,oneup_result_hud;
+    HudResultsWindow oneup_result_window;
     MapBranding map_branding;
     MatchPanel match_panel;
     std::atomic<bool> match_panel_open{};
@@ -173,6 +184,7 @@ struct State {
     MatchPanelStartInput panel_start_input;
     std::string panel_start_request;
     bool in_menu{};
+    std::atomic<bool> gameplay_input_allowed{};
     bool panel_key_down{};
     unsigned mode_seconds=300, mode_capacity=6, mode_hide_seconds=30;
 
@@ -258,6 +270,9 @@ void mode_hud_transients(const Context& c,const modes::NativeView& view,std::uin
 void mode_action(const Context& c,const Action& a);
 void mode_art(const Context& c,std::span<const Value> fields,const std::string& logo);
 void mode_hud_publish(const Context& c,bool show,bool countdown=false,bool intro=false,bool blind=false,bool results=false,bool race=false);
+void mode_results(const Context&,const modes::NativeView&,const overlay::ModesHud&,const throwdowns::Definition&,ModeHud*);
+void match_panel_notice_width(const Context&,Value,float);
+void challenge_header(const Context&,ChallengeHeader&,std::string_view,const std::string&,const std::string&,Value,std::int32_t,std::int32_t);
 void restore_match_panel(const Context& c);
 void restore_map_branding(const Context& c);
 void throwdown_map_identity(const Context& c);
@@ -675,12 +690,12 @@ void clear_hud_state(bool preserve_match_input=false) {
     s.hud_timer={};s.hud_timer_anchor={};s.hud_timer_item={};
     s.hud_intro={};s.hud_intro_badge={};s.hud_intro_anchor={};s.hud_intro_item={};
     s.hud_content={};s.hud_title={};s.hud_target={};s.hud_current={};s.hud_clock={};s.hud_clock_anchor={};s.hud_clock_item={};
-    s.hud_title_anchor={};s.hud_title_item={};s.hud_badge={};s.hud_badge_anchor={};s.hud_badge_item={};
+    s.hud_title_anchor={};s.hud_title_item={};s.hud_badge={};s.hud_badge_anchor={};s.hud_badge_item={};s.hud_heading={};
     s.hud_board={};s.hud_rows={};s.hud_players.clear();s.hud_player_ids.clear();
     s.hud_results={};s.hud_results_title={};s.hud_results_notice={};s.hud_results_rows={};
     s.hud_results_anchor={};s.hud_results_item={};s.result_players.clear();s.eliminated_at.clear();s.results_match=0;s.results_turn=0;
     s.hud_initialized=false;s.hud_countdown_visible=false;s.hud_intro_visible=false;s.hud_results_visible=false;
-    s.match_panel={};s.match_panel_open.store(false);
+    s.match_panel={};s.match_panel_open.store(false);s.oneup_result_hud={};s.oneup_result_window={};
     {std::lock_guard input_lock(s.panel_input_mutex);reset_match_panel_input(s.panel_start_input,s.panel_start_request,preserve_match_input);}
     // Waiting notifications outlive score/countdown HUD rebuilds. Keep their
     // hidden ownership until queue teardown or a genuine native creation/join.
@@ -2247,8 +2262,8 @@ void mount_hud(const Context& c,Value model,Address blueprint,Value& anchor,Valu
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
             const bool vertical=axis==0x185a5736U;
             const auto layout=c.field(next_anchor,axis);
-            const float at=center?(vertical?.38f:.5f):(vertical?.12f:0.f);
-            const float offset=!center && !vertical?110.f:0.f;
+            const float at=center?(vertical?.38f:.5f):(vertical?native_hud_screen_anchor(.008f):native_hud_screen_anchor(.006f));
+            const float offset=!center && !vertical?16.f:0.f;
             c.set(c.field(layout,0x99bbed5a),at);c.set(c.field(layout,0x49943bed),at);
             c.set(c.field(layout,0x40bfbff4),offset);c.set(c.field(layout,0x1d233266),offset);
             c.set(c.field(layout,0xfec5e0b1),center?.5f:0.f);c.set(c.field(layout,0xd01f4a21),1.f);
@@ -2307,13 +2322,13 @@ void native_score_hud(const Context& c) {
     const bool ended=v.state.phase==one_up::Phase::finished || v.state.phase==one_up::Phase::cancelled;
     if(!ended)s.hud_ended_at=0;else if(!s.hud_ended_at)s.hud_ended_at=now;
     const bool show=v.state.match && v.state.phase!=one_up::Phase::lobby &&
-        (!ended || now-s.hud_ended_at<5000);
+        (!ended || now-s.hud_ended_at<4000);
     if(!show) {s.hud_ready.store(false);return;}
     const auto label_widget=asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget");
     const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
     const auto notice_widget=asset(c,"UI/ReSkate/Throwdowns/OneUpScore_Widget");
-    float board_width=480.f;
-    for(const auto& player:v.state.players)board_width=std::max(board_width,float(native_hud_name_width(v.name(player.id)))+252.f);
+    float board_width=496.f;
+    for(const auto& player:v.state.players)board_width=std::max(board_width,float(native_hud_name_width(v.name(player.id)))+268.f);
     constexpr float row_height=76.f,row_pitch=84.f;
     constexpr float score_height=224.f;
     const float height=score_height+row_pitch*static_cast<float>(v.state.players.size());
@@ -2360,18 +2375,17 @@ void native_score_hud(const Context& c) {
         c.set_if_changed(c.field({counter_anchor,c.type_of(counter_anchor)},0x1cff7243),std::array<float,2>{board_width,152.f});
         s.hud_initialized=true;
     }
+    const auto content_cells=c.field(s.hud_content,0xf2c90867);
+    for(unsigned i=0;i<3;++i){const auto handle=read<Handle>(c.address(c.element(content_cells,i)));
+        c.set_if_changed(c.field({handle,c.type_of(handle)},0x1cff7243),std::array<float,2>{board_width,i==0?48.f:i==1?152.f:row_pitch*static_cast<float>(v.state.players.size())});}
     mount_hud(c,s.hud_content,list_widget,s.hud_anchor,s.hud_item,hud_score_id,false);
-    place(s.hud_anchor,board_width,height,.95f,.5f,1.f,.5f,.85f);
-    mount_hud(c,s.hud_title,label_widget,s.hud_title_anchor,s.hud_title_item,hud_title_id,false);
-    place(s.hud_title_anchor,480.f,96.f,.04f,.14f,0.f,0.f);
-    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(s.hud_title_anchor,{0xde7d30c7,key}),162.f);
-    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(s.hud_title_anchor,{0x185a5736,key}),24.f);
-    publish_texture(c,std::array{c.field(s.hud_badge,0x6e469d2a)},"UI/ReSkate/OneUp/img_OneUp_Blue_1024");
-    mount_hud(c,s.hud_badge,asset(c,"UI/ReSkate/Throwdowns/HUDLogo_Widget"),s.hud_badge_anchor,s.hud_badge_item,hud_badge_id,false);
-    place(s.hud_badge_anchor,144.f,144.f,.04f,.14f,0.f,0.f);
-    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(s.hud_badge_anchor,{0x185a5736,key}),-18.f);
+    place(s.hud_anchor,board_width,height,native_hud_screen_anchor(.994f),native_hud_screen_anchor(native_hud_side_center),1.f,.5f,1.f);
+    s.hud_heading.title=s.hud_title;s.hud_heading.badge=s.hud_badge;
+    challenge_header(c,s.hud_heading,"oneup","1-UP","UI/ReSkate/OneUp/img_OneUp_Blue_1024",{},hud_title_id,hud_badge_id);
+    s.hud_title_anchor=s.hud_heading.frame_anchor;s.hud_title_item=s.hud_heading.frame_item;
+    s.hud_badge_anchor=s.hud_heading.anchor;s.hud_badge_item=s.hud_heading.item;
     mount_hud(c,s.hud_clock,asset(c,"UI/Foundations/Components/Countdown/Countdown_Widget"),s.hud_clock_anchor,s.hud_clock_item,hud_clock_id,false);
-    place(s.hud_clock_anchor,150.f,64.f,.5f,.93f,.5f,1.f,.85f);
+    place(s.hud_clock_anchor,150.f,64.f,.5f,native_hud_screen_anchor(.988f),.5f,1.f,1.f);
     const auto points=[](double n){return std::to_string(static_cast<std::uint32_t>(std::max(0.0,n)));};
     plain_label(c,s.hud_title,"1-UP");
     plain_label(c,s.hud_board,ended?(v.state.winner?v.name(v.state.winner)+" WINS!":"MATCH COMPLETE"):v.name(v.state.active)+"'S TURN");
@@ -2406,6 +2420,7 @@ void native_score_hud(const Context& c) {
 
         }
         const float name_width=float(native_hud_name_width(v.name(player.id)));
+        for(const auto stamp:hud.letters)match_panel_notice_width(c,stamp,row_height-32.f);
         c.set_if_changed(c.field(hud.background,0x13be0d51),std::array<float,2>{name_width,row_height});
         if(!hud_list_has_items(c,hud.row,4)) {
             std::vector<Widget> cells{{asset(c,"UI/ReSkate/Throwdowns/OneUpName_Widget"),{0,hud.background.handle}}};
@@ -2440,82 +2455,42 @@ void native_score_hud(const Context& c) {
         for(unsigned row=0;row<rows.size();++row) {
             const auto ref=read<Handle>(c.address(c.element(c.field(s.hud_rows,0xf2c90867),row)));
             const Value anchor{ref,c.type_of(ref)};
-            c.set_if_changed(c.field(anchor,0x6efc1a61),true);c.set_if_changed(c.field(anchor,0xbe5683d9),false);
+            c.set_if_changed(c.field(anchor,0x6efc1a61),false);c.set_if_changed(c.field(anchor,0xbe5683d9),false);
         }
     }
     if(!s.hud_ready.exchange(true))logging::write(logging::Level::info,logging::Channel::ui,"1-Up: logo, brush heading, target/score strips, centered standings and clock mounted.");
 }
 void native_results_hud(const Context& c) {
-    auto& s=state();const auto v=one_up::view();
-    s.hud_results_visible=false;
-    if(s.results_match!=v.state.match || v.state.phase==one_up::Phase::lobby) {
-        s.results_match=v.state.match;s.results_turn=0;s.eliminated_at.clear();
-    }
-    for(const auto& player:v.state.players)
-        if(!player.eligible())s.eliminated_at.try_emplace(player.id,v.state.turn);
-    const bool practice_done=v.solo_test && v.state.phase==one_up::Phase::cancelled &&
-        std::any_of(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.penalties==3;});
-    const bool finished=v.state.match && (v.state.phase==one_up::Phase::finished || practice_done);
-    if(!finished || !s.hud_ended_at || GetTickCount64()-s.hud_ended_at<4000) return;
-    if(!s.hud_results.handle || s.results_turn!=v.state.turn) {
-        if(!s.hud_results_title.handle)s.hud_results_title=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
-        plain_label(c,s.hud_results_title,"1-UP RESULTS");
-        label_styles(c,s.hud_results_title,"TextStylesList/D94-Caps-Bold_White","TextStylesList/D94-Caps-Bold_White");
-        if(!s.hud_results_notice.handle)s.hud_results_notice=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-        const auto winner=v.state.winner;
-        plain_label(c,c.field(s.hud_results_notice,0x94703efc),winner?v.name(winner)+" WINS!":"PRACTICE COMPLETE");
-        label_styles(c,c.field(s.hud_results_notice,0x94703efc),"TextStylesList/H64-XBold_White","TextStylesList/H64-XBold_White");
-        c.set_if_changed(c.field(s.hud_results_notice,0x13be0d51),std::array<float,2>{1200.f,130.f});
-        auto players=v.state.players;
-        std::stable_sort(players.begin(),players.end(),[&](const auto& a,const auto& b){
-            if(a.id==winner || b.id==winner)return a.id==winner && b.id!=winner;
-            const auto at=s.eliminated_at.find(a.id),bt=s.eliminated_at.find(b.id);
-            return (at==s.eliminated_at.end()?UINT32_MAX:at->second)>(bt==s.eliminated_at.end()?UINT32_MAX:bt->second);
-        });
-        if(!s.hud_results_rows.handle)
-            s.hud_results_rows=record_model(c,"TD_Scoreboard_ContentResources/LEGACY_TD_Scoreboard");
-        // Reuse the actual Throwdown results board and its rank/profile rows.
-        // Only the content is changed; its column layout and player styles are
-        // supplied by the original LEGACY_Scoreboard_Widget blueprint.
-        c.set_if_changed(c.field(s.hud_results_rows,0x5a7cec85),true);
-        c.set_if_changed(c.field(s.hud_results_rows,0xb7e92e95),true);
-        plain_label(c,c.element(c.field(s.hud_results_rows,0x3d98d397),2),"1-UP");
-        std::vector<Ref> rows;unsigned rank{};
-        for(const auto& player:players) {
-            auto& row=s.result_players[player.id];
-            if(!row.row.handle) {
-                row.row=record_model(c,player.id==winner?"TD_Scoreboard_ContentResources/TD_WinnerProfileInline":"TD_Scoreboard_ContentResources/TD_PlayerProfileInline");
-                row.rank=record_model(c,player.id==winner?"TD_Scoreboard_ContentResources/TD_WinnerRank":"TD_Scoreboard_ContentResources/TD_DefaultRank");
-                row.outcome=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
-                auto rank_widget=read<Widget>(c.address(c.field(row.row,0xc76d8b73)));
-                rank_widget.data={0,row.rank.handle};
-                c.set_if_changed(c.field(row.row,0xc76d8b73),rank_widget);
-                const auto scores=c.field(row.row,0xa3d2bba9);
-                c.array(c.field(scores,0xf2c90867),std::vector<Handle>{});
-                c.array(c.field(scores,rows_field),std::vector<Ref>{{0,row.outcome.handle}});
-            }
-            c.set_if_changed(c.field(row.row,0x8810a01e),player.id==v.local);
-            plain_label(c,c.path(row.row,{0xaed127c3,profile_name_tag_field}),v.name(player.id));
-            plain_label(c,c.field(row.rank,0x2718c842),std::to_string(++rank));
-            plain_label(c,row.outcome,player.id==winner?"WINNER":player.connected?"1 U P":"LEFT");
-            rows.push_back({0,row.row.handle});
-        }
-        const auto player_list=c.field(s.hud_results_rows,0xfcdd0d32);
-        c.array(c.field(player_list,0xf2c90867),std::vector<Handle>{});
-        c.array(c.field(player_list,rows_field),rows);
-        hud_list(c,s.hud_results,{
-            {asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget"),{0,s.hud_results_title.handle}},
-            {asset(c,"UI/Foundations/Components/Notices/BasicNotice_Widget"),{0,s.hud_results_notice.handle}},
-            {asset(c,"UI/Features/CommunityEvent/LEGACY_Scoreboard_Widget"),{0,s.hud_results_rows.handle}}},false,144.f,16.f,140.f*static_cast<float>(players.size())+100.f,1200.f);
-        s.results_turn=v.state.turn;
-        logging::log(logging::Level::info,logging::Channel::ui,"1-Up: native results leaderboard mounted for {} skater(s).",players.size());
-    }
-    mount_hud(c,s.hud_results,asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),s.hud_results_anchor,s.hud_results_item,hud_results_id,true);
-    c.set_if_changed(c.field(s.hud_results_anchor,0x1cff7243),std::array<float,2>{1200.f,920.f});
-    c.set_if_changed(c.path(s.hud_results_anchor,{0x185a5736,0x99bbed5a}),.5f);
-    c.set_if_changed(c.path(s.hud_results_anchor,{0x185a5736,0x49943bed}),.5f);
+    auto& s=state();const auto v=one_up::view();const auto now=GetTickCount64();
+    if(s.results_match!=v.state.match || v.state.phase==one_up::Phase::lobby){s.results_match=v.state.match;s.eliminated_at.clear();}
+    for(const auto& player:v.state.players)if(!player.eligible())s.eliminated_at.try_emplace(player.id,v.state.turn);
+    const bool practice=v.solo_test && v.state.phase==one_up::Phase::cancelled && std::any_of(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.penalties==3;});
+    const bool finished=v.state.match && (v.state.phase==one_up::Phase::finished || practice);
+    if(!s.oneup_result_window.visible(v.state.match,finished,now) || modes::native_view().active){s.hud_results_visible=false;return;}
     s.hud_results_visible=true;
+    const auto* definition=throwdowns::registry().find("native.oneup");if(!definition)return;
+    modes::NativeView view;view.active=true;view.local=v.local;view.game=static_cast<std::uint32_t>(v.state.match);view.settings.mode=modes::Mode::one_up;
+    view.state.emplace();view.state->phase=modes::Phase::results;
+    overlay::ModesHud feed;feed.active=true;feed.results=true;feed.winner=v.state.winner?v.name(v.state.winner):std::string{};
+    auto players=v.state.players;const auto winner=v.state.winner;
+    std::stable_sort(players.begin(),players.end(),[&](const auto& a,const auto& b){
+        if(a.id==winner || b.id==winner)return a.id==winner && b.id!=winner;
+        const auto x=s.eliminated_at.find(a.id),y=s.eliminated_at.find(b.id);
+        return (x==s.eliminated_at.end()?UINT32_MAX:x->second)>(y==s.eliminated_at.end()?UINT32_MAX:y->second);
+    });
+    for(const auto& p:players){modes::Standing row;row.player=p.id;row.out=false;view.state->standings.push_back(row);
+        overlay::ModesHudRow label;label.name=v.name(p.id);label.value=p.id==winner?"WINNER":!p.connected?"LEFT":p.penalties>=3?"1 U P":"ACTIVE";feed.rows.push_back(std::move(label));}
+    auto& h=s.oneup_result_hud;h.stack=s.hud_stack;h.game=view.game;
+    mode_results(c,view,feed,*definition,&h);
+    // Reuse the working measured results frame, never the legacy backend table.
+    plain_label(c,c.field(h.results_captions[2],0x94703efc),"1-UP");
+    if(practice)plain_label(c,c.field(h.results_notice,0x94703efc),"PRACTICE COMPLETE");
+    const bool ready=hud_publication_allowed(read<bool>(c.address(c.field(s.hud_stack,0x369babfe))),s.in_menu,s.match_panel_open.load());
+    if(!h.publication.allow(s.hud_stack.handle,v.state.match,ready,now)){s.hud_results_visible=true;return;}
+    const std::array result_items{h.results_panel_item,h.results_item};
+    publish_hud_surface(c,s.hud_stack,result_items,true);s.hud_results_visible=true;
 }
+
 #include "one_up_match_panel.inl"
 #if !defined(DINGOSDK_LEAN_PLAYTEST)
 void trace_official_panel_models(const Context& c,std::uint64_t now) noexcept {
@@ -2620,7 +2595,9 @@ void gameplay_hud(const Context& c,std::uint64_t now) {
         static std::uint64_t report{};
         if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"1-Up native gameplay HUD: {}",e.what());}
     }
-    try {mode_hud(c);}
+    try {native_results_hud(c);}
+    catch(const std::exception&){ /* Keep the owned result frame during a transient asset retry. */ }
+    try {if(!s.hud_results_visible)mode_hud(c);}
     catch(const std::exception& e) {
         // A transition can temporarily hide the native parent or delay an
         // optional asset. Keep the last complete frame while the challenge
@@ -2628,11 +2605,6 @@ void gameplay_hud(const Context& c,std::uint64_t now) {
         if(!modes::native_view().active)try {mode_hud_publish(c,false);}catch(...) {}
         static std::uint64_t report{};
         if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"Throwdown mode HUD: {}",e.what());}
-    }
-    try {native_results_hud(c);}
-    catch(const std::exception& e) {
-        static std::uint64_t report{};
-        if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"1-Up native results: {}",e.what());}
     }
     try {native_match_panel(c,now);}
     catch(const std::exception& e) {
@@ -2720,6 +2692,9 @@ void render(const Context& c) {
 bool native_one_up_setup_open() noexcept { return state().setup_open.load(std::memory_order_acquire); }
 bool native_one_up_hud_ready() noexcept { return state().hud_ready.load(std::memory_order_acquire); }
 bool native_one_up_match_panel_open() noexcept { return state().match_panel_open.load(std::memory_order_acquire); }
+bool native_throwdown_gameplay_input_allowed() noexcept {
+    auto& s=state();return s.gameplay_input_allowed.load(std::memory_order_acquire) && !s.match_panel_open.load(std::memory_order_acquire);
+}
 bool native_one_up_match_active() noexcept { try {return match_panel_view().available;}catch(...) {return false;} }
 void prepare_native_one_up_match_panel() noexcept {
     // Native ModelWriteLock is recursive for the same thread (1933460);
@@ -2753,6 +2728,7 @@ bool release_native_one_up_menu(std::uintptr_t base) noexcept {
     } catch(const std::exception& e) { logging::log(logging::Level::warning,logging::Channel::ui,"1-Up native menu cleanup: {}",e.what()); return false; }
 }
 void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noexcept {
+    state().gameplay_input_allowed.store(!loading && !in_menu,std::memory_order_release);
     auto& s=state();if(s.in_menu!=in_menu)s.next_tick=0;s.in_menu=in_menu;
     const auto now=GetTickCount64();
     try {
@@ -2800,8 +2776,8 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
         // Retry presentation at frame rate if native model publication lands
         // after its script callback. This never rebuilds/restarts HUD stacks.
         if(s.match_panel.requested_until)prepare_native_one_up_match_panel();
-        // Only text advances between full HUD ticks. Re-publishing the native
-        // stack each frame races its visibility/layout transitions.
+        // Only clocks and compass position advance between full HUD ticks.
+        // Re-publishing a stack here races its visibility/layout transitions.
         const auto view=modes::native_view();
         if(view.active && view.settings.mode==modes::Mode::race &&
            view.game==s.mode_hud.game && s.mode_hud.race_rows.handle) {
@@ -2813,8 +2789,10 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
                     if(in_menu && s.match_panel_open.load())match_panel_race_times(c,view,now);
                     if(!in_menu && s.mode_hud.stack.handle && c.type_of(s.mode_hud.stack.handle)==s.mode_hud.stack.type &&
                        hud_publication_allowed(read<bool>(c.address(c.field(s.mode_hud.stack,0x369babfe))),in_menu,
-                           s.match_panel_open.load()))
+                           s.match_panel_open.load())) {
                         mode_race_clocks(c,view,now);
+                        mode_gate_compass_motion(c,view,modes::hud());
+                    }
                 } catch(...) { /* A retiring clock must not retire the whole HUD. */ }
             }
         }

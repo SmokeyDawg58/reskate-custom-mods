@@ -56,14 +56,14 @@ struct NativeView {
     unsigned capacity=6;
     bool route_finish{},cursor_valid{};
     unsigned route_object=1;
-    bool route_snap=true,exit_confirm{},recovering{};
+    bool route_snap=true,exit_confirm{},recovering{},rotating{},arrow_height_snapped{};
     float snap_degrees=15.f,clear_progress{};
     unsigned missed_gate{};
     Vec3 cursor{};
-    float cursor_yaw{},cursor_width=6.f;
+    float cursor_yaw{},cursor_width=6.f,cursor_roll{},cursor_pitch{};
     Settings settings;
     std::optional<Message> state;
-    std::string waiting_status;
+    std::string waiting_status,editor_warning;
     std::vector<std::pair<std::uint64_t,std::string>> names;
 };
 NativeView native_view();

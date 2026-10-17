@@ -374,7 +374,8 @@ void apply_race_recovery_velocity(std::uintptr_t core) noexcept {
         for(std::size_t i=0;i<bodies.parts.size();++i) {
             velocities[i]=reader.value<std::array<float,3>>(bodies.parts[i],0x70);
             flags[i]=reader.value<std::uint32_t>(bodies.parts[i],0x60);
-            velocities[i][0]=request.velocity[0];velocities[i][2]=request.velocity[2];
+            // A checkpoint return must discard fall energy as well as set absolute horizontal speed.
+            velocities[i]=request.velocity;
         }
         reader.verify();
         for(std::size_t i=0;i<bodies.parts.size();++i){body_write(bodies.parts[i]+0x70,velocities[i]);body_write(bodies.parts[i]+0x60,flags[i]|8u);}

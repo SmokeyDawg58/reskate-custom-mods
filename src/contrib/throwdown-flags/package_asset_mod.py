@@ -47,7 +47,7 @@ for audio in sorted((source/'assets/throwdowns/audio').glob('*.wav')):
     relative='Audio/'+audio.name;target=args.output/relative
     target.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(audio,target)
     records.append({'path':relative,'bytes':target.stat().st_size,'sha256':hashlib.sha256(target.read_bytes()).hexdigest()})
-manifest={'name':'ReSkate_Throwdown_Assets','version_number':'1.0.2',
+manifest={'name':'ReSkate_Throwdown_Assets','version_number':'1.0.6',
     'website_url':'https://github.com/SmokeyDawg58/reskate-custom-mods',
     'description':'Required native logos, gates, flags, menus and HUD assets for the matching ReSkate custom Throwdowns lean playtest.',
     'dependencies':[],'author':'SmokeyDawg58'}
@@ -59,13 +59,13 @@ shutil.copy2(source/'LICENSE',args.output/'LICENSE')
 
 Native logos, placement flags, Deathrace gates, menus, HUD materials and map registrations for the matching custom ReSkate 2.0.7 lean playtest.
 
-Install as `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets/`, with `layout.toc`, `Win32` and `initfs_win32` directly inside. The corrected runtime also accepts `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.2/`, the folder Windows creates when extracting this ZIP. Older lean runtimes require the unversioned name. The launcher also accepts the standalone package ZIP. Install into your active Mods directory; ModData installations use `ModData/Default/Mods`. The full playtest installer selects that directory automatically.
+Install as `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets/`, with `layout.toc`, `Win32` and `initfs_win32` directly inside. The corrected runtime also accepts `Mods/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.6/`, the folder Windows creates when extracting this ZIP. Older lean runtimes require the unversioned name. The launcher also accepts the standalone package ZIP. Install into your active Mods directory; ModData installations use `ModData/Default/Mods`. The full playtest installer selects that directory automatically.
 
 Everyone needs this asset mod and the matching custom DLL/launcher. The assets alone do not add custom modes to the stock runtime. No new DLL or game executable is included in this asset-only mod.
 
-The custom runtime verifies all 19 required file hashes and mounts this required dependency once, ahead of optional mods. Use the plain folder name or its numeric version suffix; avoid extra nested folders. An incomplete or different pack stops preparation with an error instead of silently losing artwork. Version 1.0.2 replaces R.E.S.K.A.T.E. artwork with the supplied pink skateboard logo on the picker, pages, HUD, map markers and flags. It retains the selected quiet gate/finish clips. Existing HUD animation curves, gates and old flag payloads are preserved. Install this pack with the matching updated runtime; earlier asset versions are not interchangeable. Replace the previous asset mod rather than keeping duplicate versions enabled.
+The custom runtime verifies all 19 required file hashes and mounts this required dependency once, ahead of optional mods. Use the plain folder name or its numeric version suffix; avoid extra nested folders. An incomplete or different pack stops preparation with an error instead of silently losing artwork. Version 1.0.6 includes the corrected transparent blue/yellow compass gate picture, larger title frames and all previously shipped native assets. It uses a fixed native blue/yellow chevron, with all Deathrace gates and markers registered in every supported map. Chevrons retain their placed pose and are decorative, silent and non-colliding. It preserves the supplied pink R.E.S.K.A.T.E. artwork, selected quiet gate/finish clips and existing HUD animation payloads. Install this pack with the matching updated runtime; earlier asset versions are not interchangeable. Replace the previous asset mod rather than keeping duplicate versions enabled.
 
-Download the matching runtime and full playtest instructions from https://github.com/SmokeyDawg58/reskate-custom-mods/releases . This is a local/shareable Thunderstore-format package, not evidence of a published Thunderstore listing.
+Use the runtime pair supplied with this local playtest. Everyone joining must use this matching asset version. This package has not been published to GitHub or Thunderstore.
 ''',encoding='utf-8')
-(args.output/'CHANGELOG.md').write_text('# 1.0.2\n\nUse the supplied pink skateboard logo for R.E.S.K.A.T.E. everywhere, including physical flags and map markers. Preserve native identities, HUD curves and other challenge artwork. Keep quiet Required/Finish audio. Install with the matching runtime.\n',encoding='utf-8')
+(args.output/'CHANGELOG.md').write_text('# 1.0.6\n\nUse a fixed stunt-style blue/yellow chevron with native materials in every supported map. Preserve the working map residency. Keep the pink R.E.S.K.A.T.E. artwork, quiet gate/finish audio and existing HUD animation payloads. Install with the matching runtime; all playtest participants need the same version.\n',encoding='utf-8')
 print(json.dumps({'folder':str(args.output),'native_files':len(records),'archive_sha256':expected}))

@@ -2,6 +2,7 @@
 #include "race_asset_contract.h"
 #include "race_source_contract.h"
 #include "race_group_reconciliation.h"
+#include "race_route.h"
 #include "game_modes.h"
 #include "Engine/Core/Platform/memory.h"
 #include "Engine/Core/Log/logging.h"
@@ -34,12 +35,12 @@ void require(bool ok,const char* why) {if(!ok)throw std::runtime_error(why);}
 template<std::size_t N> void prefix(std::uintptr_t base,std::uintptr_t rva,const std::array<unsigned char,N>& expected) {
     std::array<unsigned char,N> actual{};require(memory::peek_bytes(base+rva,actual.data(),N) && actual==expected,"Deathrace entity ABI differs.");
 }
-struct Gate {Vec3 at{};float yaw{},width{};bool finish{},guiding{};bool operator==(const Gate&) const=default;};
+struct Gate {Vec3 at{};float yaw{},width{};bool finish{},guiding{},arrow{};float roll{},pitch{};bool operator==(const Gate&) const=default;};
 struct Entity {std::uintptr_t entity{},owner{},context{};unsigned group{},part{};};
 struct State {
     detail::CheckpointWorldLifetime lifetime;
     std::mutex mutex;std::vector<Entity> entities;std::vector<Gate> gates;
-    std::array<std::uintptr_t,9> assets{};std::array<std::uint16_t,9> asset_domains{};
+    std::array<std::uintptr_t,11> assets{};std::array<std::uint16_t,11> asset_domains{};
     std::uintptr_t context{};std::uint64_t world{},retry{},preview_at{};
     std::uint32_t game{},ready_game{};std::uint64_t ready_world{};
     bool verified{},route_ready{};std::string error,waiting;
@@ -51,7 +52,7 @@ void waiting(State& s,std::string issue) {
     s.waiting=std::move(issue);
     logging::log(logging::Level::debug,logging::Channel::runtime,"Deathrace world objects: {}",s.waiting);
 }
-constexpr std::array<const char*,9> checkpoint_names{
+constexpr std::array<const char*,11> checkpoint_names{
     "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AT_Gate",
     "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AL_Gate",
     "World/ReSkate/Deathrace/SM_FX_GP_LightningBolt_A_Gate",
@@ -60,7 +61,9 @@ constexpr std::array<const char*,9> checkpoint_names{
     "World/ReSkate/Deathrace/SM_FX_GP_LightningBolt_A_Finish",
     "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AT_Guide",
     "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AL_Guide",
-    "World/ReSkate/Deathrace/SM_FX_GP_LightningBolt_A_Guide"};
+    "World/ReSkate/Deathrace/SM_FX_GP_LightningBolt_A_Guide",
+    "World/ReSkate/Deathrace/FloatingArrow_AT",
+    "World/ReSkate/Deathrace/FloatingArrow_A"};
 // A full domain lookup is bounded and done only when entering a race or loading
 // its bundle. Nine known-domain lookups validate the cached pointers thereafter.
 // UI assets are in a child domain, so searching the skater's parents alone
@@ -118,6 +121,7 @@ Entity create(std::uintptr_t base,std::uintptr_t parent,std::uintptr_t asset,con
     return entity;
 }
 Matrix mesh_pose(const Gate& gate,unsigned part) {
+    if(gate.arrow)return race_arrow_layer_transform(gate.at,gate.yaw,gate.roll,gate.width,gate.pitch,part);
     // Exact child transforms from SPF_UI_Checkpoint_Base. One size control
     // scales the complete gate, including bolt placement, about ground level.
     constexpr std::array<float,4> sx{7.f,7.f,-2.12332f,2.13802f},sy{7.f,7.f,2.12332f,2.13802f};
@@ -127,6 +131,16 @@ Matrix mesh_pose(const Gate& gate,unsigned part) {
     const float yaw=gate.yaw*3.14159265f/180.f,co=std::cos(yaw),si=std::sin(yaw),width=gate.width*2.f/7.f;
     const float scale=gate.width/6.f;
     const float a=sx[part]*width,bb=right_y[part]*scale,c=up_x[part]*width,d=sy[part]*scale,depth=(part<2?7.f:part==2?2.1425f:2.1381f)*scale;
+    if(gate.pitch!=0.f) {
+        const auto axes=race_gate_axes(gate.yaw,gate.pitch);Matrix result{};
+        for(unsigned axis=0;axis<3;++axis) {
+            result[axis]=axes.right[axis]*a+axes.up[axis]*bb;
+            result[4+axis]=axes.right[axis]*c+axes.up[axis]*d;
+            result[8+axis]=axes.forward[axis]*depth;
+            result[12+axis]=gate.at[axis]+axes.right[axis]*x[part]*width+axes.up[axis]*y[part]*scale+axes.forward[axis]*z[part]*scale;
+        }
+        result[15]=1;return result;
+    }
     return {co*a,bb,-si*a,0,co*c,d,-si*c,0,si*depth,0,co*depth,0,
         gate.at[0]+co*x[part]*width+si*z[part]*scale,gate.at[1]+y[part]*scale,gate.at[2]-si*x[part]*width+co*z[part]*scale,1};
 }
@@ -195,7 +209,7 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
         if(!std::all_of(s.assets.begin(),s.assets.end(),[](auto a){return a!=0;})) {
             if(now<s.retry)return;s.retry=now+1000;
             if(!load_assets(base,s)) {
-                waiting(s,std::format("waiting for checkpoint blueprints ({}/9 loaded)",std::count_if(s.assets.begin(),s.assets.end(),[](auto a){return a!=0;})));
+                waiting(s,std::format("waiting for route blueprints ({}/{} loaded)",std::count_if(s.assets.begin(),s.assets.end(),[](auto a){return a!=0;}),s.assets.size()));
                 return;
             }
         }
@@ -204,19 +218,21 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
         // index 1, preserving the separately stored start position and yaw.
         for(unsigned i=1;i<view.settings.points.size();++i)gates.push_back({view.settings.points[i],
             i<view.settings.yaws.size()?view.settings.yaws[i]:0.f,gate_half_width(view.settings,i),
-            i+1==view.settings.points.size() && view.route_finish,guiding_gate(view.settings,i)});
-        if(view.placing && view.cursor_valid && view.route_object!=0)gates.push_back({view.cursor,view.cursor_yaw,view.cursor_width,view.route_object==2,view.route_object==3});
+            i+1==view.settings.points.size() && view.route_finish,guiding_gate(view.settings,i),arrow_marker(view.settings,i),
+            i<view.settings.arrow_rolls.size()?view.settings.arrow_rolls[i]:0.f,i<view.settings.gate_pitches.size()?view.settings.gate_pitches[i]:0.f});
+        if(view.placing && view.cursor_valid && view.route_object!=0)gates.push_back({view.cursor,view.cursor_yaw,view.cursor_width,view.route_object==2,view.route_object==3,view.route_object==4,view.cursor_roll,view.cursor_pitch});
         if(gates.empty())waiting(s,view.placing?"waiting for a valid placement surface":"waiting for route gates");
         std::set<unsigned> dirty;
         std::vector<unsigned> live_parts(gates.size());
+        std::vector<unsigned> expected_parts;unsigned expected_total{};
+        for(const auto& gate:gates){const auto parts=gate.arrow?2u:4u;expected_parts.push_back(parts);expected_total+=parts;}
         {std::lock_guard lock(s.mutex);
             for(const auto& entity:s.entities)if(entity.group<live_parts.size())++live_parts[entity.group];
-            dirty=detail::pending_checkpoint_groups(s.dirty,live_parts);}
+            dirty=detail::pending_checkpoint_groups(s.dirty,live_parts,expected_parts);}
         const auto publish_ready=[&] {
             std::lock_guard lock(s.mutex);s.ready_world=view.world;s.ready_game=view.game;
             s.route_ready=!view.placing && view.route_finish && gates.size()>=2 &&
-                s.entities.size()==gates.size()*4 && s.dirty.empty() &&
-                std::all_of(live_parts.begin(),live_parts.end(),[](auto count){return count==4;});
+                s.entities.size()==expected_total && s.dirty.empty() && live_parts==expected_parts;
         };
         if(gates==s.gates && dirty.empty()) {publish_ready();return;}
         if(now<s.preview_at)return;
@@ -225,16 +241,16 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
         {std::lock_guard lock(s.mutex);
             std::fill(live_parts.begin(),live_parts.end(),0);
             for(const auto& entity:s.entities)if(entity.group<live_parts.size())++live_parts[entity.group];
-            dirty=detail::take_checkpoint_groups(s.dirty,live_parts);}
+            dirty=detail::take_checkpoint_groups(s.dirty,live_parts,expected_parts);}
         unsigned created_groups{};
         for(unsigned i=0;i<std::max(gates.size(),s.gates.size());++i) {
             if(i<gates.size() && i<s.gates.size() && gates[i]==s.gates[i] && !dirty.contains(i))continue;
             // Move a resident arch in place. Recreating all four meshes five
             // times a second caused the preview to jump and restart its FX.
-            if(i<gates.size() && i<s.gates.size() && gates[i].finish==s.gates[i].finish && gates[i].guiding==s.gates[i].guiding && !dirty.contains(i)) {
+            if(i<gates.size() && i<s.gates.size() && gates[i].finish==s.gates[i].finish && gates[i].guiding==s.gates[i].guiding && gates[i].arrow==s.gates[i].arrow && !dirty.contains(i)) {
                 std::vector<Entity> group;
                 {std::lock_guard lock(s.mutex);for(const auto& entity:s.entities)if(entity.group==i)group.push_back(entity);}
-                if(group.size()==4 && std::all_of(group.begin(),group.end(),[](const auto& entity) {
+                if(group.size()==expected_parts[i] && std::all_of(group.begin(),group.end(),[](const auto& entity) {
                     const auto collection=ptr(entity.entity,0x70);
                     return ptr(entity.entity,0x20)==entity.context && ptr(entity.entity,0x40)==entity.owner && collection && ptr(collection)==entity.entity;
                 })) {
@@ -248,8 +264,9 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
             if(i<gates.size() && created_groups>=16)continue; // Spread a long route across client frames.
             clear_group(base,i);
             if(i<gates.size())++created_groups;
-            if(i<gates.size())for(unsigned part=0;part<4;++part) {
-                const auto& gate=gates[i];(void)create(base,parent,s.assets[(gate.finish?3:gate.guiding?6:0)+(part<2?part:2)],mesh_pose(gate,part),i,part);
+            if(i<gates.size())for(unsigned part=0;part<expected_parts[i];++part) {
+                const auto& gate=gates[i];const auto asset=gate.arrow?9+part:(gate.finish?3:gate.guiding?6:0)+(part<2?part:2);
+                (void)create(base,parent,s.assets[asset],mesh_pose(gate,part),i,part);
             }
         }
         {std::lock_guard lock(s.mutex);

@@ -1,45 +1,47 @@
 {
-  "generated_at_utc": "2026-10-16T02:12:27.049850+00:00",
-  "automated_tests": {
+  "generated_at_utc": "2026-10-17T04:17:47.780370+00:00",
+  "tests": {
     "passed": 79,
     "failed": 0
   },
   "runtime_files": {
     "ReSkate.dll": {
-      "bytes": 14499328,
-      "sha256": "0e90fd8ab9bcf169aee627d5048c718ad355a16e14fe2600d9e95e3c7c3e7168"
+      "bytes": 14604800,
+      "sha256": "66f15cccdd51eb06901a39ac0163f5829997966ccc4e6e51d0716d266bf8cc3e"
     },
     "ReSkateLauncher.exe": {
       "bytes": 4981248,
-      "sha256": "7de51db02ce838d6a0b3e45acbd4c9f44124b63d2bb7f9606650efd577080100"
+      "sha256": "0654056b68c2a0d39a5b855caa451a490a18224e44fdd03a8afbb991b67db2a2"
     }
   },
-  "asset_version": "1.0.2",
-  "asset_audit": {
-    "result": "PASS",
-    "resources": 1635,
-    "changed_chunk_payloads": [
-      "f2546499-a953-45eb-8793-073447d8b50b",
-      "c5b9ea9e-7817-4198-b6bf-8eb02cd8f3a6"
-    ],
-    "all_resource_identities_metadata_bundles_preserved": true,
-    "existing_hud_animation_and_other_1633_payloads_exact": true
+  "asset_version": "1.0.6",
+  "native_resource_count": 2147,
+  "native_archive_sha256": "7924e680c569f9575c151c4761736979e7a328a4ee2af936c871f2eeee8e8905",
+  "native_asset_files": 19,
+  "protocol": {
+    "session": 50,
+    "game_modes": 16,
+    "one_up": 5,
+    "throwdown_payload_limit_bytes": 4096
   },
-  "human_confirmed_prior_checks": [
-    "Native guest flag Join",
-    "Controls return after finish/DNF",
-    "Guest Quit leaves host racing",
-    "Missed-gate recovery speed",
-    "Separate Required-progress layout"
+  "source_reconstruction": "INDEPENDENT_INDEX_APPLY_VERIFIED",
+  "human_confirmed_on_prior_installed_build": [
+    "Chevron ground clearance and all three snap directions",
+    "Larger compass size, position and aiming-camera movement",
+    "Repeated falls recover with speed and quiet C cue",
+    "Accidental board loss versus deliberate dismount",
+    "Gate visibility after map changes",
+    "Guest flag join, restored controls and guest-only Quit in their reported builds",
+    "Final title/logo paint alignment on the matching installed build"
   ],
-  "new_checks_pending": [
-    "Finish sound in solo and multiplayer races",
-    "Bail recovery on board with pre-bail speed",
-    "Enlarged centered Deathrace title",
-    "Pink logo across native surfaces"
+  "pending": [
+    "Wider multi-PC/disconnect/rejoin/long-session checks",
+    "Bail/runout grace and finish-through-bail combinations",
+    "Deferred Spot Battle wording capture",
+    "Owner-deferred R.E.S.K.A.T.E. rules playtest"
   ],
-  "known_follow_up": "One native join confirmation may still say Spot Battle; live inspection was deferred by the owner.",
   "diagnostic_logging": false,
-  "debug_symbols_shipped": false,
-  "programs_controlled": false
+  "profiling": false,
+  "crash_reporting": false,
+  "debug_symbols_shipped": false
 }

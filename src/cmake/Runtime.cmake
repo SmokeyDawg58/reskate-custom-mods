@@ -245,7 +245,8 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc"
 target_sources(dingosdk_runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/throwdown_audio.rc"
     "THROWDOWN_GATE RCDATA \"${PROJECT_SOURCE_DIR}/assets/throwdowns/audio/gate-required.wav\"\n"
-    "THROWDOWN_FINISH RCDATA \"${PROJECT_SOURCE_DIR}/assets/throwdowns/audio/race-finish.wav\"\n")
+    "THROWDOWN_FINISH RCDATA \"${PROJECT_SOURCE_DIR}/assets/throwdowns/audio/race-finish.wav\"\n"
+    "THROWDOWN_RECOVERY RCDATA \"${PROJECT_SOURCE_DIR}/assets/throwdowns/runtime-audio/race-recovery.wav\"\n")
 target_sources(dingosdk_runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/throwdown_audio.rc")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${PROJECT_SOURCE_DIR}/assets/one_up/native_assets.bin")

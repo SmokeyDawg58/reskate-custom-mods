@@ -108,6 +108,8 @@ constexpr std::size_t watch_count = std::size(watches);
 
 enum class Setting { meat, on, off };
 struct State {
+    std::atomic<std::uintptr_t> pose_base{},pose_client{};
+    std::atomic<std::uint64_t> pose_context_at{};
     Setting setting = Setting::meat;
     bool effects = true;
     bool ringing = true; // a concussion's ringing in the ears (it can be muted)
@@ -524,6 +526,7 @@ void tick_bone_cam(std::uintptr_t base, std::uintptr_t client, bool playing) noe
         static const bool loaded = (load_settings(), true); // the player's saved choices, once
         (void)loaded;
         const auto now = now_ms();
+        s.pose_base=base;s.pose_client=client;s.pose_context_at=now;
         // Only a lasting loss of play ends it: a slam can briefly take the game out of play.
         if (!playing) {
             if (!s.unready_since) s.unready_since = now;
@@ -681,5 +684,18 @@ overlay::BoneCam bone_cam() {
         cam.vertical_fov = view->vertical_fov;
     }
     return cam;
+}
+std::optional<std::array<float,3>> race_bail_position() noexcept {
+    try {
+        auto& owner=state();const auto sampled=owner.pose_context_at.load();const auto now=now_ms();
+        if(!sampled || now<sampled || now-sampled>250)return {};
+        const auto base=owner.pose_base.load(),client=owner.pose_client.load();if(!base || !client)return {};
+        // Do not mutate Bone Cam's impact history, pose publication or settings.
+        thread_local State probe;
+        if(!read_pose(probe,base,client).empty())return {};
+        const auto at=probe.joints[joint::hips].position;
+        if(std::any_of(at.begin(),at.end(),[](float value){return !std::isfinite(value) || std::abs(value)>100000.f;}))return {};
+        return at;
+    } catch(...) {return {};}
 }
 } // namespace dingosdk::modes

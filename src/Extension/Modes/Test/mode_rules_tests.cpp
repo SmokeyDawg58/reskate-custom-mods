@@ -2,7 +2,10 @@
 // the events players would send.
 #include "Extension/Modes/mode_rules.h"
 #include "Extension/Modes/race_route.h"
+#include "Extension/Modes/race_editor.h"
+#include "Extension/Modes/race_arrow_placement.h"
 #include "Extension/Modes/race_momentum.h"
+#include "Extension/Modes/race_navigation.h"
 #include "Extension/Modes/race_sound.h"
 #include "Extension/Modes/mode_announcements.h"
 #include "Extension/Modes/mode_transport.h"
@@ -292,9 +295,10 @@ void race_builder_flow() {
     check(edit_race_route(s,finish,RaceObject::finish,replacement,90,6) && s.points.size()==1027 && s.points.back()==replacement,"moving finish never adds another finish on a long route");
     check(mandatory_gates(s,s.points.size())==1024,"guide and finish excluded from mandatory count");
     check(cycle_race_object(RaceObject::start,false)==RaceObject::checkpoint && cycle_race_object(RaceObject::checkpoint,false)==RaceObject::finish &&
-        cycle_race_object(RaceObject::finish,false)==RaceObject::guiding && cycle_race_object(RaceObject::guiding,false)==RaceObject::checkpoint &&
-        cycle_race_object(RaceObject::checkpoint,true)==RaceObject::guiding && cycle_race_object(RaceObject::guiding,true)==RaceObject::finish,
-        "editor cycles default mandatory, finish, white guide in both directions");
+        cycle_race_object(RaceObject::finish,false)==RaceObject::guiding && cycle_race_object(RaceObject::guiding,false)==RaceObject::arrow &&
+        cycle_race_object(RaceObject::arrow,false)==RaceObject::checkpoint && cycle_race_object(RaceObject::checkpoint,true)==RaceObject::arrow &&
+        cycle_race_object(RaceObject::arrow,true)==RaceObject::guiding && cycle_race_object(RaceObject::guiding,true)==RaceObject::finish,
+        "editor cycles Required, Finish, Guide and floating Arrow in both directions");
     Message long_route;long_route.kind=Message::Kind::setup;long_route.leader=a;long_route.game=99;long_route.settings=s;
     auto packets=transport_messages(long_route);check(packets.size()>1,"long route is fragmented");
     for(const auto& packet:packets)check(packet.size()<=4096,"each route fragment fits multiplayer payload");
@@ -355,6 +359,224 @@ void race_clock_flow() {
     const auto left=leaving.state(countdown_ms+9000);
     const auto departed=std::find_if(left.standings.begin(),left.standings.end(),[&](const auto& p){return p.player==b;});
     check(departed!=left.standings.end() && departed->out && departed->aux==1234,"departed racer timer freezes when leaving");
+}
+void race_arrow_surface_placement() {
+    // Analytic collision fixtures exercise complete placements on walls,
+    // floors, slopes and corners, independent of native physics availability.
+    const auto plane=[](Vec3 point,Vec3 normal) {
+        return [=](const Vec3& origin,const Vec3& direction,float length) {
+            const float denominator=arrow_dot(direction,normal);
+            if(std::abs(denominator)<.00001f)return RaceArrowRay{true,false,{}};
+            const float distance=arrow_dot(arrow_add(point,origin,-1.f),normal)/denominator;
+            return distance>=0 && distance<=length?RaceArrowRay{true,true,arrow_add(origin,direction,distance)}:RaceArrowRay{true,false,{}};
+        };
+    };
+    const auto wall=plane({0,0,8},{0,0,-1});const Vec3 eye{0,3,0};
+    const auto aim=aim_race_arrow(eye,{0,0,1},{1,0,0},{0,1,0},wall);
+    check(aim.valid && aim.surface.contact && std::abs(aim.at[2]-8)<.001f && aim.surface.normal[2]<-.99f,
+        "chevrons stop on the visible wall instead of passing through it at twelve metres");
+    check(aim.align_surface,"a direct wall hit mounts automatically, including nearer than the free-air preview distance");
+    const auto close_surface=plane({0,0,11.8f},{0,0,-1});
+    check(aim_race_arrow(eye,{0,0,1},{1,0,0},{0,1,0},close_surface).align_surface,
+        "bringing the preview close to a wall still permits surface alignment");
+    const auto angles=race_arrow_surface_angles(aim.surface.normal);
+    const auto mounted=clear_race_arrow_surface(aim.at,angles[0],angles[1],0,7.5f,aim.surface);
+    check(std::abs(mounted[2]-7.96f)<.001f && race_arrow_clear(eye,mounted,angles[0],angles[1],0,7.5f,wall),
+        "wall-mounted full-size chevron stays flush with a small visible clearance");
+    const auto turned=clear_race_arrow_surface(aim.at,90,0,0,7.5f,aim.surface);
+    check(turned[2]<5.47f && race_arrow_clear(eye,turned,90,0,0,7.5f,wall),
+        "rotating an arrow against a wall clears its whole footprint, not only its center");
+    check(!race_arrow_clear(eye,{0,3,8.1f},180,0,0,7.5f,wall),"saving a chevron hidden inside a wall is refused");
+    const auto ground=plane({0,0,0},{0,1,0});const Vec3 down=arrow_unit({0,-1,1}),camera_up=arrow_unit({0,1,1});
+    const auto floor=aim_race_arrow(eye,down,{1,0,0},camera_up,ground);
+    check(floor.valid && floor.align_surface && floor.surface.contact && floor.surface.normal[1]>.99f,"ground placement recovers the real floor plane");
+    const auto floor_angles=race_arrow_surface_angles(floor.surface.normal);
+    const auto flat=clear_race_arrow_surface(floor.at,floor_angles[0],floor_angles[1],0,7.5f,floor.surface);
+    check(std::abs(floor_angles[1]+90)<.001f && std::abs(flat[1]-.04f)<.001f &&
+        race_arrow_clear(eye,flat,floor_angles[0],floor_angles[1],0,7.5f,ground),"arrows can be mounted flat on the ground");
+    const auto snapped_below=clear_race_arrow_surface({0,-2,3},0,-90,0,7.5f,floor.surface);
+    check(std::abs(snapped_below[1]-.04f)<.001f,"height snapping cannot sink a surface-mounted arrow below the ground");
+    const auto slope=plane({0,0,4},arrow_unit({0,1,-1}));
+    const auto ramp=aim_race_arrow(eye,{0,0,1},{1,0,0},{0,1,0},slope);
+    const auto ramp_angles=race_arrow_surface_angles(ramp.surface.normal);
+    check(ramp.valid && std::abs(ramp_angles[1]+45)<.001f,"sloped meshes supply the mounted arrow's actual tilt");
+    const auto corner=[&](const Vec3& origin,const Vec3& direction,float length) {
+        const auto main=wall(origin,direction,length);
+        const auto side=plane({1,0,0},{-1,0,0})(origin,direction,length);
+        if(!main.hit)return side;if(!side.hit)return main;
+        return arrow_dot(arrow_add(main.at,origin,-1.f),direction)<arrow_dot(arrow_add(side.at,origin,-1.f),direction)?main:side;
+    };
+    check(!race_arrow_clear(eye,mounted,180,0,0,7.5f,corner),"an adjacent wall crossing an arrow edge blocks placement");
+    const auto empty=[](const Vec3&,const Vec3&,float){return RaceArrowRay{true,false,{}};};
+    const auto floating=aim_race_arrow(eye,{0,0,1},{1,0,0},{0,1,0},empty);
+    check(floating.valid && !floating.surface.contact && floating.at==Vec3{0,3,12},"clear air still supports floating arrows");
+    const auto foreground=[](const Vec3& origin,const Vec3& direction,float length) {
+        // A small foreground object obscures only the camera-to-upper-corner
+        // rays from the old validator. It does not intersect the actual quad.
+        if(origin[2]<.01f && direction[0]>.1f && direction[1]>.1f)
+            return RaceArrowRay{true,true,arrow_add(origin,direction,std::min(1.f,length))};
+        return RaceArrowRay{true,false,{}};
+    };
+    check(race_arrow_clear(eye,floating.at,180,0,0,7.5f,foreground),
+        "partial foreground occlusion cannot reject a clear airborne Chevron");
+    check(race_arrow_preview_visible(true,false,false) && race_arrow_preview_visible(false,true,true) &&
+        !race_arrow_preview_visible(false,false,false),"a blocked placement keeps its preview visible while a missing camera does not invent one");
+    const auto unavailable=[](const Vec3&,const Vec3&,float){return RaceArrowRay{};};
+    check(!aim_race_arrow(eye,{0,0,1},{1,0,0},{0,1,0},unavailable).valid &&
+        !race_arrow_clear(eye,mounted,180,0,0,7.5f,unavailable),"unavailable collision data cannot authorize a through-mesh placement");
+    const auto one_sided_ground=[&](const Vec3& origin,const Vec3& direction,float length) {
+        if(origin[1]<0 || direction[1]>=0)return RaceArrowRay{true,false,{}};
+        return ground(origin,direction,length);
+    };
+    for(const float width:{1.5f,7.5f,40.f})for(const float pitch:{-90.f,-60.f,-15.f,0.f,35.f,90.f})for(const float roll:{0.f,30.f,90.f}) {
+        const auto safe=clear_race_arrow_ground({0,1,3},25,pitch,roll,width,one_sided_ground);
+        check(safe.available && safe.at[1]>=1,"footprint clearance only raises a penetrating arrow, never pulls floating placement downward");
+        for(unsigned part=0;part<2;++part) {
+            const auto mesh=race_arrow_layer_transform(safe.at,25,roll,width,pitch,part);
+            for(const float x:{-.5f,.5f})for(const float y:{-.5f,.5f})
+                check(mesh[13]+x*mesh[1]+y*mesh[5]>=.02f,"both native Chevron layers stay above one-sided road meshes at all supported sizes and tilts");
+        }
+    }
+    const auto air_clear=clear_race_arrow_ground({0,20,3},0,0,0,7.5f,one_sided_ground);
+    check(air_clear.at==Vec3{0,20,3},"a road far below an airborne arrow cannot attract it onto the floor");
+    const auto flat_clear=clear_race_arrow_ground(flat,0,-90,0,7.5f,one_sided_ground);
+    check(flat_clear.at==flat,"already flush floor placement does not creep upwards every frame");
+    const auto slope_clear=clear_race_arrow_ground({0,1,4},0,0,0,7.5f,slope);
+    const auto slope_mesh=race_arrow_transform(slope_clear.at,0,0,7.5f,0);
+    for(const float x:{-.5f,0.f,.5f})for(const float y:{-.5f,0.f,.5f}) {
+        const Vec3 footprint_point{slope_mesh[12]+x*slope_mesh[0]+y*slope_mesh[4],slope_mesh[13]+x*slope_mesh[1]+y*slope_mesh[5],slope_mesh[14]+x*slope_mesh[2]+y*slope_mesh[6]};
+        check(arrow_dot(arrow_add(footprint_point,Vec3{0,0,4},-1.f),arrow_unit({0,1,-1}))>=.02f,"upright arrows clear sloped roads across their full footprint");
+    }
+    check(!clear_race_arrow_ground({0,1,3},0,0,0,7.5f,unavailable).available,
+          "missing footprint collision data cannot authorize placement");
+}
+void race_editor_rotation_history() {
+    for(const float pitch:{0.f,-90.f,45.f}) {
+        const auto core=race_arrow_layer_transform({1,2,3},35,20,7.5f,pitch,0);
+        const auto glow=race_arrow_layer_transform({1,2,3},35,20,7.5f,pitch,1);
+        check(std::abs(std::hypot(glow[12]-core[12],glow[13]-core[13],glow[14]-core[14])-.015f)<.00001f,
+            "Chevron glow stays a fixed small distance above its core in wall, ground and air poses");
+        check(std::equal(core.begin(),core.begin()+12,glow.begin()),"glow depth separation preserves the saved orientation and scale");
+    }
+    RaceArrowLineSnap line;bool line_locked{};
+    Settings row;row.mode=Mode::race;row.points={{0,0,0},{0,10,0},{.7f,10.4f,5}};
+    row.gate_kinds={RaceGateKind::mandatory,RaceGateKind::arrow,RaceGateKind::arrow};
+    auto snap=line.update(row,{{2,11,10},8,7,0},true,90,line_locked);
+    check(line_locked && snap.at==Vec3{.7f,10.4f,10} && snap.yaw==0 && snap.pitch==0,
+        "upright Chevron rows use authored axes rather than carrying the last two markers' diagonal error");
+    for(unsigned n=0;n<12;++n) {
+        const float z=15.f+5.f*n;
+        snap=line.update(row,{{2,11,z},12,-8,0},true,90,line_locked);
+        check(line_locked && snap.at==Vec3{.7f,10.4f,z} && snap.yaw==0 && snap.pitch==0,"each placement remains on one exact upright line with an identical pose");
+        row.points.push_back(snap.at);row.gate_kinds.push_back(RaceGateKind::arrow);
+    }
+    snap=line.update(row,{{8,20,80},0,0,0},true,90,line_locked);
+    check(!line_locked && snap.at==Vec3{8,20,80},"moving clearly away permits starting another row");
+    snap=line.update(row,{{1,11,9},12,8,3},false,90,line_locked);
+    check(!line_locked && snap.at==Vec3{1,11,9} && snap.yaw==12 && snap.pitch==8 && snap.roll==3,"Snap OFF releases both position and orientation");
+    row.points={{0,0,0},{5,15,5}};row.gate_kinds.resize(2);line.reset();
+    snap=line.update(row,{{6,22,6},0,0,0},true,90,line_locked);
+    check(line_locked && snap.at==Vec3{5,22,5},"vertical columns hold both horizontal axes exactly");
+    row.yaws={0,45};line.reset();
+    snap=line.update(row,{{12.5f,15,-1.5f},45,0,0},true,15,line_locked);
+    check(line_locked && std::abs(snap.at[0]+snap.at[2]-10.f)<.0001f,"a deliberately rotated marker provides a straight local axis without taking an accidental placement diagonal");
+    row.gate_pitches={0,-90};line.reset();
+    snap=line.update(row,{{5,23,5},45,0,0},true,15,line_locked);
+    check(!line_locked && snap.at==Vec3{5,23,5},"a ground-mounted row does not capture upright airborne placement");
+    const auto snapped_pose=snap_race_arrow_angles({{},11,7,0},true,90);
+    check(snapped_pose.yaw==0 && snapped_pose.pitch==0,"default90 snapping keeps an upright preview square despite small aiming changes");
+    check(default_race_editor_width/6.f==1.25f && default_race_editor_snap_angle==4,
+          "new race editor defaults are 125 percent and the 90-degree option");
+    check(race_camera_yaw(30,0,false)==30 && race_camera_yaw(60,15,false)==75 && race_camera_yaw(30,0,true)==-150,
+          "camera following returns for gates and front-facing chevrons with retained manual yaw offsets");
+    check(race_camera_pitch(20,0,true)==0 && race_camera_pitch(50,0,true)==0 &&
+          race_camera_pitch(50,15,true)==15 && race_camera_pitch(50,15,false)==15,
+          "airborne Chevrons stay upright at oblique camera angles while X and gates retain manual tilt");
+    check(race_camera_pitch(-90,0,true,true)==-90 && race_camera_pitch(0,0,true,true)==0,
+          "looking onto the floor or wall still uses the actual mounting plane");
+    Settings air_row;air_row.mode=Mode::race;air_row.points={{0,0,0},{5,12,5}};
+    air_row.gate_kinds={RaceGateKind::mandatory,RaceGateKind::arrow};air_row.yaws={0,0};
+    line.reset();
+    snap=line.update(air_row,{{6,14,12},0,0,0},true,90,line_locked,true);
+    check(line_locked && snap.at==Vec3{5,12,12},"first upright marker captures a horizontal row at exactly the authored height");
+    for(unsigned n=0;n<12;++n) {
+        const float z=20.f+n*5.f;
+        snap=line.update(air_row,{{6.2f,14.2f,z},n%2?90.f:-90.f,0,0},true,90,line_locked,true);
+        check(line_locked && snap.at==Vec3{5,12,z} && snap.yaw==0 && snap.pitch==0,
+              "turning the camera and small aim drift cannot bend an upright row or accumulate diagonal error");
+        const auto repeated=line.update(air_row,{{6.2f,14.2f,z},n%2?90.f:-90.f,0,0},true,90,line_locked,true);
+        check(repeated.at==snap.at,"two editor input passes on the same raw aim cannot accumulate snapping drift");
+        air_row.points.push_back(snap.at);air_row.gate_kinds.push_back(RaceGateKind::arrow);air_row.yaws.push_back(0);
+    }
+    const auto last=air_row.points.back();
+    const auto near_point=[](const Vec3& x,const Vec3& y){return std::hypot(x[0]-y[0],x[1]-y[1],x[2]-y[2])<.0001f;};
+    snap=line.update(air_row,{{6.2f,24.2f,last[2]},0,0,0},true,90,line_locked,true);
+    check(line_locked && near_point(snap.at,Vec3{last[0],last[1]+10,last[2]}),"clear upward aim switches a horizontal row to an exact vertical axis without X or toggling Snap");
+    snap=line.update(air_row,{{6.2f,4.2f,last[2]},0,0,0},true,90,line_locked,true);
+    check(line_locked && near_point(snap.at,Vec3{last[0],last[1]-10,last[2]}),"vertical alignment also works downward");
+    snap=line.update(air_row,{{16.2f,14.2f,last[2]},0,0,0},true,90,line_locked,true);
+    check(line_locked && near_point(snap.at,Vec3{last[0]+10,last[1],last[2]}),"clear sideways aim switches onto the second horizontal axis with identical height");
+    snap=line.update(air_row,{{6.2f,14.2f,last[2]+10},0,0,0},true,90,line_locked,true);
+    check(line_locked && near_point(snap.at,Vec3{last[0],last[1],last[2]+10}),"forward aim switches back onto the third axis rather than remaining stuck sideways");
+    snap=line.update(air_row,{{18,0,80},90,-90,0},true,0,line_locked,false);
+    check(snap.pitch==-90 && snap.at==Vec3{18,0,80},"aiming down onto a real floor releases the airborne row immediately");
+    line.reset();line.begin_rotation(air_row.points.size());
+    snap=line.update(air_row,{{25,30,80},90,0,0},true,90,line_locked,true);
+    check(!line_locked && snap.at==Vec3{25,30,80} && snap.yaw==90,"X can deliberately start a different row without snapping back to an old arrow");
+    air_row.points.push_back(snap.at);air_row.gate_kinds.push_back(RaceGateKind::arrow);air_row.yaws.push_back(90);
+    snap=line.update(air_row,{{35,32,81},-90,0,0},true,90,line_locked,true);
+    check(line_locked && std::abs(snap.at[0]-35)<.0001f && snap.at[1]==30 && std::abs(snap.at[2]-80)<.0001f && snap.yaw==90,
+          "placing the manually rotated marker starts its own exact horizontal row");
+    snap=line.update(air_row,{{42,42,42},-35,0,0},false,90,line_locked,true);
+    check(!line_locked && snap.at==Vec3{42,42,42} && snap.yaw==-35,"Snap off always restores free placement away from the captured row");
+    Settings markers;markers.mode=Mode::race;markers.points={{0,0,0},{0,10,10},{20,12,10},{5,30,10}};
+    markers.gate_kinds={RaceGateKind::mandatory,RaceGateKind::arrow,RaceGateKind::arrow,RaceGateKind::mandatory};
+    bool snapped{};
+    check(snap_race_arrow_height(markers,{2,11,11},true,snapped)[1]==10 && snapped,"new arrow aligns exactly to the nearby arrow height");
+    check(snap_race_arrow_height(markers,{19,11,11},true,snapped)[1]==12 && snapped,"closest arrow supplies the height rather than an unrelated gate");
+    check(snap_race_arrow_height(markers,{2,11,11},false,snapped)[1]==11 && !snapped,"Snap OFF permits free arrow height");
+    markers.widths={7.5f,40.f,40.f,7.5f};
+    check(snap_race_arrow_height(markers,{2,14,11},true,snapped)[1]==14 && !snapped,
+        "even very large nearby arrows cannot pull an airborne preview several metres down");
+    check(snap_race_arrow_height(markers,{200,11,11},true,snapped)[1]==11 && !snapped &&
+          snap_race_arrow_height(markers,{2,70,11},true,snapped)[1]==70 && !snapped,"remote or different-level arrows do not pull the preview away");
+    RaceRotationVisual visual;
+    visual.update({{},179,0,7.5f},1000);
+    const auto smooth=visual.update({{10,0,0},-179,90,7.5f},1016);
+    check(smooth.at[0]>0 && smooth.at[0]<10 && smooth.yaw>179 && smooth.pitch>0 && smooth.pitch<90,
+          "rendered rings ease between updates and take the short path across the yaw seam");
+    const auto settled=visual.update({{10,0,0},-179,90,7.5f},1200);
+    check(std::abs(settled.yaw+179)<.1f && settled.pitch>88,"ring motion settles promptly at the exact snapped target");
+    visual.reset();check(visual.update({{20,0,0},0,0,7.5f},1210).at[0]==20,"another object or tool entry has no leftover smoothing drift");
+    const auto normal=race_editor_directions(false,1|8);
+    check(normal.undo && !normal.redo && normal.size==1 && normal.yaw==0 && normal.tilt==0,"normal D-pad undo/size cannot rotate");
+    const auto rotate=race_editor_directions(true,2|8);
+    check(rotate.yaw==1 && rotate.tilt==1 && rotate.size==0 && !rotate.undo && !rotate.redo,"rotate mode uses all D-pad directions without history/size actions");
+    check(race_editor_directions(false,2).redo && !race_editor_directions(false,3).undo && !race_editor_directions(true,15).tilt,"opposed directions cancel and Right redoes outside rotate");
+    RaceEditorPresses presses;presses.suppress(2);
+    check(presses.update(2,100)==0 && presses.update(0,110)==0 && presses.update(2,120)==2,"switching X mode requires releasing a held direction");
+    check(tilt_race_gate(0,1,true,15)==15 && tilt_race_gate(90,1,true,15)==90 && tilt_race_gate(-90,-1,true,15)==-90,"tilt uses explicit rotation steps and bounded limits");
+    Settings route;route.mode=Mode::race;bool finish=false;RaceRouteHistory history;
+    check(edit_race_route(route,finish,RaceObject::start,{0,0,0},0,6),"history start");
+    auto before=route;check(edit_race_route(route,finish,RaceObject::checkpoint,{0,0,10},0,6,0,45),"tilted Required placement");history.changed(before,route);
+    const auto checkpoint=route;
+    before=route;check(edit_race_route(route,finish,RaceObject::finish,{0,0,20},0,6,0,-30),"tilted Finish placement");history.changed(before,route);
+    const auto completed=route;
+    check(history.undo(route,finish) && route==checkpoint && !finish,"Undo removes the actual last placement and Finish flag");
+    check(history.redo(route,finish) && route==completed && finish && route.gate_pitches.back()==-30,"Redo restores Finish and its full pitched pose");
+    before=route;check(edit_race_route(route,finish,RaceObject::guiding,{1,0,15},10,8,0,20),"insert Guide before existing Finish");history.changed(before,route);
+    check(history.undo(route,finish) && route==completed && finish,"Undo last inserted gate preserves the prior Finish");
+    before=route;check(edit_race_route(route,finish,RaceObject::checkpoint,{2,0,16},30,7),"branch edit");history.changed(before,route);
+    check(!history.redo(route,finish),"new placement invalidates stale redo history");
+    const Vec3 prior{0,2,8},after{0,2,14};
+    const auto crossing=race_gate_crossing(checkpoint,1,prior,after);
+    check(crossing.inside && std::abs(crossing.at[2]-12.f)<.001f,"pitched checkpoint detection follows the same local plane as its mesh");
+    check(!race_gate_crossing(checkpoint,1,{10,2,8},{10,2,14}).inside,"tilted gate still rejects a pass outside its posts");
+    auto flat=checkpoint;flat.gate_pitches.clear();
+    check(race_gate_crossing(flat,1,prior,after).at[2]==10.f && race_gate_along(flat,1,after)==4.f,"ordinary flat checkpoint math remains unchanged");
+    Message message;message.kind=Message::Kind::setup;message.leader=a;message.game=234;message.settings=completed;
+    const auto decoded=decode(encode(message));check(decoded && decoded->settings==completed,"all gate tilts round-trip through the multiplayer format");
+    history.reset();check(!history.undo(route,finish) && !history.redo(route,finish),"another editor context cannot undo a different route");
 }
 void race_custom_deadlines_and_snap() {
     Settings route;route.mode=Mode::race;route.race_finish=true;
@@ -824,6 +1046,59 @@ void skate_flow() {
 } // namespace
 
 void race_momentum_recovery_flow() {
+    Settings navigation;navigation.mode=Mode::race;navigation.race_finish=true;
+    navigation.points={{0,0,0},{0,0,10},{0,0,15},{0,0,20},{0,0,30}};
+    navigation.gate_kinds={RaceGateKind::mandatory,RaceGateKind::guiding,RaceGateKind::arrow,RaceGateKind::mandatory,RaceGateKind::mandatory};
+    Message state;state.phase=Phase::playing;Standing rider;rider.player=a;rider.score=1;state.standings={rider};
+    check(race_compass_gate(navigation,state,a)==3,"compass skips Guide gates and decorative Chevrons");
+    state.standings[0].score=4;check(race_compass_gate(navigation,state,a)==4,"compass targets the finish after the last Required gate");
+    state.standings[0].score=5;check(!race_compass_gate(navigation,state,a),"finished riders have no compass gate");
+    state.standings[0].score=3;state.standings[0].out=true;check(!race_compass_gate(navigation,state,a),"DNF riders have no compass gate");
+    state.standings[0].out=false;state.phase=Phase::results;check(!race_compass_gate(navigation,state,a),"results and expired games remove navigation");
+    std::array<float,16> camera{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+    check(race_compass_offset({0,0,-10},camera)==0,"forward gate sits at compass center");
+    check(race_compass_icon_size==96 && race_compass_max_offset+race_compass_icon_size*.5f==592,
+          "larger compass gates keep their full image inside the native compass ends");
+    check(race_compass_offset({10,0,0},camera)==race_compass_max_offset && race_compass_offset({-10,0,0},camera)==-race_compass_max_offset,"side gates stay within both compass ends");
+    check(race_compass_offset({10,0,10},camera)==race_compass_max_offset,"a gate behind remains visible at the nearer compass end");
+    for(unsigned angle=0;angle<360;angle+=5) {
+        const float radians=angle*3.14159265f/180.f;
+        const Vec3 near{std::sin(radians),0,-std::cos(radians)},far{near[0]*10000.f,0,near[2]*10000.f};
+        const auto near_bearing=race_compass_offset(near,camera),far_bearing=race_compass_offset(far,camera);
+        check(near_bearing && far_bearing && std::abs(*near_bearing-*far_bearing)<.001f && std::abs(*near_bearing)<=race_compass_max_offset,
+              "all-around compass bearing is bounded and independent of gate distance");
+    }
+    camera[0]=0;camera[2]=-1;camera[8]=1;camera[10]=0;
+    check(race_compass_offset({-10,0,0},camera)==0,"compass bearing follows camera rotation independently of skating direction");
+    RaceRecoveryGrace grace;
+    check(grace.observe(true,false,1000) && grace.waiting(2999) && !grace.ready(2999) && grace.ready(3000),
+        "a full bail always receives two complete seconds before recovery");
+    grace.observe(true,false,1800);check(grace.ready(3000),"repeated bail samples do not extend recovery indefinitely");
+    grace.reset();check(grace.observe(false,true,4000) && !grace.ready(4999) && grace.ready(5000),
+        "accidental rolling board loss receives one complete second");
+    grace.observe(true,false,4500);check(!grace.ready(6499) && grace.ready(6500),"runout becoming a full bail gets the full two-second bail grace");
+    Settings finish_route;finish_route.mode=Mode::race;finish_route.race_finish=true;finish_route.points={{0,0,0},{0,0,10},{0,0,20}};
+    grace.reset();grace.observe(true,false,7000);
+    const auto finish_cross=race_gate_crossing(finish_route,2,{0,1,19},{0,1,21});
+    check(grace.waiting(8999) && finish_cross.inside,"ragdoll movement can sweep through the finish during bail grace");
+    if(finish_cross.inside && grace.waiting(8999))grace.reset();
+    check(!grace.pending() && !grace.ready(9000),"a valid finish crossing cancels delayed recovery before it can teleport the winner");
+    RagdollBailEdge fall;
+    check(!fall.observe(true,false),"ordinary offboard walking/dismount is not a fall");
+    check(fall.observe(true,true),"native ragdoll within offboard physics triggers a bail");
+    check(!fall.observe(true,true) && !fall.observe(false,false) && !fall.observe(true,true),
+        "sustained ragdoll and transient missing telemetry do not duplicate recovery");
+    check(!fall.observe(true,false) && fall.observe(true,true),
+        "a second fall after getting up rearms immediately, independent of the Meat scoring timer");
+    RaceRunoutWatch runout;
+    check(!runout.observe(false,0) && !runout.observe(true,7),
+        "old free-skate runouts establish a baseline without recovering a new race");
+    check(runout.observe(true,8),"a brief native failed-landing runout is retained after its animation pulse ends");
+    check(!runout.observe(true,8) && !runout.observe(false,8),
+        "walking, voluntary dismounts and repeated samples without a native runout cannot trigger recovery");
+    check(runout.observe(false,9) && !runout.observe(true,9),
+        "an already-counted runout survives a temporary missing owner and is consumed once");
+    check(runout.observe(true,10),"a second failed landing triggers another return without waiting for Meat scoring");
     RaceMomentum momentum;
     momentum.observe(21.f,1000);momentum.observe(20.5f,1100);momentum.observe(0.f,1120);
     check(momentum.before_bail(1130)==21.f,"bail restores speed before collision rather than collision zero or fixed 6 m/s");
@@ -832,7 +1107,16 @@ void race_momentum_recovery_flow() {
     check(momentum.before_bail(1410)==18.f,"old high approach speed expires");
     momentum.observe(std::numeric_limits<float>::quiet_NaN(),1420);momentum.observe(1000.f,1430);
     check(momentum.current(1440)==18.f,"invalid telemetry cannot inject a recovery boost");
-    check(momentum.before_bail(1800)==0.f && momentum.current(1800)==0.f,"stale samples never boost a later bail");
+    check(momentum.before_bail(1800)==18.f && momentum.current(1800)==0.f,
+        "late ragdoll confirmation retains approach motion without changing missed-gate freshness");
+    check(momentum.before_bail(2200)==0.f && momentum.current(2200)==0.f,"stale samples never boost a later bail");
+    RaceRecoverySpeedGuard speed_guard;
+    check(speed_guard.limit(21.f,1000)==21.f,"first recovery uses measured approach speed");speed_guard.completed(1500);
+    for(unsigned i=0;i<20;++i){const auto t=1600+100u*i;check(speed_guard.limit(110.f,t)<=21.f,"repeated recovery cannot amplify speed");speed_guard.completed(t);}
+    check(speed_guard.limit(14.f,3700)==14.f && speed_guard.limit(90.f,3800)==14.f,"a slower rider lowers the repeat-recovery ceiling");
+    check(speed_guard.limit(25.f,7000)==25.f,"clean riding after the recovery chain can retain its real new speed");
+    speed_guard.reset();check(speed_guard.limit(0.f,7100)==0.f && speed_guard.limit(80.f,7200)==0.f,"stationary repeat returns cannot create speed");
+    momentum.suspend_until(8000);momentum.observe(119.f,7900);check(momentum.current(7900)==0,"post-teleport measurements cannot enter momentum history");
     auto velocity=race_recovery_motion(22.f,90);
     check(std::abs(velocity[0]-22.f)<.001f && std::abs(velocity[2])<.001f && velocity[1]==0,
         "recovered motion keeps measured horizontal speed in the checkpoint's direction");
@@ -957,6 +1241,75 @@ void race_saved_course_and_recovery() {
     memory.clear("map-a");check(!memory.restore("map-a"),"explicit clear removes saved course");
     clear_race_gates(*restored,finish);check(restored->points.size()==1 && !finish && !restored->race_finish && restored->widths.size()==1,"clear removes all gates and finish while retaining start flag");
 }
+void race_floating_arrow_flow() {
+    Settings route;route.mode=Mode::race;bool finish=false;
+    check(edit_race_route(route,finish,RaceObject::start,{0,0,0},0,6),"arrow course start");
+    check(edit_race_route(route,finish,RaceObject::arrow,{50,30,0},180,6,-90),"arrow places in air before any Required gate");
+    check(!edit_race_route(route,finish,RaceObject::finish,{0,0,50},0,6),"decorative arrows alone cannot make a race");
+    check(edit_race_route(route,finish,RaceObject::checkpoint,{0,0,20},0,6),"Required gate follows arrow");
+    check(edit_race_route(route,finish,RaceObject::finish,{0,0,50},0,6),"arrow course finish");
+    check(race_start_heading(route)==0 && next_race_gate(route,1)==2 && mandatory_gates(route,route.points.size())==1,
+          "floating arrow never redirects spawn or counts toward progress");
+    check(!race_gate_missed(route,1,{100,30,-5},{100,30,5}),"missing an arrow cannot penalize a racer");
+    check(race_recovery_pose(route,2).at==Vec3{0,0,1.5f},"recovery skips a decorative arrow");
+    check(edit_race_route(route,finish,RaceObject::arrow,{0,35,25},-45,9,30,-60) && route.gate_pitches[3]==-60,"aimed pitch is stored before the existing finish");
+    Message pitched;pitched.kind=Message::Kind::setup;pitched.game=15;pitched.leader=1;pitched.settings=route;
+    check(decode(encode(pitched))==pitched,"camera-aimed yaw, pitch, roll and size reach guests unchanged");
+    auto previous=encode(pitched);previous[1]=14;check(!decode(previous),"previous peers cannot misread the new pitch field");
+    auto bad_pitch=pitched;bad_pitch.settings.gate_pitches[3]=91;bool pitch_rejected=false;
+    try{(void)encode(bad_pitch);}catch(const std::invalid_argument&){pitch_rejected=true;}check(pitch_rejected,"out-of-range pitch is rejected");
+    check(undo_race_gate(route,finish),"remove finish to exercise incomplete-route warning");
+    check(race_route_save_error(route,finish)=="You need a Finish line before saving this route.","missing finish returns the explicit user-facing save reason");
+    check(edit_race_route(route,finish,RaceObject::finish,{0,0,50},0,6) && race_route_save_error(route,finish).empty(),"placing Finish clears the save error");
+    const auto poses=route.arrow_rolls;
+    check(edit_race_route(route,finish,RaceObject::arrow,{0,40,30},90,12,45) && route.points.back()==Vec3{0,0,50} &&
+          route.arrow_rolls[4]==45 && route.arrow_rolls.back()==0 && arrow_marker(route,4) && race_route_ready(route,finish),
+          "arrow insertion keeps the sole finish and all pose arrays aligned");
+    Message m;m.kind=Message::Kind::setup;m.game=17;m.leader=1;m.settings=route;
+    check(decode(encode(m))==m,"floating arrow height, direction, rotation and size reach guests");
+    auto old=encode(m);old[1]=13;check(!decode(old),"old peers cannot interpret new arrow records");
+    auto invalid=m;invalid.settings.arrow_rolls.pop_back();
+    bool rejected=false;try{(void)encode(invalid);}catch(const std::invalid_argument&){rejected=true;}
+    check(rejected,"misaligned remote arrow rotations rejected");
+    RaceCourseMemory memory;memory.save("air",route);check(memory.restore("air")==route,"map course retains floating arrows");
+    const auto matrix=race_arrow_transform({3,40,5},0,90,6);
+    check(std::abs(matrix[0])<.0001f && std::abs(matrix[1]-4.f)<.0001f && matrix[13]==40,
+          "arrow rotation changes its plane orientation without grounding it");
+    const auto aimed=race_arrow_transform({3,40,5},0,0,6,90);
+    check(std::abs(aimed[6]-4.f)<.0001f && std::abs(aimed[9]+4.f)<.0001f && aimed[13]==40,"camera tilt rotates the marker into a horizontal plane without moving it");
+    const auto combined=race_arrow_transform({3,40,5},45,35,6,-60);
+    for(unsigned axis=0;axis<3;++axis){float norm{};for(unsigned component=0;component<3;++component)norm+=combined[axis*4+component]*combined[axis*4+component];check(std::abs(norm-16.f)<.001f,"aim and roll preserve marker size on every axis");}
+    check(undo_race_gate(route,finish) && route.arrow_rolls.size()==route.points.size() && route.gate_pitches.size()==route.points.size(),"undo preserves arrow pose alignment");
+    clear_race_gates(route,finish);check(route.arrow_rolls.size()==1 && route.gate_pitches.size()==1 && route.points.size()==1,"clear removes floating arrows too");
+}
+void race_checkpoint_back_flow() {
+    Settings route;route.mode=Mode::race;route.race_finish=true;
+    route.points={{0,0,0},{0,0,10},{1,20,15},{0,0,20},{0,0,25},{0,0,30},{0,0,40}};
+    route.yaws.resize(7);route.widths.resize(7,6);
+    route.gate_kinds={RaceGateKind::mandatory,RaceGateKind::mandatory,RaceGateKind::arrow,
+        RaceGateKind::mandatory,RaceGateKind::guiding,RaceGateKind::mandatory,RaceGateKind::mandatory};
+    RaceCheckpointFallback back;
+    check(back.target(route,6)==5,"normal recovery retains the last cleared Required gate");
+    check(back.step_back(route,6)==3,"first Up goes one checkpoint before the unsafe last gate");
+    check(back.target(route,6)==3 && back.target(route,6)==3,"another bail retains the selected safe fallback");
+    back.observe_crossings(route,6,{0,0,31},{0,0,29});check(back.target(route,6)==3,"crossing a cleared gate backward cannot advance recovery");
+    back.observe_crossings(route,6,{1,20,14},{1,20,16});check(back.target(route,6)==3,"decorative arrows do not advance rewind recovery");
+    back.observe_crossings(route,6,{0,0,29},{0,0,31});check(back.target(route,6)==5,"re-crossing an already-cleared Required gate advances local recovery");
+    check(race_gate_missed(route,6,{30,0,39},{30,0,41}) && back.target(route,6)==5,"a later miss returns to the newly re-crossed gate, not the stale manual target");
+    check(back.step_back(route,6)==3,"manual rewind still steps back from the updated gate");
+    check(back.step_back(route,6)==1 && back.step_back(route,6)==0 && back.step_back(route,6)==0,
+          "each Up steps farther back through Required gates to start, skipping guides/arrows");
+    back.advanced();check(back.target(route,6)==5,"clearing a new Required gate restores normal recovery");
+    check(back.step_back(route,1)==0 && back.target(route,1)==0,"before the first gate Up returns to start");
+    RaceCheckpointBackPress press;
+    check(!press.update(true,true),"held menu press cannot rewind on race entry");
+    check(!press.update(false,true) && press.update(true,true) && !press.update(true,true),"one physical Up press steps once, with no hold-repeat");
+    press.update(true,false);check(!press.update(true,true),"menu/focus loss cannot manufacture a new Up press");
+    press.update(false,false);check(!press.update(true,false) && !press.update(true,true),"Up used in a menu cannot rewind on returning");
+    press.update(false,true);check(press.update(true,true),"release rearms the next deliberate Up press");
+    press.update(false,false);check(!press.update(true,true),"unknown controller state while unfocused cannot trigger on returning with Up held");
+    press.update(false,true);check(press.update(true,true),"a fresh release and press after focus loss works");
+}
 int main() {
     try {
         area_flow();
@@ -968,10 +1321,14 @@ int main() {
         one_up_flow();
         race_flow();
         race_builder_flow();
+        race_floating_arrow_flow();
+        race_checkpoint_back_flow();
         race_saved_course_and_recovery();
         race_momentum_recovery_flow();
         race_sound_and_announcements_flow();
         race_clock_flow();
+        race_editor_rotation_history();
+        race_arrow_surface_placement();
         race_custom_deadlines_and_snap();
         race_optional_flow();
         race_stock_policy_flow();

@@ -3,12 +3,16 @@
 #include "Extension/UI/skate_theme.h"
 #include "Extension/Throwdowns/one_up_runtime.h"
 #include "Extension/UI/NativeMenu/one_up_menu.h"
+#include "Extension/Modes/game_modes.h"
+#include "Extension/Modes/race_route.h"
+#include "Extension/Modes/race_editor.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
 
 namespace dingosdk::overlay {
 namespace {
+#include "race_rotation_gizmo.inl"
 using namespace multiplayer::one_up;
 std::string score_text(double score) { char text[48]{}; std::snprintf(text, sizeof(text), "%.0f", score); return text; }
 const char* phase_text(Phase phase) {
@@ -42,6 +46,7 @@ void roster(const View& v, bool compact) {
 }
 namespace detail {
 bool one_up_pending() {
+    if(race_rotation_visible())return true;
     const auto v = multiplayer::one_up::view();
     if (!v.state.match || v.state.phase == Phase::lobby || multiplayer::native_one_up_setup_open()) return false;
     // A completed practice must not leave a permanent panel over free skating.
@@ -52,6 +57,7 @@ bool one_up_pending() {
     return GetTickCount64()-ended_at<5000;
 }
 void draw_one_up() {
+    draw_race_rotation();
     // The game owns all 1-Up gameplay counters, timers and countdowns.
     // Clearing the legacy feed also removes any panel drawn on the last frame.
     draw_one_up_hud({});

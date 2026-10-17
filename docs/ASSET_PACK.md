@@ -1,11 +1,9 @@
-# Asset pack 1.0.2
+# Current asset pack: 1.0.6
 
-Players: download the [required mod folder](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-reskate-refresh/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.2.zip), or use the full package. Every player needs the matching runtime and complete assets.
+Players: [download the complete mod folder](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261016-deathrace-editor/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.6.zip) or use [Full](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261016-deathrace-editor/ReSkate-2.0.7-Playtest-Full-20261016-Deathrace-Editor.zip). Every PC needs the matching runtime. This is the updated public asset pack; older public 1.0.2 files are archived.
 
-Developers: [download the current authoring source](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261015-reskate-refresh/ReSkate-Throwdown-Asset-Source-1.0.2.zip). It contains the 1,635-resource Studio project, compiled FBMOD, exact supplied pink PNG, selected quiet WAVs and the authoring/export source. No SDK binaries or game files are included.
+Developers: [download the current Asset Source ZIP](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.0.7-custom-20261016-deathrace-editor/ReSkate-Throwdown-Asset-Source-1.0.6.zip). It includes the complete 2,147-resource FBPROJECT and matching FBMOD, supplied pink logo, transparent gate-compass SVG/PNG, all selected quiet WAV inputs and author/export code. Start with [the current export guide](../src/contrib/throwdown-flags/ASSET_PACK_1_0_6.md). Earlier versioned recipes are retained as history.
 
-Source tools live in [src/contrib/throwdown-flags](../src/contrib/throwdown-flags). Start with [RESKATE_ASSET_REFRESH.md](../src/contrib/throwdown-flags/RESKATE_ASSET_REFRESH.md). `reskate_logo_swap.cpp` updates only existing artwork payloads; `reskate_asset_refresh.cpp` preserves the earlier additive creation step. `package_asset_mod.py` exports the complete required mod, and `build_oneup_native_bundle.py` builds its source archive.
+The source tools are in [src/contrib/throwdown-flags](../src/contrib/throwdown-flags). Artwork/audio inputs are in [src/assets/throwdowns](../src/assets/throwdowns). The large native_assets.bin remains a matching release download and is not embedded in the lean DLL. Keep the full mod folder and update all pins/version fields together when changing native payloads. Current title/compass layout corrections use existing artwork and do not require another asset version.
 
-The exact supplied PNG is [reskate-logo-original.png](../src/assets/throwdowns/reskate-logo-original.png). Quiet audio inputs are in [src/assets/throwdowns/audio](../src/assets/throwdowns/audio). The large compiled `native_assets.bin` stays on the matching release; it is not an embedded DLL resource.
-
-Rebuild both runtime files after changing pinned asset hashes. Do not mix asset versions. The folder format is Thunderstore-compatible; publishing here does not publish a Thunderstore listing.
+The folder format is Thunderstore-compatible; this GitHub publication does not create a Thunderstore listing. SDK/converter binaries and original game files are not included in the authoring ZIP.

@@ -1,6 +1,6 @@
 # Build from source
 
-Players do not need to build anything. Use the [current release](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.0.7-custom-20261015-reskate-refresh) instead.
+Players do not need to build anything. Use the [current release](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.0.7-custom-20261016-deathrace-editor) instead.
 
 This repository contains the changed files, rather than a full copy of upstream ReSkate. To recreate the published code:
 
@@ -22,4 +22,4 @@ Distribute the matching Release DLL and launcher together with the exported asse
 `SNAPSHOT.json` records source file hashes and the pinned upstream version. The release's `release-manifest.json` and `SHA256SUMS.txt` identify its exact downloads. Both PCs must use matching versions for multiplayer.
 
 
-The patch includes the exact original pink PNG and quiet WAV inputs. Asset pack 1.0.2 is mandatory for this build. See [ASSET_PACK.md](ASSET_PACK.md) for the authoring project and source tools.
+The patch includes the exact original pink PNG and quiet WAV inputs. Asset pack 1.0.6 is mandatory for this build. See [ASSET_PACK.md](ASSET_PACK.md) for the authoring project and source tools.

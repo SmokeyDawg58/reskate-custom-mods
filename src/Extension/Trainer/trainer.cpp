@@ -5,6 +5,7 @@
 #include "trainer_presets.h"
 #include "trainer_session.h"
 #include "trainer_landing.h"
+#include "trainer_motion.h"
 #include "trainer_waypoint.h"
 #include "Engine/Core/Json/json.h"
 #include "Engine/Core/Log/logging.h"
@@ -1159,14 +1160,14 @@ void observe(std::uintptr_t base, std::uintptr_t client, std::uint64_t now) {
     }
     const auto seconds = m.valid ? clock_seconds(stamp - m.stamp) : 0.0;
     const Vec3 step{position[0] - m.position[0], position[1] - m.position[1], position[2] - m.position[2]};
-    const bool jumped = std::sqrt(step[0] * step[0] + step[1] * step[1] + step[2] * step[2]) > 25.0f;
-    if (!m.valid || seconds <= 0.0005 || seconds > 0.25 || jumped) {
+    const float distance=std::sqrt(step[0]*step[0]+step[1]*step[1]+step[2]*step[2]);
+    if (reset_motion_segment(m.valid,seconds,distance,modes::race_recovery_pending() || local_skater_teleport_pending())) {
         // First sample, a hitch, or a teleport: nothing can be measured across it.
         m = {};
         m.valid = true;
         m.position = position;
         m.stamp = stamp;
-        t.airborne = false;
+        t.airborne = false;t.speed=0;t.vertical=0;
         t.air_time = t.height = 0;
         return;
     }

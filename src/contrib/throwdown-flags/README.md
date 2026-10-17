@@ -1,3 +1,5 @@
+> Current package and complete export instructions: [Assets 1.0.6](ASSET_PACK_1_0_6.md). The versioned recipe below is retained as authoring history.
+
 # Custom Throwdown physical flags
 
 Built and installed on 2026-10-11 for Skate executable SHA256

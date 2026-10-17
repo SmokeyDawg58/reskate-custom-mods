@@ -51,6 +51,23 @@ public:
         waiting_=false;return true;
     }
 };
+// A retained native menu-layer item alone is not an open menu. Such cached
+// selections must not dismiss a persistent gameplay shortcut.
+inline bool hud_shortcut_visible(bool available,bool menu_open,bool panel_open,bool opening,bool quitting) noexcept {
+    return available && !menu_open && !panel_open && !opening && !quitting;
+}
+class HudResultsWindow {
+    std::uint64_t match_{},ended_{};
+    bool finished_{};
+public:
+    bool visible(std::uint64_t match,bool finished,std::uint64_t now) noexcept {
+        if(match_!=match || !finished){match_=match;ended_=now;finished_=false;}
+        if(!match || !finished)return false;
+        if(!finished_){ended_=now;finished_=true;}
+        const auto age=now>=ended_?now-ended_:0;
+        return age>=4000 && age<16000;
+    }
+};
 struct HudCountdownVisibility { bool countdown{},intro{},go{}; };
 // Timing belongs to the challenge phase, independently of optional artwork.
 // A failed scoreboard build must not prevent the preceding GO from expiring.

@@ -5,10 +5,13 @@
 #include "Engine/Game/Multiplayer/session_competition.h"
 #include "Extension/Skater/physics_tuning.h"
 #include "race_route.h"
+#include "race_editor.h"
+#include "race_arrow_placement.h"
 #include "race_momentum.h"
 #include "race_sound.h"
 #include "mode_announcements.h"
 #include "Extension/UI/NativeMenu/ui_sound.h"
+#include "Extension/UI/NativeMenu/one_up_menu.h"
 #include "mode_participation.h"
 #include "mode_lobby.h"
 #include "placement_camera.h"
@@ -105,9 +108,12 @@ struct Game {
     std::uint64_t recovery_until{},recovery_queued{};
     bool recovery_pending{};
     RaceMomentum momentum;
+    RaceRecoveryGrace recovery_grace;
+    RaceRecoverySpeedGuard recovery_speed_guard;
     RaceCountdownAudio countdown_audio;
     float recovery_speed{};
     RaceGatePose recovery_pose{};
+    RaceCheckpointFallback checkpoint_fallback;
     float along{};
     bool have_along{};
     bool miss_pending{};
@@ -155,9 +161,11 @@ struct State {
     bool previous_airborne{}, ragdoll_lost{};
     std::uint32_t previous_state{};
     Vec3 position{};
-    bool skater{},on_board{};
+    bool skater{},on_board{},race_body_known{};
     Line line;
     Bail bail;
+    RagdollBailEdge ragdoll_bail;
+    RaceRunoutWatch race_runouts;
     std::optional<Vec3> last_inside;
     std::uint64_t outside_since{};
     std::string popup;
@@ -178,11 +186,19 @@ struct State {
     float draft_radius = 20.0f;
     float heading{};     // the skater's heading (degrees, the trainer's)
     float yaw_offset{};  // Deathrace: how far the gate being placed is turned from the heading
-    float draft_width = 6.0f; // Deathrace: the half width of the gate being placed (metres)
-    unsigned race_object=1; // editor: 1 checkpoint, 2 finish; start belongs to native flag picker
+    float draft_width = default_race_editor_width; // Deathrace: the half width of the gate being placed (metres)
+    unsigned race_object=1; // Required, Finish, Guide, floating Arrow; native picker owns start
+    float arrow_roll{};
+    bool editor_save_blocked{},editor_rotating{},editor_angles_ready{},rotate_key_previous{};
+    float editor_yaw{},editor_pitch{},pitch_offset{};Vec3 rotation_pivot{};bool arrow_height_snapped{};
+    RaceArrowSurface arrow_surface{},rotation_surface{};bool arrow_preview_ready{};RaceArrowLineSnap arrow_line_snap;
+    RaceRouteHistory route_history;
+    std::uint32_t editor_pose_game{};std::uint64_t editor_pose_world{};
+
+    RaceCheckpointBackPress checkpoint_back_press;
     bool cycle_left{},cycle_right{},race_resume_editor{};
     bool route_snap=true,snap_previous{};
-    unsigned snap_angle=1;
+    unsigned snap_angle=default_race_editor_snap_angle;
     RaceClearHold clear_hold;
     RaceEditorPresses editor_presses;
     bool editor_exit_confirm{};
@@ -206,7 +222,7 @@ struct State {
     float bounce = 0.55f;
     bool bounce_always{}; // on every bail, not only in a Hall of Meat game
     Vec3 cursor{};
-    float cursor_heading{};
+    float cursor_heading{},cursor_pitch{};
     bool cursor_ok{};
     std::string cursor_diagnostic;
     std::uint64_t cursor_diagnostic_at{};
@@ -327,7 +343,7 @@ void save_race_course(State& s) {
 }
 void end_game(State &s, std::string why) {
     save_race_course(s);
-    s.editor_exit_confirm=false;s.clear_hold={};s.editor_presses={};
+    s.editor_exit_confirm=false;s.clear_hold={};s.editor_presses={};s.editor_rotating=false;s.editor_angles_ready=false;s.route_history.reset();s.editor_pose_game=0;
     {std::lock_guard lock(s.recovery_mutex);s.recovery_velocity.reset();}
     s.recovering.store(false,std::memory_order_release);
     set_competition_stock_physics(false);
@@ -422,17 +438,19 @@ std::vector<std::uint8_t> make_cue(std::initializer_list<std::pair<float, float>
     std::memcpy(wav.data() + 44, samples.data(), bytes);
     return wav;
 }
-void play_race_sound(bool finish) {
+enum class RaceSound { required,finish,recovery };
+void play_race_sound(RaceSound sound) {
     static std::uint64_t last_gate{};
     const auto now=now_ms();
-    if(!finish && now-last_gate<250)return;
-    if(!finish)last_gate=now;
+    if(sound==RaceSound::required && now-last_gate<250)return;
+    if(sound==RaceSound::required)last_gate=now;
     HMODULE module{};
     if(GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
         reinterpret_cast<LPCWSTR>(&play_race_sound),&module)) {
         // These clips are raw-data resources. PlaySound's RESOURCE mode looks
         // for a WAVE-typed resource, so play the resident bytes explicitly.
-        const auto resource=FindResourceW(module,finish?L"THROWDOWN_FINISH":L"THROWDOWN_GATE",RT_RCDATA);
+        const auto resource=FindResourceW(module,sound==RaceSound::finish?L"THROWDOWN_FINISH":
+            sound==RaceSound::recovery?L"THROWDOWN_RECOVERY":L"THROWDOWN_GATE",RT_RCDATA);
         if(resource && SizeofResource(module,resource)>=44) {
             const auto loaded=LoadResource(module,resource);
             if(const auto bytes=loaded?LockResource(loaded):nullptr)
@@ -650,7 +668,8 @@ void track_bail(State &s, std::uint32_t physics, float vertical, std::uint64_t n
     const auto watch = watched_physics_state();
     // A wipeout loses the line and starts measuring the bail: the counter the trainer keeps for
     // state 300, any other wipeout state (300-399), or a hard fall straight off the board.
-    bool bailed = false;
+    bool bailed = s.ragdoll_bail.observe(watch.ragdoll_known,watch.ragdoll);
+    const bool runout=s.race_runouts.observe(watch.valid,watch.runouts);
     if (watch.valid || s.wipeouts_known) {
         if (!s.wipeouts_known) {
             s.wipeouts = watch.wipeouts;
@@ -698,15 +717,20 @@ void track_bail(State &s, std::uint32_t physics, float vertical, std::uint64_t n
         }
         s.fall_peak = 0;
     }
-    if (bailed && !s.bail.active) {
-        multiplayer::one_up::report_bail(now);
+    // Checkpoint recovery is independent of the 3.5-second Meat measurement.
+    // A second fall after a quick recovery must not be ignored by that timer.
+    if(bailed || runout) {
         if(s.game && s.game->settings.mode==Mode::race && playing(*s.game)) {
             auto& g=*s.game;const auto* me=standing(g,self_id(s));
-            if(me && !me->out && me->score>=0 && static_cast<std::size_t>(me->score)<g.settings.points.size() && !g.recovery_pending) {
-                g.recovery_speed=g.momentum.before_bail(now);
-                g.recovery_pending=true;g.recovery_queued=0;g.have_along=false;g.gate_crossed=false;g.miss_pending=false;
+            if(me && !me->out && me->score>=0 && static_cast<std::size_t>(me->score)<g.settings.points.size() && !g.recovery_pending &&
+                !(g.gate_crossed && g.settings.race_finish && static_cast<std::size_t>(me->score)+1==g.settings.points.size())) {
+                if(g.recovery_grace.observe(bailed,runout,now))
+                    g.recovery_speed=g.recovery_speed_guard.limit(g.momentum.before_bail(now),now);
             }
         }
+    }
+    if (bailed && !s.bail.active) {
+        multiplayer::one_up::report_bail(now);
         logging::log(logging::Level::info, logging::Channel::runtime, "Game modes: bail (state {} -> {}) at {:.1f} m/s.",
                      s.previous_state, physics, s.recent_speed);
         // ReSkate's own Hall of Meat replaces the Bone Cam wherever it runs (its switch, or a Hall of
@@ -773,6 +797,9 @@ void track_skater(State &s, bool in_world, std::uint64_t now) {
     }
     s.on_board=skater && !(physics>=wipeout_state && physics<wipeout_state+100) && physics<offboard_states_first;
     if (in_world) track_bail(s, physics, skater ? t.vertical : s.previous_vertical, now, dt);
+    s.race_body_known=false;
+    if(s.game && s.game->settings.mode==Mode::race && s.game->recovery_grace.pending() && !s.on_board)
+        if(const auto body=race_bail_position()){s.position=*body;s.race_body_known=true;}
     if(s.game && s.game->settings.mode==Mode::race && playing(*s.game) && s.on_board && !s.game->recovery_pending)
         s.game->momentum.observe(t.speed,now);
     if (!s.skater) {
@@ -982,7 +1009,8 @@ void run_invites(State &s, std::uint64_t now) {
 std::string gate_name(std::size_t index, std::size_t count);
 // Deathrace: the next checkpoint reached. The area: a player outside it for a while is put back.
 void track_game(State &s, std::uint64_t now) {
-    if (!s.game || !s.skater || !playing(*s.game)) {
+    if (!s.game || !playing(*s.game) || (!s.skater && !(s.game->settings.mode==Mode::race &&
+        (s.game->recovery_grace.pending() || s.game->gate_crossed)))) {
         s.outside_since = 0;
         return;
     }
@@ -1035,19 +1063,29 @@ void track_game(State &s, std::uint64_t now) {
     }
     if (g.settings.mode == Mode::race && me->score >= 0 && static_cast<std::size_t>(me->score) < g.settings.points.size()) {
         const auto index = static_cast<std::size_t>(me->score);
+        const bool finish=g.settings.race_finish && index+1==g.settings.points.size();
+        const auto expire_grace=[&] {
+            if(!g.recovery_grace.ready(now))return;
+            g.recovery_grace.reset();g.recovery_pending=true;g.recovery_queued=0;
+            g.have_along=false;g.gate_crossed=false;g.miss_pending=false;
+        };
         if(g.recovery_pending) {
             g.have_along=false;g.gate_crossed=false;g.miss_pending=false;
             if(!g.recovery_queued) {
-                g.recovery_pose=race_recovery_pose(g.settings,index);
+                g.recovery_pose=race_checkpoint_pose(g.settings,g.checkpoint_fallback.target(g.settings,index));
                 if(teleport_to(g.recovery_pose.at,g.recovery_pose.yaw))g.recovery_queued=now;
             } else if(s.on_board && !local_skater_teleport_pending() &&
                 std::hypot(s.position[0]-g.recovery_pose.at[0],s.position[2]-g.recovery_pose.at[2])<3.f) {
                 {std::lock_guard lock(s.recovery_mutex);s.recovery_velocity.request(race_recovery_motion(g.recovery_speed,g.recovery_pose.yaw),now);}
                 g.recovery_pending=false;g.recovery_queued=0;g.recovery_until=now+3000;
+                g.momentum.suspend_until(now+400);g.recovery_speed_guard.completed(now);
+                play_race_sound(RaceSound::recovery);
             } else if(now-g.recovery_queued>5500)g.recovery_queued=0;
             return;
         }
-        if(!s.on_board){g.have_along=false;return;}
+        if(!s.on_board && !(finish && g.gate_crossed) && !g.recovery_grace.pending()){g.have_along=false;return;}
+        if(!s.skater && !s.race_body_known && !(finish && g.gate_crossed)){g.have_along=false;expire_grace();return;}
+        if(s.on_board && g.have_along)g.checkpoint_fallback.observe_crossings(g.settings,index,g.previous_gate_position,s.position);
         const auto &next = g.settings.points[index];
         const float dx = s.position[0] - next[0], dz = s.position[2] - next[2];
         // A gate counts when the skater crosses its line, forwards, between its posts: not on
@@ -1057,7 +1095,8 @@ void track_game(State &s, std::uint64_t now) {
         const float along = dx * fx + dz * fz;
         // Sweep the actual movement segment through the gate plane. Fast
         // skating and frame gaps must not skip a crossing between two samples.
-        const auto crossing=g.have_along?race_gate_crossing(g.settings,index,g.previous_gate_position,s.position):RaceGateCrossing{};
+        const auto crossing=g.have_along && (s.on_board || (finish && g.recovery_grace.waiting(now)))?
+            race_gate_crossing(g.settings,index,g.previous_gate_position,s.position):RaceGateCrossing{};
         // Crossing is evaluated at the swept intersection, including wide detours.
         if (crossing.inside && !g.gate_crossed) {
             g.gate_crossed = true;
@@ -1069,11 +1108,12 @@ void track_game(State &s, std::uint64_t now) {
             g.checkpoint_at = now;
             report(s, Event::checkpoint, me->score, 0, g.crossed_at);
         }
+        if(finish && g.gate_crossed)g.recovery_grace.reset();
         // Missed: across the gate's line but outside its posts, or already through a later gate.
         // (Not while a crossing waits for the referee: the skater rides on to the next gate meanwhile.)
-        bool missed = index > 0 && g.have_along && !g.gate_crossed && race_miss_recovery_ready(g.settings,index,g.previous_gate_position,s.position,g.miss_pending);
+        bool missed = s.on_board && !g.recovery_grace.pending() && index > 0 && g.have_along && !g.gate_crossed && race_miss_recovery_ready(g.settings,index,g.previous_gate_position,s.position,g.miss_pending);
         g.along = along;
-        for (std::size_t later = index + 1; later < g.settings.points.size() && !missed && !g.gate_crossed; ++later) {
+        for (std::size_t later = index + 1; later < g.settings.points.size() && s.on_board && !g.recovery_grace.pending() && !missed && !g.gate_crossed; ++later) {
             if(guiding_gate(g.settings,later))continue;
             if (g.have_along && along>=std::clamp(gate_half_width(g.settings,index)*.15f,1.5f,4.f) &&
                 race_gate_along(g.settings,later,s.position)>race_gate_along(g.settings,later,g.previous_gate_position) &&
@@ -1082,10 +1122,10 @@ void track_game(State &s, std::uint64_t now) {
         }
         g.previous_gate_position = s.position;
         g.have_along = true;
+        expire_grace();
         if (missed && (g.missed_warned != me->score || now>g.recovery_until)) {
-            g.recovery_speed=g.momentum.current(now);
+            g.recovery_speed=g.recovery_speed_guard.limit(g.momentum.current(now),now);
             g.missed_warned = me->score;g.recovery_pending=true;g.recovery_queued=0;g.recovery_until=now+8000;
-            play(Cue::missed);
             popup(s, std::format("Go back to required gate {}!",mandatory_gates(g.settings,index)+1));
         }
     }
@@ -1116,7 +1156,7 @@ void settings_changed(Game &g) {
     auto &s = g.settings;
     if (s.mode != Mode::race) {
         s.yaws.clear();
-        s.widths.clear();s.gate_kinds.clear();
+        s.widths.clear();s.gate_kinds.clear();s.arrow_rolls.clear();s.gate_pitches.clear();
         return;
     }
     for (std::size_t i = s.yaws.size(); i < s.points.size(); ++i) s.yaws.push_back(gate_heading(s, i));
@@ -1125,6 +1165,8 @@ void settings_changed(Game &g) {
     while (s.widths.size() < s.points.size()) s.widths.push_back(std::clamp(s.radius, min_gate_half_width, max_gate_half_width));
     s.widths.resize(s.points.size());
     s.gate_kinds.resize(s.points.size(),RaceGateKind::mandatory);
+    if(!s.arrow_rolls.empty())s.arrow_rolls.resize(s.points.size());
+    if(!s.gate_pitches.empty())s.gate_pitches.resize(s.points.size());
     save_race_course(state());
 }
 bool game_window_focused() {
@@ -1145,7 +1187,12 @@ std::string gate_name(std::size_t index, std::size_t count) {
 // skater (whose position is carried above the ground, which left Deathrace posts floating). Rays
 // use the client collision context directly, independently of the park editor's
 // persistence/server readiness. This function runs on that verified client thread.
-constexpr std::uint32_t aim_ray = 0x6d6f6401, ground_ray = 0x6d6f6402;
+constexpr std::uint32_t aim_ray = 0x6d6f6401, ground_ray = 0x6d6f6402, arrow_ray = 0x6d6f6403;
+RaceArrowRay cast_arrow_ray(const Vec3& origin,const Vec3& direction,float length) {
+    queue_world_ray(arrow_ray,origin,direction,length);tick_local_world_rays();
+    const auto hit=world_ray(arrow_ray);
+    return {hit.cast && hit.available && now_ms()-hit.when<500,hit.hit,hit.at};
+}
 void cursor_diagnostic(State& s, std::string_view issue, std::uintptr_t camera = 0,
     const Vec3& origin = {}, const Vec3& direction = {}) {
     if (!s.game || s.game->settings.mode != Mode::race) return;
@@ -1159,6 +1206,7 @@ void cursor_diagnostic(State& s, std::string_view issue, std::uintptr_t camera =
         s.cursor_ok, s.cursor[0], s.cursor[1], s.cursor[2]);
 }
 void update_cursor(State &s) {
+    s.arrow_preview_ready=false;
     if (s.free_place) {
         const auto camera = client_free_camera_view();
         if (!camera) { s.cursor_ok = false; cursor_diagnostic(s, "waiting for selected freecam"); return; }
@@ -1170,6 +1218,18 @@ void update_cursor(State &s) {
         }
         const auto &m = view->world;
         const Vec3 origin{m[12], m[13], m[14]}, forward{-m[8], -m[9], -m[10]};
+        s.cursor_pitch=std::atan2(forward[1],std::hypot(forward[0],forward[2]))*180.f/3.14159265f;
+        if(s.game && s.game->settings.mode==Mode::race && s.race_object==4) {
+            const auto aim=aim_race_arrow(origin,forward,{m[0],m[1],m[2]},{m[4],m[5],m[6]},cast_arrow_ray);
+            s.cursor=aim.at;s.cursor_ok=aim.valid;s.arrow_surface=aim.surface;s.arrow_preview_ready=true;
+            if(std::hypot(forward[0],forward[2])>.05f)s.cursor_heading=std::atan2(forward[0],forward[2])*180.f/3.14159265f;
+            if(aim.surface.contact && aim.align_surface) {
+                const auto angles=race_arrow_surface_angles(aim.surface.normal);
+                if(std::abs(aim.surface.normal[1])<.98f)s.cursor_heading=angles[0]-180.f;
+                s.cursor_pitch=angles[1];
+            }
+            return;
+        }
         queue_world_ray(aim_ray, origin, forward, 400.0f);
         tick_local_world_rays();
         const auto hit = world_ray(aim_ray);
@@ -1187,8 +1247,13 @@ void update_cursor(State &s) {
     s.cursor = s.position;
     if (hit.hit && now_ms() - hit.when < 500 && std::hypot(hit.at[0] - s.position[0], hit.at[2] - s.position[2]) < 2.0f)
         s.cursor[1] = hit.at[1];
-    s.cursor_heading = s.heading;
+    s.cursor_heading = s.heading;s.cursor_pitch=0;
     s.cursor_ok = true;
+    if(s.game && s.game->settings.mode==Mode::race && s.race_object==4) {
+        s.arrow_preview_ready=true;
+        s.arrow_surface={hit.hit && hit.available && now_ms()-hit.when<500,hit.at,{0,1,0}};
+        s.cursor_pitch=-90.f;
+    }
 }
 
 // Placing: D-pad or keys, read on the game thread while ReSkate's menu is closed.
@@ -1208,7 +1273,24 @@ void run_placing(State &s, std::uint64_t now) {
         still_held = pad.available ? pad.buttons & dpad : 0;
         if (!still_held) s.dpad_release = false;
     }
-    overlay::hide_game_buttons(s.placing != State::Placing::none || s.dpad_release ? dpad : 0);
+    const auto* race_me=s.game?standing(*s.game,self_id(s)):nullptr;
+    const bool race_playing=s.game && s.game->settings.mode==Mode::race && playing(*s.game) && race_me &&
+        !race_me->out && race_me->score>=0 && static_cast<std::size_t>(race_me->score)<s.game->settings.points.size();
+    const bool back_allowed=race_playing && multiplayer::native_throwdown_gameplay_input_allowed() && !overlay::interface_open() && game_window_focused();
+    ControllerInput back_pad;DingoSDKOverlayReadControllerInput(&back_pad,true);
+    const bool back_held=back_pad.available && (back_pad.buttons&pad_up);
+    if(s.checkpoint_back_press.update(back_held,back_allowed)) {
+        auto& g=*s.game;const auto* me=standing(g,self_id(s));
+        if(me && !me->out && me->score>=0 && static_cast<std::size_t>(me->score)<g.settings.points.size()) {
+            const auto target=g.checkpoint_fallback.step_back(g.settings,me->score);
+            {std::lock_guard lock(s.recovery_mutex);s.recovery_velocity.reset();}
+            if(!g.recovery_pending && !g.recovery_grace.pending())g.recovery_speed=g.recovery_speed_guard.limit(g.momentum.before_bail(now),now);
+            g.recovery_grace.reset();
+            g.recovery_pending=true;g.recovery_queued=0;g.have_along=false;g.gate_crossed=false;g.miss_pending=false;
+            popup(s,target==0?"Back to the start":std::format("Back to Required gate {}",mandatory_gates(g.settings,target+1)));
+        }
+    }
+    overlay::hide_game_buttons(s.placing != State::Placing::none || s.dpad_release ? dpad : back_allowed?pad_up:0);
     if (s.placing == State::Placing::none) overlay::hold_game_buttons(static_cast<std::uint16_t>(still_held));
     // Placing with the free camera, like skate.'s quick drop: on while placing, off after.
     const bool want_freecam = s.placing != State::Placing::none && s.free_place;
@@ -1222,6 +1304,7 @@ void run_placing(State &s, std::uint64_t now) {
     }
     if (s.placing == State::Placing::none) return;
     update_cursor(s);
+    if(s.editor_rotating && s.game->settings.mode==Mode::race){s.cursor=s.rotation_pivot;s.cursor_ok=s.editor_angles_ready;}
     auto &g = *s.game;
     const float seconds = s.placing_tick && now > s.placing_tick ? std::min(0.1f, (now - s.placing_tick) / 1000.0f) : 0.0f;
     s.placing_tick = now;
@@ -1243,7 +1326,7 @@ void run_placing(State &s, std::uint64_t now) {
     s.keys_previous = keys;
     // Presses meant for ReSkate's menu, the chat or another window do nothing here.
     const bool focus = !overlay::interface_open() && game_window_focused();
-    if (!focus) {s.clear_hold.update(false,false,now);s.editor_presses.suppress();return;}
+    if (!focus) {s.clear_hold.update(false,false,now);s.editor_presses.suppress();s.rotate_key_previous=held('R');return;}
     const bool close=(pressed&0x2000) || struck[3];
     if(g.settings.mode==Mode::race && s.editor_exit_confirm) {
         if(close){s.editor_exit_confirm=false;return;}
@@ -1266,11 +1349,11 @@ void run_placing(State &s, std::uint64_t now) {
     }
     editor_continue:
     const bool race_editor=s.placing==State::Placing::points && g.settings.mode==Mode::race;
-    const bool back = (pressed & (race_editor?0x4000:pad_left)) || (!race_editor && struck[1]); // X: undo; Backspace holds Clear All
+    const bool back = !race_editor && ((pressed&pad_left) || struck[1]);
     bool confirm = (pressed & (race_editor?pad_a:(pad_right|pad_a))) || struck[0];
     bool done = (pressed & (race_editor?0x10:pad_down)) || struck[2]; // Start: save
     if (!s.cursor_ok && confirm) {
-        popup(s, "Aim at the ground");
+        popup(s, s.game->settings.mode==Mode::race && s.race_object==4?"Move the Chevron clear of the surface.":"Aim at the ground");
         confirm = done = false;
     }
     if (s.placing == State::Placing::circle) {
@@ -1296,8 +1379,17 @@ void run_placing(State &s, std::uint64_t now) {
     const auto limit = corners ? max_corners : max_points;
     const bool route = !corners && g.settings.mode == Mode::race;
     if (route) {
+        if(s.editor_pose_game!=g.id || s.editor_pose_world!=s.world) {
+            s.editor_pose_game=g.id;s.arrow_line_snap.reset();s.editor_pose_world=s.world;s.editor_angles_ready=false;s.editor_rotating=false;s.route_history.reset();s.yaw_offset=0;s.pitch_offset=0;s.draft_width=default_race_editor_width;s.snap_angle=default_race_editor_snap_angle;s.route_snap=true;
+        }
+        if(!s.editor_angles_ready && s.cursor_ok) {
+            s.editor_yaw=race_camera_yaw(s.cursor_heading,s.yaw_offset,s.race_object==4);
+            s.editor_pitch=race_camera_pitch(s.cursor_pitch,s.pitch_offset,s.race_object==4,s.arrow_surface.contact);s.editor_angles_ready=true;
+        }
+        const auto before_clear=g.settings;
         if(s.clear_hold.update((buttons&0x20) || held(VK_BACK),focus,now)) {
             s.courses.clear(s.course_map);clear_race_gates(g.settings,g.race_finish_placed);
+            s.route_history.changed(before_clear,g.settings);
             settings_changed(g);s.race_object=1;popup(s,"All gates and finish cleared.");
             return;
         }
@@ -1308,14 +1400,38 @@ void run_placing(State &s, std::uint64_t now) {
             ((buttons&pad_right) || held(VK_NEXT)?2u:0u) |
             ((buttons&pad_down) || held(VK_OEM_4)?4u:0u) |
             ((buttons&pad_up) || held(VK_OEM_6)?8u:0u);
+        const bool rotate_key=held('R');
+        if(!s.editor_rotating) {
+            s.editor_yaw=race_camera_yaw(s.cursor_heading,s.yaw_offset,s.race_object==4);
+            s.editor_pitch=race_camera_pitch(s.cursor_pitch,s.pitch_offset,s.race_object==4,s.arrow_surface.contact);
+        }
+        const auto snap_arrow=[&] {
+            const auto pose=s.arrow_line_snap.update(g.settings,{s.cursor,s.editor_yaw,s.editor_pitch,s.arrow_roll},
+                s.route_snap,s.arrow_surface.contact?0.f:snap_angles[s.snap_angle],s.arrow_height_snapped,!s.arrow_surface.contact);
+            s.cursor=pose.at;s.editor_yaw=pose.yaw;s.editor_pitch=pose.pitch;s.arrow_roll=pose.roll;
+        };
+        const auto raw_arrow_cursor=s.cursor;
+        if(!s.editor_rotating && s.race_object==4)snap_arrow();
+        if(((pressed&0x4000) || (rotate_key && !s.rotate_key_previous)) && (s.cursor_ok || s.editor_rotating)) {
+            s.editor_rotating=!s.editor_rotating;
+            if(s.editor_rotating){s.rotation_pivot=s.cursor;s.rotation_surface=s.arrow_surface;s.arrow_line_snap.begin_rotation(g.settings.points.size());}
+            else {
+                s.yaw_offset=std::remainder(s.editor_yaw-race_camera_yaw(s.cursor_heading,0.f,s.race_object==4),360.f);
+                s.pitch_offset=s.editor_pitch-race_camera_pitch(s.cursor_pitch,0.f,s.race_object==4,s.arrow_surface.contact);
+            }
+            s.editor_presses.suppress(held_editor);
+        }
+        s.rotate_key_previous=rotate_key;
+        if(s.editor_rotating){s.cursor=s.rotation_pivot;s.cursor_ok=s.editor_angles_ready;}
         const auto step=s.editor_presses.update(held_editor,now);
-        const int turn=int(bool(step&2))-int(bool(step&1));
-        const int resize=int(bool(step&8))-int(bool(step&4));
-        const bool ctrl=held(VK_CONTROL);
+        const auto controls=race_editor_directions(s.editor_rotating,step);
         const int wheel_steps=static_cast<int>(notches);
-        const int rotate=turn+(ctrl?0:wheel_steps);
-        if(rotate)s.yaw_offset=rotate_race_gate(s.cursor_heading+s.yaw_offset,rotate,s.route_snap,snap_angles[s.snap_angle])-s.cursor_heading;
-        s.draft_width=size_race_gate(s.draft_width,resize+(ctrl?wheel_steps:0));
+        if(const auto yaw_steps=controls.yaw+(s.editor_rotating?wheel_steps:0);yaw_steps)
+            s.editor_yaw=rotate_race_gate(s.editor_yaw,yaw_steps,s.route_snap,snap_angles[s.snap_angle]);
+        if(controls.tilt)s.editor_pitch=tilt_race_gate(s.editor_pitch,controls.tilt,s.route_snap,snap_angles[s.snap_angle]);
+        s.draft_width=size_race_gate(s.draft_width,controls.size+(!s.editor_rotating?wheel_steps:0));
+        if(controls.undo && s.route_history.undo(g.settings,g.race_finish_placed)){settings_changed(g);popup(s,"Last placement undone.");}
+        else if(controls.redo && s.route_history.redo(g.settings,g.race_finish_placed)){settings_changed(g);popup(s,"Placement restored.");}
         const bool lt=(buttons&0x10000) || held('Z'),rt=(buttons&0x20000) || held('X');
         if(lt && !s.cycle_left)s.race_object=static_cast<unsigned>(cycle_race_object(static_cast<RaceObject>(s.race_object),true));
         if(rt && !s.cycle_right)s.race_object=static_cast<unsigned>(cycle_race_object(static_cast<RaceObject>(s.race_object),false));
@@ -1323,15 +1439,37 @@ void run_placing(State &s, std::uint64_t now) {
         const bool snap=(buttons&0x8000) || held('G');
         if(snap && !s.snap_previous)s.route_snap=!s.route_snap;
         s.snap_previous=snap;
-        const auto pose=snap_race_gate(g.settings,s.cursor,s.cursor_heading+s.yaw_offset,s.route_snap,snap_angles[s.snap_angle]);
+        if(!s.editor_rotating) {
+            s.editor_yaw=race_camera_yaw(s.cursor_heading,s.yaw_offset,s.race_object==4);
+            s.editor_pitch=race_camera_pitch(s.cursor_pitch,s.pitch_offset,s.race_object==4,s.arrow_surface.contact);
+        }
+        s.arrow_height_snapped=false;
+        if(s.race_object==4 && !s.editor_rotating){s.cursor=raw_arrow_cursor;snap_arrow();}
+        else if(s.race_object!=4)s.arrow_line_snap.reset();
+        const auto pose=s.race_object==4?RaceGatePose{s.cursor,s.editor_yaw}:
+            snap_race_gate(g.settings,s.cursor,s.editor_yaw,s.route_snap,snap_angles[s.snap_angle]);
         s.cursor=pose.at;s.snapped_yaw=pose.yaw;
+        if(s.race_object==4) {
+            const auto prior_height=s.cursor[1];
+            s.cursor=clear_race_arrow_surface(s.cursor,s.snapped_yaw,s.editor_pitch,s.arrow_roll,s.draft_width,
+                s.editor_rotating?s.rotation_surface:s.arrow_surface);
+            const auto supported=clear_race_arrow_ground(s.cursor,s.snapped_yaw,s.editor_pitch,s.arrow_roll,s.draft_width,cast_arrow_ray);
+            s.cursor=supported.at;s.cursor_ok=s.cursor_ok && supported.available;
+            if(std::abs(s.cursor[1]-prior_height)>.01f)s.arrow_height_snapped=false;
+            const auto view=latest_game_view();
+            s.cursor_ok=s.cursor_ok && view && race_arrow_clear({view->world[12],view->world[13],view->world[14]},
+                s.cursor,s.snapped_yaw,s.editor_pitch,s.arrow_roll,s.draft_width,cast_arrow_ray);
+            if(confirm && !s.cursor_ok){popup(s,"Move the Chevron clear of the surface.");confirm=false;}
+        }
         const auto place=[&](RaceObject object) {
-            if(!edit_race_route(g.settings,g.race_finish_placed,object,s.cursor,s.snapped_yaw,s.draft_width))return false;
-            s.yaw_offset=0;settings_changed(g);return true;
+            const auto before=g.settings;
+            if(!edit_race_route(g.settings,g.race_finish_placed,object,s.cursor,s.snapped_yaw,s.draft_width,s.arrow_roll,s.editor_pitch))return false;
+            s.route_history.changed(before,g.settings);
+            s.editor_save_blocked=false;settings_changed(g);return true;
         };
-        if(confirm && (s.race_object==1 || s.race_object==3)) {
+        if(confirm && (s.race_object==1 || s.race_object==3 || s.race_object==4)) {
             if(list.empty())popup(s,"Place the starting flag first.");
-            else if(place(static_cast<RaceObject>(s.race_object)))popup(s,s.race_object==3?"Gray guiding gate placed (optional).":"Required gate placed.");
+            else if(place(static_cast<RaceObject>(s.race_object)))popup(s,s.race_object==4?"Chevron placed.":s.race_object==3?"Gray guiding gate placed (optional).":"Required gate placed.");
             else popup(s,"Gate could not be placed.");
         } else if(confirm && s.race_object==2) {
             if(!mandatory_gates(g.settings,list.size()))popup(s,"Place a start and at least one required gate first.");
@@ -1339,11 +1477,12 @@ void run_placing(State &s, std::uint64_t now) {
                 if(place(RaceObject::finish))popup(s,"Finish placed. Press Start to save the route.");
                 else popup(s,"Finish could not be placed.");
             }
-        } else if(back && list.size()>1) {
-            if(undo_race_gate(g.settings,g.race_finish_placed)) {settings_changed(g);popup(s,"Last gate removed.");}
         } else if(done) {
-            if(!race_route_ready(g.settings,g.race_finish_placed))popup(s,"Place the red finish before saving the route.");
-            else {s.placing=State::Placing::none;popup(s,"Deathrace route saved.");}
+            const auto issue=race_route_save_error(g.settings,g.race_finish_placed);
+            if(!issue.empty()) {
+                s.editor_save_blocked=true;popup(s,std::string(issue));
+                overlay::notify(overlay::NoticeLevel::warning,"Deathrace route not saved",std::string(issue));
+            } else {s.editor_save_blocked=false;s.placing=State::Placing::none;popup(s,"Deathrace route saved.");}
         }
         return;
     }
@@ -1798,8 +1937,8 @@ void build_hud(State &s, std::uint64_t now) {
                 break;
             case State::Placing::points:
                 if (mode == Mode::race) {
-                    h.hint = std::format("{}  /  Size {:.0f}%",s.race_object==2?"Red finish":s.race_object==3?"Gray guiding gate":"Required gate",s.draft_width/6.f*100);
-                    h.prompts = {{0,"LT/RT or Z/X","Required / Finish / Guide"},{'R',"A / Click / Enter","Place gate"},{0,"D-pad Left/Right / PgUp/PgDn","Rotate"},{0,"D-pad Up/Down / [ ]","Size"},{0,"Start / F","Save route"},{0,"X / Backspace","Undo"}};
+                    h.hint = std::format("{}  /  Size {:.0f}%",s.race_object==4?"Chevron":s.race_object==2?"Red finish":s.race_object==3?"Gray guiding gate":"Required gate",s.draft_width/6.f*100);
+                    h.prompts = {{0,"LT/RT or Z/X","Required / Finish / Guide / Chevron"},{'R',"A / Click / Enter","Place object"},{0,"D-pad Left/Right / PgUp/PgDn","Rotate"},{0,"D-pad Up/Down / [ ]","Size"},{0,"Start / F","Save route"},{0,"X / Backspace","Undo"}};
                     h.line = std::format("{} required; {} guiding; {}; gate {:.0f} m wide",mandatory_gates(g.settings,g.settings.points.size()),
                         std::count(g.settings.gate_kinds.begin(),g.settings.gate_kinds.end(),RaceGateKind::guiding),g.race_finish_placed?"finish placed":"finish needed",s.draft_width*2);
                     break;
@@ -1951,8 +2090,12 @@ void build_hud(State &s, std::uint64_t now) {
                 native.waiting_status="Place the start, checkpoints and red finish before saving the route.";
         }
         native.route_finish=g.settings.race_finish;
-        native.route_object=s.race_object;native.cursor=s.cursor;native.cursor_valid=s.cursor_ok;
+        native.route_object=s.race_object;native.cursor=s.cursor;
+        native.cursor_valid=s.game->settings.mode==Mode::race && s.race_object==4?
+            race_arrow_preview_visible(s.arrow_preview_ready,s.editor_rotating,s.editor_angles_ready):s.cursor_ok;
         native.cursor_yaw=s.placing==State::Placing::points && g.settings.mode==Mode::race?s.snapped_yaw:s.cursor_heading+s.yaw_offset;native.cursor_width=s.draft_width;
+        native.cursor_roll=s.arrow_roll;native.cursor_pitch=s.editor_pitch;native.rotating=s.editor_rotating;native.arrow_height_snapped=s.arrow_height_snapped;
+        if(native.placing && g.settings.mode==Mode::race && s.editor_save_blocked)native.editor_warning=std::string(race_route_save_error(g.settings,g.race_finish_placed));
         native.route_snap=s.route_snap;
         native.snap_degrees=std::array{5.f,15.f,30.f,45.f,90.f}[s.snap_angle];
         native.clear_progress=s.clear_hold.progress;native.exit_confirm=s.editor_exit_confirm;
@@ -2085,8 +2228,9 @@ std::vector<std::vector<std::uint8_t>> tick(const SessionInput &input) {
                 const auto before=g.progress_audio.heard;
                 const auto cue=g.progress_audio.update(g.settings,g.state->phase,local->score,local->out);
                 if(g.progress_audio.heard>before) {
+                    g.checkpoint_fallback.advanced();g.recovery_speed_guard.reset();
                     g.gate_crossed=false;g.miss_pending=false;g.have_along=false;
-                    if(cue!=RaceGateCue::none)play_race_sound(cue==RaceGateCue::finish);
+                    if(cue!=RaceGateCue::none)play_race_sound(cue==RaceGateCue::finish?RaceSound::finish:RaceSound::required);
                     if(cue==RaceGateCue::required) {
                         const auto passed=mandatory_gates(g.settings,local->score),total=mandatory_gates(g.settings,g.settings.points.size());
                         popup(s,passed==total?"All required gates cleared! Head to the red finish":std::format("Required gates {}/{}",passed,total));
@@ -2389,6 +2533,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
         // Where it was set up: its banner's spot for the others until an area or route is placed.
         g.settings.spawn = s.position;
         g.settings.has_spawn = true;
+        if(*mode==Mode::race){s.draft_width=default_race_editor_width;s.snap_angle=default_race_editor_snap_angle;s.route_snap=true;}
         if(*mode==Mode::race)if(auto saved=s.courses.restore(s.course_map)) {
             g.settings=std::move(*saved);g.race_finish_placed=g.settings.race_finish;
         }
@@ -2509,7 +2654,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
                 // Re-enter the builder with the existing course. Only its
                 // deliberate hold-to-clear action removes all saved gates.
                 s.yaw_offset = 0;
-                s.draft_width = std::clamp(g.settings.radius, min_gate_half_width, max_gate_half_width);
+                s.draft_width = g.settings.mode==Mode::race?default_race_editor_width:std::clamp(g.settings.radius, min_gate_half_width, max_gate_half_width);
                 s.placing=State::Placing::none;
                 return "Place the native starting flag to edit the saved course. Hold Back/View to clear all gates, or press Start to save it unchanged.";
             }

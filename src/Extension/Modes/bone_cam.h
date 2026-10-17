@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include <optional>
 
 // The Bone Cam: Skate 2's X-ray bail view. When the local skater wipes out (in a Hall of Meat
 // game, or on every bail if the player turns it on) the screen goes X-ray for a few seconds:
@@ -29,6 +30,9 @@ bool bone_cam_slam() noexcept;
 bool bone_cam_struck() noexcept;
 // The overlay's snapshot, with the latest camera (any thread).
 overlay::BoneCam bone_cam();
+// Fresh native hips position while the normal on-board telemetry is absent.
+// Read-only; independent of whether Bone Cam visuals/effects are enabled.
+std::optional<std::array<float,3>> race_bail_position() noexcept;
 // From game_modes.cpp (game thread): the local player is playing a Hall of Meat game; a session is on.
 bool local_meat_game() noexcept;
 bool local_session() noexcept;

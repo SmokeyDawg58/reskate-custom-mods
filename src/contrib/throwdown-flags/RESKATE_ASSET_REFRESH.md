@@ -1,3 +1,5 @@
+> Current package and complete export instructions: [Assets 1.0.6](ASSET_PACK_1_0_6.md). The versioned recipe below is retained as authoring history.
+
 # R.E.S.K.A.T.E. artwork and asset pack
 
 The supplied transparent pink skateboard logo is `assets/throwdowns/reskate-logo-original.png`. Asset mod **1.0.2** uses it for the R.E.S.K.A.T.E. picker card, Throwdown pages, HUD, map icons, physical flag and placement preview. Other challenge artwork and the working native HUD animations are preserved.

@@ -22,6 +22,30 @@ using dingosdk::multiplayer::menu_data::MenuAction;
 using dingosdk::multiplayer::menu_data::action_slot;
 struct Model { unsigned handle, type; };
 void check(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
+void hud_physical_screen_edges() {
+    using dingosdk::multiplayer::menu_data::native_hud_screen_anchor;
+    for(const float target:{.006f,.008f,.994f,.988f,.998f}) {
+        const float actual=.05f+.90f*native_hud_screen_anchor(target);
+        check(std::abs(actual-target)<.000001f,"custom HUD still anchored inside the outer safe frame");
+    }
+    for(const float width:{1280.f,1920.f,2560.f,3840.f}) {
+        check((.05f+.90f*native_hud_screen_anchor(.006f))*width<width*.007f,
+              "custom edge margin grows back to the native five-percent inset");
+    }
+    using dingosdk::multiplayer::menu_data::native_hud_translation;
+    for(const float bearing:{-544.f,-272.f,0.f,272.f,544.f}) {
+        const auto inset=native_hud_translation(bearing);
+        const float left=-48.f+inset[0],right=48.f-inset[1];
+        check(right-left==96.f && (left+right)*.5f==bearing,
+              "compass moves left and right through opposing Rime insets while retaining its exact larger size");
+    }
+    const auto vertical=native_hud_translation(209.f);
+    check(96.f-vertical[0]-vertical[1]==96.f && (vertical[0]-vertical[1])*.5f==209.f,
+          "compass vertical placement translates to the strip without stretching the image");
+    using dingosdk::multiplayer::menu_data::native_hud_shortcut_edge;
+    check((1.f-native_hud_shortcut_edge)*3840.f<8.f,
+          "shortcut group keeps only a tiny physical right-edge margin at 4K");
+}
 
 void map_transition() {
     OwnedMenuModels<Model> owned;
@@ -529,6 +553,35 @@ void native_hud_clock_and_penalties() {
     check(native_hud_name_width("WWWWWWWW")>native_hud_name_width("IIIIIIII"),"Name sizing accounts for wide and narrow lettering");
     check(native_hud_name_width(std::string(80,'W'))==1280,"Long gamertags can expand into a bounded wide HUD frame");
     check(native_hud_name_width("éééééé")==256,"UTF-8 continuation bytes do not enlarge a name twice");
+    using dingosdk::multiplayer::menu_data::native_hud_header_geometry;
+    const auto deathrace=native_hud_header_geometry("DEATHRACE"),oneup=native_hud_header_geometry("1-UP");
+    check(deathrace.frame_width==704 && deathrace.title_width==344 && deathrace.height==112 && deathrace.icon==96 && deathrace.content_height==96 && deathrace.text_height==80,
+        "Deathrace retains its frame/logo size and measures the actual brush lettering instead of a large empty title reserve");
+    // Follow-up native capture: 706px frame at x91; the horizontal fit is
+    // correct. This presenter's two signed ends produce twice the cell shift.
+    // Check visible paint against the capture, rather than assuming a baseline.
+    const float scale=706.f/704.f,group_shift=(464.f-deathrace.content_width)*.5f*scale;
+    const float logo_left=222.f+group_shift,logo_right=303.f+group_shift;
+    const float title_left=333.f+group_shift,title_right=666.f+group_shift;
+    const float logo_move=(deathrace.badge_y_shift+12.f)*2.f*scale;
+    const float title_move=(deathrace.title_y_shift-4.f)*2.f*scale;
+    const float logo_center_y=54.5f+logo_move;
+    const float title_center_y=78.f+title_move;
+    check(std::abs((logo_left+title_right)*.5f-444.f)<2.f && title_left-logo_right>24.f,
+          "captured visible logo and title center together inside the styled frame with a clear left-hand icon gap");
+    check(std::abs(logo_center_y-title_center_y)<1.f && std::abs(title_center_y-66.5f)<1.f,
+          "the captured brush baseline and logo paint now share the middle of the frame");
+    check(15.f+logo_move>22.f && 94.f+logo_move<112.f &&
+          48.f+title_move>22.f && 108.f+title_move<112.f,
+          "both captured visible bounds retain clearance from the inside horizontal trim");
+    check(oneup.frame_width<deathrace.frame_width,"short challenge names use proportionally smaller title cards");
+    for(const auto title:{"DEATHRACE","1-UP","R.E.S.K.A.T.E.","Spot Jam","Hall of Meat","Domination","Graffiti","Tag","Infection","Hide & Seek"}) {
+        const auto header=native_hud_header_geometry(title);
+        check(header.content_width==header.title_width+header.icon+header.gap &&
+            header.frame_width>=header.content_width+2*header.padding &&
+            header.frame_width<header.content_width+2*header.padding+32 && header.frame_width<=1792 &&
+            header.icon<=header.content_height && header.content_height+16<=header.height,"all challenge headers retain icon spacing, compact padding and authored frame bounds");
+    }
     check(native_hud_seconds(28000) == 28,
           "Match the captured native Spot Battle timer's 28-second value");
     constexpr auto maximum = std::numeric_limits<std::uint64_t>::max();
@@ -1441,6 +1494,8 @@ void native_hud_active_budget() {
 int main() {
     try {
         using namespace dingosdk::multiplayer::menu_data;
+        check(native_hud_theme_key("1up")=="oneup" && native_hud_theme_key("race")=="race" && native_hud_theme_key("skate")=="skate",
+              "Native 1-UP resolves the authored oneup artwork while other challenge themes retain their identities");
         HudCountdownLifecycle countdown_lifecycle;
         check(countdown_lifecycle.update(1,true,false,4000,1000).intro,
               "Challenge intro owns only its countdown phase");
@@ -1468,7 +1523,15 @@ int main() {
               native_hud_name_width("VeryLongGamertagWWWWWWWWWWWW")>640,
               "DNF times and long names receive larger native frames");
         exclusive_start_release();start_only_match_panel_input();paused_hud_and_challenge_back();hud_entry_settles_and_deadline_clock();hud_items_keep_native_animation_state();
-        stable_hud_surface_presenters();native_hud_active_budget();hud_hidden_owned_items_recover();start_request_survives_picker_replacement();
+        stable_hud_surface_presenters();native_hud_active_budget();hud_hidden_owned_items_recover();start_request_survives_picker_replacement();hud_physical_screen_edges();
+        using dingosdk::multiplayer::menu_data::hud_shortcut_visible;
+        check(hud_shortcut_visible(true,false,false,false,false),"cached native menu-layer item cannot dismiss an available gameplay shortcut");
+        check(!hud_shortcut_visible(true,true,false,false,false) && !hud_shortcut_visible(true,false,true,false,false) && !hud_shortcut_visible(true,false,false,true,false),"real menu or pending camera transition hides gameplay shortcuts");
+        check(hud_shortcut_visible(true,false,false,false,false) && !hud_shortcut_visible(false,false,false,false,false),"Back restores shortcuts and Quit retires them");
+        dingosdk::multiplayer::menu_data::HudResultsWindow results_window;
+        check(!results_window.visible(1,false,1000) && !results_window.visible(1,true,2000) && results_window.visible(1,true,6000),"results wait for the score-to-results transition");
+        check(results_window.visible(1,true,17999) && !results_window.visible(1,true,18000) && !results_window.visible(1,true,90000),"finished practice results expire and never stick or resurrect");
+        check(!results_window.visible(2,true,91000) && results_window.visible(2,true,95000) && !results_window.visible(0,false,96000),"second-match results get a fresh bounded window and Quit clears it");
         activity_details_ownership();
         consecutive_details_close_and_picker_retirement();
         native_camera_transition_confirmation();

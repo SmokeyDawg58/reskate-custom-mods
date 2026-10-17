@@ -41,12 +41,12 @@ bool timed(Mode) noexcept; // ends when the clock runs out (1-Up ends on strikes
 enum class Phase : std::uint8_t { setup = 1, countdown = 2, playing = 3, results = 4 };
 
 inline constexpr std::uint8_t wire_magic = 0xD5; // never a throwdown message's first byte (1..15)
-inline constexpr std::uint8_t wire_version = 13; // explicit guest Ready and authoritative setup readiness
+inline constexpr std::uint8_t wire_version = 16; // pitched checkpoint planes require matching referee/renderers
 inline constexpr std::size_t max_corners = 16, max_points = 16, max_players = 16, max_zones = 64, max_calls = 4,
                              max_call_length = 96, max_tags = 64, max_tag_points = 6, max_line_tags = 6;
 inline constexpr std::uint32_t countdown_ms = 5000, results_ms = 12000;
 inline constexpr std::uint32_t race_deadline_ms = 120000, race_warning_ms = 30000;
-enum class RaceGateKind : std::uint8_t { mandatory, guiding };
+enum class RaceGateKind : std::uint8_t { mandatory, guiding, arrow };
 
 struct Settings {
     Mode mode = Mode::jam;
@@ -60,6 +60,8 @@ struct Settings {
     std::vector<float> yaws;        // Deathrace: each gate's facing in degrees (empty: along the route)
     std::vector<float> widths;      // Deathrace: each gate's half width in metres (empty: `radius`)
     std::vector<RaceGateKind> gate_kinds; // empty: every gate mandatory; guides never block progress
+    std::vector<float> arrow_rolls;  // optional, aligned with points; decorative arrows' in-plane rotation
+    std::vector<float> gate_pitches; // optional, aligned with points; checkpoint or marker pitch
     Vec3 spawn{};                   // where everyone starts when the countdown begins
     bool has_spawn{};
     bool race_finish{};             // final route point is the sole red finish, including during setup
@@ -96,6 +98,7 @@ inline constexpr std::uint64_t no_tag_back_ms = 3000, position_fresh_ms = 1500;
 inline constexpr float min_gate_half_width = 1.5f, max_gate_half_width = 40.0f;
 float gate_half_width(const Settings &, std::size_t gate) noexcept;
 bool guiding_gate(const Settings &, std::size_t gate) noexcept;
+bool arrow_marker(const Settings &, std::size_t gate) noexcept;
 std::size_t next_race_gate(const Settings &, std::size_t from) noexcept;
 std::size_t mandatory_gates(const Settings &, std::size_t before) noexcept;
 inline bool race_clock_visible(std::uint32_t remaining) noexcept { return remaining>0 && remaining<=race_warning_ms; }

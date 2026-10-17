@@ -93,6 +93,12 @@ void group_reconciliation_checks() {
     parts={4,4};dirty.insert(1);
     check(detail::take_checkpoint_groups(dirty,parts)==std::set<unsigned>{1},
           "complete entity count suppressed a pending native Destroy mark");
+    parts={4,2};const std::array<unsigned,2> mixed{4,2};
+    check(detail::pending_checkpoint_groups(dirty,parts,mixed).empty(),
+          "complete two-mesh arrow was repeatedly rebuilt as a four-mesh arch");
+    parts[1]=1;check(detail::take_checkpoint_groups(dirty,parts,mixed)==std::set<unsigned>{1},
+          "lost arrow layer did not request repair");
+
 }
 }
 int main() {

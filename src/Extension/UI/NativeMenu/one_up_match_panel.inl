@@ -5,7 +5,7 @@ struct MatchPanelRow {
     std::string name,value;
 };
 struct MatchPanelView {
-    bool available{};
+    bool available{},rewind{};
     std::uint64_t local{};
     std::string title,description,logo,timer_caption,timer,score_caption;
     std::string rule_caption,rule_value;
@@ -44,6 +44,7 @@ MatchPanelView match_panel_view() {
     result.score_caption=mode.settings.mode==modes::Mode::race?"Time":"Score";
     result.rule_caption="Area";result.rule_value=modes::has_area(mode.settings)?"Selected area":"Whole map";
     if(mode.settings.mode==modes::Mode::race) {
+        result.rewind=mode.state->phase==modes::Phase::playing && std::any_of(mode.state->standings.begin(),mode.state->standings.end(),[&](const auto& row){return row.player==mode.local && !row.out && row.score>=0 && static_cast<std::size_t>(row.score)<mode.settings.points.size();});
         result.description="FASTEST TIME\nPass Required gates in order. Guides are optional. Reach the red Finish.";
         result.timer_caption="Time Limit";
         result.timer=native_hud_race_time(static_cast<std::uint64_t>(mode.settings.duration_s)*1000);
@@ -419,14 +420,27 @@ bool mount_match_panel_prompt(const Context& c) {
             "Native gameplay shortcut HUD is not mounted.");
     if(lease.shortcut_stack.handle)detach_match_panel_prompt(c);
     const bool fresh=!p.prompt_item.handle;
-    mount_hud(c,p.prompt,asset(c,"UI/Foundations/Components/Buttons/LabelButton/LabelButton_Widget"),
-        p.prompt_anchor,p.prompt_item,hud_panel_id,false);
-    c.set_if_changed(c.field(p.prompt_anchor,0x1cff7243),std::array<float,2>{520.f,88.f});
+    const auto button_widget=asset(c,"UI/Foundations/Components/Buttons/LabelButton/LabelButton_Widget");
+    const unsigned rows=p.rewind_visible?2u:1u;
+    constexpr float width=native_hud_shortcut_width;
+    if(!hud_list_has_items(c,p.prompt_list,rows)) {
+        std::vector<Widget> controls;
+        if(p.rewind_visible)controls.push_back({button_widget,{0,p.rewind_prompt.handle}});
+        controls.push_back({button_widget,{0,p.prompt.handle}});
+        hud_list(c,p.prompt_list,controls,false,88.f,8.f,0.f,width);
+        const auto cells=c.field(p.prompt_list,0xf2c90867);
+        for(unsigned i=0;i<rows;++i){const auto handle=read<Handle>(c.address(c.element(cells,i)));const Value row{handle,c.type_of(handle)};
+            c.set_if_changed(c.field(row,0x1cff7243),std::array<float,2>{width,88.f});
+            for(const auto key:{0x99bbed5aU,0x49943bedU,0xfec5e0b1U})c.set_if_changed(c.path(row,{0xde7d30c7,key}),0.f);
+        }
+    }
+    mount_hud(c,p.prompt_list,asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),p.prompt_anchor,p.prompt_item,hud_panel_id,false);
+    c.set_if_changed(c.field(p.prompt_anchor,0x1cff7243),std::array<float,2>{width,p.rewind_visible?184.f:88.f});
     for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
-        const float at=axis==0xde7d30c7?.95f:.94f;
+        const float at=axis==0xde7d30c7?native_hud_screen_anchor(native_hud_shortcut_edge):native_hud_screen_anchor(.008f);
         for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(p.prompt_anchor,{axis,field}),at);
         for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(p.prompt_anchor,{axis,field}),0.f);
-        c.set_if_changed(c.path(p.prompt_anchor,{axis,0xfec5e0b1}),1.f);
+        c.set_if_changed(c.path(p.prompt_anchor,{axis,0xfec5e0b1}),axis==0xde7d30c7?1.f:0.f);
         c.set_if_changed(c.path(p.prompt_anchor,{axis,0xd01f4a21}),1.f);
     }
     p.prompt_visible=true;
@@ -908,18 +922,30 @@ void native_match_panel(const Context& c,std::uint64_t now) {
         logging::write(logging::Level::info,logging::Channel::ui,
             "Throwdowns: Start/Menu pressed for this custom match; requesting native ChallengeMenu.");
     }
-    if(!p.prompt.handle) {
-        auto& lease=match_panel_lease(c);
-        lease.highlight=record_model(c,"Throwdown_DetailsMenu_ContentResource/ThrowdownDetails_HUDButton_Highlightable",{0x510bdc2e,24});
-        PrivateUiGraph graph{c};graph.walk(lease.highlight,0);
-        p.prompt=reference(c,read<Ref>(c.address(c.field(lease.highlight,0xde29cf1b))));
-        require(p.prompt.type==c.type(button),"Native Throwdown shortcut HUDButton differs.");
-        clear_value(c,c.field(p.prompt,0x67212c85));
-        // The donor's focus predicate queries a native activity backend.
-        // Custom match availability is checked above; an absent donor backend
-        // must not hide or disable this private shortcut.
-        clear_value(c,c.path(p.prompt,{0x0fb0d794,0xa704272a,0xc52416ef,0x66a997b9,0x66a997b9}));
-        c.set(c.field(p.prompt,0x659db23e),false);
+    // Build a visual-only control, rather than cloning the native activity's
+    // focus/availability graph, which can hide it when that activity retires.
+    const auto visual_prompt=[&]() {
+        const auto donor=record_model(c,"Throwdown_DetailsMenu_ContentResource/ThrowdownDetails_HUDButton",button);
+        const auto candidate=make(c,button);
+        for(const auto key:{0x8cc042efU,0xf9515817U,0xf343d160U})
+            c.copy(c.field(candidate,key),c.address(c.field(donor,key)));
+        c.copy(c.path(candidate,{0x0fb0d794,0x8cc042ef}),c.address(c.path(donor,{0x0fb0d794,0x8cc042ef})));
+        PrivateUiGraph graph{c};graph.walk(candidate,0);
+        clear_value(c,c.field(candidate,0x67212c85));
+        const auto action=match_panel_input_action(c,candidate);
+        clear_value(c,c.field(action,0x9c76b86c));c.text(c.field(action,0xb1e14cd6),"");
+        label_styles(c,c.field(candidate,0x58c9d354),"TextStylesList/SP48-SemiB_White_DropShadow75","TextStylesList/SP48-SemiB_White_DropShadow75");
+        c.set(c.field(candidate,0x659db23e),false);
+        return candidate;
+    };
+    if(!p.prompt.handle)p.prompt=visual_prompt();
+    p.rewind_visible=view.rewind;
+    if(view.rewind) {
+        if(!p.rewind_prompt.handle)p.rewind_prompt=visual_prompt();
+        plain_label(c,c.field(p.rewind_prompt,0x58c9d354),"Go back to previous gate");
+        match_panel_input(c,p.rewind_prompt,asset(c,"Configurations/Input/UI/UI_DpadUp"),true);
+        const auto action=match_panel_input_action(c,p.rewind_prompt);clear_value(c,c.field(action,0x9c76b86c));c.text(c.field(action,0xb1e14cd6),"");
+        c.set_if_changed(c.path(p.rewind_prompt,{0x0fb0d794,0xa704272a,0xc52416ef,0xa704272a,0x85a0b4e8}),!s.in_menu);
     }
     plain_label(c,c.field(p.prompt,0x58c9d354),"Throwdown Panel");
     match_panel_input(c,p.prompt,asset(c,"Configurations/Input/UI/UI_Activities_AccessPause"),true);
@@ -927,6 +953,8 @@ void native_match_panel(const Context& c,std::uint64_t now) {
     clear_value(c,c.field(prompt_action,0x9c76b86c));
     c.text(c.field(prompt_action,0xb1e14cd6),"");
     c.set_if_changed(c.path(p.prompt,{0x0fb0d794,0xa704272a,0xc52416ef,0xa704272a,0x85a0b4e8}),!s.in_menu);
+    if(hud_shortcut_visible(view.available,s.in_menu,s.match_panel_open.load(),pending_match_panel_request(c,now),p.quitting))mount_match_panel_prompt(c);
+    else detach_match_panel_prompt(c);
     // Gameplay Start is suppressed from the native poller. The separate
     // challenge request owns its transition; ordinary pause stays untouched.
     if(p.requested_until) {
@@ -949,13 +977,12 @@ void native_match_panel(const Context& c,std::uint64_t now) {
     if(!selected.handle) {
         // Do not try to mount a gameplay prompt during the pause transition:
         // its parent HUD may already be hidden while InMenu is still cached.
-        if(!pending_match_panel_request(c,now))mount_match_panel_prompt(c);
         match_panel_wait(c,now,"the native activity layer transition");
         if(pending_match_panel_request(c,now))restore_match_panel_mount(c);
         else restore_match_panel(c);
         return;
     }
-    detach_match_panel_prompt(c);
+    if(s.in_menu || pending_match_panel_request(c,now) || s.match_panel_open.load())detach_match_panel_prompt(c);
     if(s.match_panel_open.load() && owns_selected_match_panel(c))return;
     if(!prepare_match_panel_body(c,now) && !match_panel_body_owned(c,lease.native_page))return;
     const auto native_page=lease.native_page;

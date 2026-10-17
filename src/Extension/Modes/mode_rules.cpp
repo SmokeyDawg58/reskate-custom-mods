@@ -1,4 +1,5 @@
 #include "mode_rules.h"
+#include "race_route.h"
 #include <algorithm>
 #include <bit>
 #include <cmath>
@@ -53,10 +54,14 @@ bool valid_settings(const Settings &s) noexcept {
     if (s.corners.size() > max_corners || (s.mode!=Mode::race && s.points.size()>max_points) ||
         s.points.size()>static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())) return false;
     if (!s.gate_kinds.empty() && (s.mode!=Mode::race || s.gate_kinds.size()!=s.points.size() ||
-        !std::all_of(s.gate_kinds.begin(),s.gate_kinds.end(),[](auto k){return k==RaceGateKind::mandatory || k==RaceGateKind::guiding;}) ||
+        !std::all_of(s.gate_kinds.begin(),s.gate_kinds.end(),[](auto k){return k==RaceGateKind::mandatory || k==RaceGateKind::guiding || k==RaceGateKind::arrow;}) ||
         s.gate_kinds.front()!=RaceGateKind::mandatory || (s.race_finish && s.gate_kinds.back()!=RaceGateKind::mandatory)))return false;
     if (!s.yaws.empty() && s.yaws.size() != s.points.size()) return false;
     if (!s.widths.empty() && s.widths.size() != s.points.size()) return false;
+    if (!s.arrow_rolls.empty() && (s.mode!=Mode::race || s.arrow_rolls.size()!=s.points.size() ||
+        !std::all_of(s.arrow_rolls.begin(),s.arrow_rolls.end(),[](float a){return std::isfinite(a) && std::abs(a)<=360.f;})))return false;
+    if (!s.gate_pitches.empty() && (s.mode!=Mode::race || s.gate_pitches.size()!=s.points.size() ||
+        !std::all_of(s.gate_pitches.begin(),s.gate_pitches.end(),[](float a){return std::isfinite(a) && std::abs(a)<=90.f;})))return false;
     if (!std::all_of(s.widths.begin(), s.widths.end(), [](float w) { return w >= min_gate_half_width && w <= max_gate_half_width; })) return false;
     if (!std::all_of(s.yaws.begin(), s.yaws.end(), [](float y) { return std::isfinite(y); }) || (s.has_spawn && !finite(s.spawn))) return false;
     if (s.area_radius != 0.0f && !(s.area_radius >= min_area_radius && s.area_radius <= max_area_radius && s.corners.size() == 1))
@@ -200,7 +205,11 @@ std::string missing(const Settings &s) {
 
 float gate_half_width(const Settings &s, std::size_t gate) noexcept { return gate < s.widths.size() ? s.widths[gate] : s.radius; }
 bool guiding_gate(const Settings& s,std::size_t gate) noexcept {
-    return gate<s.gate_kinds.size() && s.gate_kinds[gate]==RaceGateKind::guiding;
+    // Both guide arches and floating arrows are optional visual route aids.
+    return gate<s.gate_kinds.size() && s.gate_kinds[gate]!=RaceGateKind::mandatory;
+}
+bool arrow_marker(const Settings& s,std::size_t gate) noexcept {
+    return gate<s.gate_kinds.size() && s.gate_kinds[gate]==RaceGateKind::arrow;
 }
 std::size_t next_race_gate(const Settings& s,std::size_t from) noexcept {
     while(from<s.points.size() && guiding_gate(s,from))++from;
@@ -399,6 +408,10 @@ std::vector<std::uint8_t> encode(const Message &m) {
         for (const auto &p : s.points) w.vec(p);
         w.integer(s.gate_kinds.size(),4);
         for(const auto kind:s.gate_kinds)w.integer(static_cast<std::uint8_t>(kind),1);
+        w.integer(s.arrow_rolls.size(),4);
+        for(const auto roll:s.arrow_rolls)w.real(roll);
+        w.integer(s.gate_pitches.size(),4);
+        for(const auto pitch:s.gate_pitches)w.real(pitch);
         w.integer(s.trick_kinds, 1);
         break;
     }
@@ -502,6 +515,12 @@ std::optional<Message> decode(std::span<const std::uint8_t> bytes) noexcept {
             const auto kinds=r.integer(4);
             if(!r.ok || kinds>bytes.size()-r.at)return std::nullopt;
             for(std::uint64_t i=0;i<kinds && r.ok;++i)s.gate_kinds.push_back(static_cast<RaceGateKind>(r.integer(1)));
+            const auto rolls=r.integer(4);
+            if(!r.ok || rolls>(bytes.size()-r.at)/4)return std::nullopt;
+            for(std::uint64_t i=0;i<rolls && r.ok;++i)s.arrow_rolls.push_back(r.real());
+            const auto pitches=r.integer(4);
+            if(!r.ok || pitches>(bytes.size()-r.at)/4)return std::nullopt;
+            for(std::uint64_t i=0;i<pitches && r.ok;++i)s.gate_pitches.push_back(r.real());
             s.trick_kinds = static_cast<std::uint8_t>(r.integer(1));
             if (!r.ok || !valid_settings(s)) return std::nullopt;
             break;
@@ -940,11 +959,19 @@ void Referee::event(std::uint64_t player, Event event, std::int32_t value, const
         if (now_ms>=deadline) {p->out=true;return;}
         if (event != Event::checkpoint || value != p->score || !finite(at)) return;
         if (settings_.points.empty() || static_cast<std::size_t>(value) >= settings_.points.size()) return;
+        const auto index=static_cast<std::size_t>(value);
+        if(race_gate_pitch(settings_,index)!=0.f) {
+            const auto axes=race_gate_axes(index<settings_.yaws.size()?settings_.yaws[index]:0.f,race_gate_pitch(settings_,index));
+            if(std::abs(race_gate_dot(at,settings_.points[index],axes.right))>gate_half_width(settings_,index)*1.3f+3.f ||
+               std::abs(race_gate_dot(at,settings_.points[index],axes.up))>race_gate_height(settings_,index)+3.f ||
+               std::abs(race_gate_dot(at,settings_.points[index],axes.forward))>3.f)return;
+        } else {
         if(std::abs(at[1]-settings_.points[static_cast<std::size_t>(value)][1])>10.f*gate_half_width(settings_,static_cast<std::size_t>(value))/6.f)return;
         // Within the gate's own width (where the crossing was reported), with some slack for lag.
         if (horizontal_distance(at, settings_.points[static_cast<std::size_t>(value)]) >
             gate_half_width(settings_, static_cast<std::size_t>(value)) * 1.3f + 3.0f)
             return;
+        }
         p->score=static_cast<std::int32_t>(next_race_gate(settings_,static_cast<std::size_t>(value)+1));
         if (value>0 && static_cast<std::size_t>(value)+1<settings_.points.size())
             call(std::format("{}: required gate {}/{}",name_of(player),mandatory_gates(settings_,p->score),mandatory_gates(settings_,settings_.points.size())));
