@@ -3,3 +3,4 @@ mods.patch -text
 
 *.png -text
 *.wav -text
+src/assets/throwdowns/** -text
