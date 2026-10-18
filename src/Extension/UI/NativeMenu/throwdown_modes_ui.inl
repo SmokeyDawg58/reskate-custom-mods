@@ -1236,7 +1236,8 @@ void mode_hud(const Context& c) {
         const bool copying=state && !state->trick.empty();
         // What the player just did, while it is fresh ("LANDED: Heelflip 180"), else whose turn it is.
         std::string caption=copying?(my_turn?"COPY THIS":up+" IS COPYING"):my_turn?"SET A TRICK"+only:up+" IS SETTING"+only;
-        if(my_turn && (feed.line.starts_with("Landed") || feed.line.starts_with("Missed")))caption=feed.line;
+        if(my_turn && (feed.line.starts_with("Landed") || feed.line.starts_with("Missed") || feed.line.starts_with("Trick copied") ||
+            feed.line.starts_with("Failed") || feed.line.starts_with("Not a valid")))caption=feed.line;
         else if(my_turn && !feed.warning.empty())caption=feed.warning; // out of the trick zone
         std::transform(caption.begin(),caption.end(),caption.begin(),[](unsigned char ch){return static_cast<char>(std::toupper(ch));});
         mode_letters_hud(c,feed,caption,copying?state->trick:std::string(),copying?feed.trick_steps:std::string());

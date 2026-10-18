@@ -50,6 +50,9 @@
 #include <tuple>
 #include <utility>
 
+namespace dingosdk::profile_runtime {
+std::optional<bool> game_stance_goofy() noexcept; // Settings/local_gameplay_settings.h
+}
 namespace dingosdk::modes {
 namespace {
 constexpr std::uint32_t wipeout_state = 300, offboard_states_first = 500;
@@ -261,6 +264,7 @@ struct State {
         std::uint64_t landed_at{};     // judged landed at (0: not): counts once it holds without a bail
         std::uint64_t off_since{};     // off the board since (0: on it)
         bool touched_down{};           // back on the ground since its first trick: nothing more joins
+        std::uint64_t invalid_at{}, invalid_told{}; // a move that is no trick (Trickless Air, a lone manual), and when that was said
         std::uint64_t spectating{};
     } skate;
     bool spectate = true; // `mode spectate on|off`: watch whoever is up in S.K.A.T.E.
@@ -353,6 +357,12 @@ const Standing *standing(const Game &g, std::uint64_t id) {
     return nullptr;
 }
 bool playing(const Game &g) { return g.state && g.state->phase == Phase::playing; }
+// R.E.S.K.A.T.E.: whoever is not up (or is out) watches the one who is, and cannot skate meanwhile.
+bool skate_watching(const State &s) {
+    if (!s.game || !playing(*s.game) || s.game->settings.mode != Mode::skate) return false;
+    const auto *me = standing(*s.game, self_id(s));
+    return me && (me->out || (s.game->state->turn && s.game->state->turn != self_id(s)));
+}
 // Hide & Seek: the local player seeks while the others still hide, so sees nothing and cannot move.
 bool seeker_blind(const State &s) {
     if (!s.game || !playing(*s.game) || s.game->settings.mode != Mode::hide || s.game->state->target <= 0) return false;
@@ -722,8 +732,8 @@ std::string letters_callout(const std::vector<std::string> &calls) {
         }
     for (const auto &call : calls) {
         if (call.find(" set the ") != std::string::npos) return "TRICK SET!";
-        if (call.ends_with(" landed it")) return "LANDED IT!";
-        if (call.ends_with(" missed the set")) return "MISSED THE SET";
+        if (call.ends_with(" landed it")) return "TRICK COPIED!";
+        if (call.ends_with(" missed the set")) return "FAILED TO SET TRICK";
         if (call.ends_with(": already set")) return "ALREADY BEEN DONE";
         if (call.ends_with(": not in this game")) return "NOT IN THIS GAME";
         if (call.ends_with("ran out of time to set")) return "OUT OF TIME";
@@ -1127,7 +1137,7 @@ void line_up(State &s) {
         spot = {centre[0] + std::cos(angle) * ring, centre[1], centre[2] + std::sin(angle) * ring};
         // Round the circle everyone faces its middle; alone, the way the leader set it up.
         g.lined_up=teleport_to(spot, ring > 0 ? heading_towards(spot, centre) :
-            g.native_flag_placed?g.native_flag_yaw:s.heading);
+            g.native_flag_placed && g.settings.mode != Mode::skate ? g.native_flag_yaw : s.heading);
         return;
     }
     g.lined_up=teleport_to(spot, race_start_heading(g.settings));
@@ -1504,7 +1514,7 @@ void run_placing(State &s, std::uint64_t now) {
     const bool want_freecam = s.placing != State::Placing::none && s.free_place;
     s.placement_flight.store(want_freecam,std::memory_order_release);
     // The sticks fly the camera, so the skater does not roll off meanwhile.
-    overlay::pause_game_input(want_freecam || seeker_blind(s));
+    overlay::pause_game_input(want_freecam || seeker_blind(s) || skate_watching(s));
     if (const auto request=s.placement_camera.update(want_freecam,client_free_camera_view()!=0,now))
         console::request_debug(overlay::DebugAction::set_free_camera,*request);
     if (want_freecam != s.freecam_requested) {
@@ -1913,23 +1923,18 @@ std::string skate_trick(const State::SkateTurn &t) {
             late.insert(parts[i + 1].first);
             parts.erase(parts.begin() + static_cast<std::ptrdiff_t>(i));
         }
-    // One trick only: a grind or slide when there is one (the pop into it, its pop out and a flip
-    // into a darkslide are part of doing it), else a grab (or plant), else the first real trick (a
-    // flip); a pop (Ollie, Boned Ollie) only when nothing else was done.
+    // Everything done before the board is back on the ground counts, in order: a flip into a grind
+    // or a grab is both ("Kickflip + BS Noseslide"), and a manual landed into joins it. A pop (Ollie,
+    // Boned Ollie) is only the way into the rest, so it counts only when nothing else was done.
     if (parts.size() > 1) {
         const auto pop = [](const std::pair<std::uint64_t, std::string> &part) {
             std::string name;
             for (const char c : part.second) name += static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
             return name.ends_with("ollie");
         };
-        auto main = std::find_if(parts.begin(), parts.end(), [](const auto &part) { return (trick_kinds_of(part.second) & trick_grinds) != 0; });
-        if (main == parts.end())
-            main = std::find_if(parts.begin(), parts.end(), [&](const auto &part) { return !pop(part) && (trick_kinds_of(part.second) & trick_grabs); });
-        if (main == parts.end()) main = std::find_if(parts.begin(), parts.end(), [&](const auto &part) { return !pop(part); });
-        if (main == parts.end()) main = parts.begin();
-        const auto keep = *main;
-        if (main != parts.begin()) late.erase(keep.first); // a late flip is only the flip after its own pop
-        parts = {keep};
+        if (std::any_of(parts.begin(), parts.end(), [&](const auto &part) { return !pop(part); }))
+            std::erase_if(parts, pop);
+        if (parts.size() > 1) parts.erase(std::unique(parts.begin(), parts.end(), [](const auto &a, const auto &b) { return a.second == b.second; }), parts.end());
     }
     std::string text;
     for (std::size_t i = 0; i < parts.size(); ++i) {
@@ -1956,7 +1961,7 @@ std::string skate_trick(const State::SkateTurn &t) {
     if (text.size() > max_trick_length) text.resize(max_trick_length);
     return text;
 }
-constexpr std::uint64_t skate_return_ms = 1200, skate_return_give_up_ms = 20000, skate_return_retry_ms = 6000, land_hold_ms = 700;
+constexpr std::uint64_t skate_return_ms = 1200, skate_return_give_up_ms = 20000, skate_return_retry_ms = 6000, land_hold_ms = 1000;
 // On the ground, on the board or off it (standing, walking), not in the air or a bail: where skate.
 // accepts a teleport.
 bool skate_rolling(const State &s) {
@@ -1964,9 +1969,35 @@ bool skate_rolling(const State &s) {
     return s.skater && !trainer::telemetry().airborne &&
            ((physics >= 100 && physics < 200) || (physics >= offboard_states_first && physics < 600));
 }
+// Where a return sends the local player: the start when it is their turn, else their own spot round
+// it (spread like the line-up), facing it, so nobody lands inside anybody. The start faces into the
+// zone, or away from the flag, never the flag's own angle (that turned players round).
+std::pair<Vec3, float> skate_return_spot(const State &s) {
+    const auto &st = s.game->settings;
+    const Vec3 at = skate_start(st);
+    std::vector<std::uint64_t> ids;
+    if (s.game->state)
+        for (const auto &p : s.game->state->standings) ids.push_back(p.player);
+    std::sort(ids.begin(), ids.end());
+    const auto self = self_id(s);
+    if (ids.size() > 1 && s.game->state && s.game->state->turn != self && std::find(ids.begin(), ids.end(), self) != ids.end()) {
+        const auto count = static_cast<float>(ids.size());
+        const auto index = static_cast<float>(std::find(ids.begin(), ids.end(), self) - ids.begin());
+        const float ring = 3.0f + 0.6f * count, angle = 6.2831853f * index / count;
+        const Vec3 spot{at[0] + std::cos(angle) * ring, at[1], at[2] + std::sin(angle) * ring};
+        return {spot, heading_towards(spot, at)};
+    }
+    const auto centre = has_area(st) ? area_centre(st.corners) : at;
+    const float facing = std::hypot(centre[0] - at[0], centre[2] - at[2]) > 2.0f ? heading_towards(at, centre)
+                       : st.has_spawn && std::hypot(st.spawn[0] - at[0], st.spawn[2] - at[2]) > 2.0f ? heading_towards(st.spawn, at)
+                       : s.heading;
+    return {at, facing};
+}
 void run_skate(State &s, std::uint64_t now) {
     auto &t = s.skate;
     if (!std::exchange(s.stance_loaded, true)) s.goofy = load_stance();
+    // The game's own stance (Gameplay Preferences) once it is known; `mode stance` until then.
+    if (const auto goofy = profile_runtime::game_stance_goofy()) s.goofy = *goofy;
     const auto self = self_id(s);
     const auto *st = s.game && s.game->state ? &*s.game->state : nullptr;
     const auto *me = s.game ? standing(*s.game, self) : nullptr;
@@ -1984,18 +2015,14 @@ void run_skate(State &s, std::uint64_t now) {
     // moment later so the landing is seen. Refused during a bail: tried again once it is over.
     if (s.skate_return_at && (!in || !s.game->settings.has_spawn || now > s.skate_return_at + skate_return_give_up_ms)) {
         s.skate_return_at = s.skate_return_sent = 0;
-    } else if (s.skate_return_at && std::hypot(s.position[0] - skate_start(s.game->settings)[0], s.position[2] - skate_start(s.game->settings)[2]) < 4.0f &&
-               now >= s.skate_return_sent + 500 && s.skate_return_sent) {
+    } else if (s.skate_return_at && s.skate_return_sent && now >= s.skate_return_sent + 500 &&
+               std::hypot(s.position[0] - skate_return_spot(s).first[0], s.position[2] - skate_return_spot(s).first[2]) < 2.0f) {
         s.skate_return_at = s.skate_return_sent = 0; // arrived
     } else if (s.skate_return_at && now >= s.skate_return_at && (t.parts.empty() || t.sent) && !s.bail.active &&
                now >= s.skate_return_sent + skate_return_retry_ms && skate_rolling(s)) {
         // Only once on the ground, on the board or off it: skate.'s teleport is dropped while the
         // skater is busy (getting up from a bail). Asked again until the player is there.
-        const auto &st_ = s.game->settings;
-        const Vec3 at = skate_start(st_);
-        const auto centre = has_area(st_) ? area_centre(st_.corners) : at;
-        const float facing = std::hypot(centre[0] - at[0], centre[2] - at[2]) > 2.0f ? heading_towards(at, centre)
-                           : s.game->leading && s.game->native_flag_placed ? s.game->native_flag_yaw : s.heading;
+        const auto [at, facing] = skate_return_spot(s);
         if (teleport_to(at, facing)) {
             s.skate_return_sent = now;
             t.since = now; // nothing before the move counts towards the next try
@@ -2048,7 +2075,10 @@ void run_skate(State &s, std::uint64_t now) {
         }
         skate_note(std::format("R.E.S.K.A.T.E.: attempt \"{}\" {}.", trick, landed ? "landed" : "missed (a bail, stepping off or a failed landing)"));
         report(s, Event::trick, landed ? 1 : 0, 0, s.position, {}, trick);
-        popup(s, landed ? "Landed: " + trick : trick.empty() ? std::string("Missed") : "Missed: " + trick);
+        // Copying: "Trick copied" when it is the trick to copy. Setting: a miss failed to set it.
+        const bool copying = !st->trick.empty();
+        popup(s, landed ? (copying && trick == st->trick ? "Trick copied: " + trick : "Landed: " + trick)
+                 : !copying ? std::string("Failed to set trick") : trick.empty() ? std::string("Missed") : "Missed: " + trick);
         t.sent = true;
         s.skate_return_at = now + skate_return_ms;
     };
@@ -2096,13 +2126,32 @@ void run_skate(State &s, std::uint64_t now) {
                 if (s.name_writes.size() > 512) s.name_writes.clear();
                 w = {text, now, 1};
             }
-            if (revert(text) || text == "Slam" || text.find(" - ") != std::string::npos || text.starts_with("ID_") ||
+            if (text == "Slam" || text.find(" - ") != std::string::npos || text.starts_with("ID_") ||
                 text.find("  ") != std::string::npos || text.starts_with("SET A TRICK") || text.starts_with("COPY") ||
                 text.starts_with("LETTERS") || (text.size() >= 2 && text[1] == '.'))
                 continue;
-            if (const auto lowered = lower_text(text);
-                lowered.find("manual") != std::string::npos || lowered.find("powerslide") != std::string::npos)
+            // Moves that are no trick on their own (rolling off something, a powerslide, a revert, a
+            // manual): the player is told so if nothing real follows. After a trick a revert or a
+            // powerslide is just how it was ridden away, and adds nothing.
+            const auto low = lower_text(text);
+            const bool manual = low.find("manual") != std::string::npos;
+            if (revert(text) || low.find("powerslide") != std::string::npos || low.find("trickless") != std::string::npos ||
+                (manual && t.parts.empty())) {
+                if (t.parts.empty()) t.invalid_at = now;
                 continue;
+            }
+            if (manual) { // landed into a manual: it joins the trick ("Kickflip + Manual"), one only
+                const bool known = std::any_of(t.parts.begin(), t.parts.end(), [&](const auto &part) { return part.first == note.entry; });
+                if (known) {
+                    for (auto &part : t.parts)
+                        if (part.first == note.entry) part.second = text;
+                } else if (std::none_of(t.parts.begin(), t.parts.end(), [&](const auto &part) { return lower_text(part.second).find("manual") != std::string::npos; }) &&
+                           t.parts.size() < 6) {
+                    t.parts.push_back({note.entry, text});
+                }
+                t.last_name = now;
+                continue;
+            }
             // Not board tricks: jumps on foot or a hippy jump, and anything done off the board (vaults,
             // climbs, dives, dynos, hangs, dismounts).
             if (const auto lowered = lower_text(text);
@@ -2126,6 +2175,7 @@ void run_skate(State &s, std::uint64_t now) {
                 if (t.touched_down || (pop(text) && have_pop) || t.parts.size() >= 6) continue;
                 t.parts.push_back({note.entry, text});
                 t.last_name = now;
+                t.invalid_at = 0; // a real trick followed: nothing to tell
             }
         } else if (note.kind == 's') {
             t.sides[note.entry] = note.text == "ID_TRICK_FS" ? "FS" : note.text == "ID_TRICK_BS" ? "BS" : std::string();
@@ -2153,11 +2203,21 @@ void run_skate(State &s, std::uint64_t now) {
         send_attempt(false);
         return;
     }
+    // A move that is no trick on its own, with nothing real after it: said once, a moment later.
+    if (t.parts.empty() && t.invalid_at && t.invalid_told != t.invalid_at && now - t.invalid_at >= 1200) {
+        t.invalid_told = t.invalid_at;
+        popup(s, "Not a valid trick");
+    }
     if (t.parts.empty()) return;
     // A landing counts once it holds: a fall straight after skate. judged it landed (a bail caught
     // above) misses it instead.
     if (t.landed_at) {
-        if (now - t.landed_at >= land_hold_ms) send_attempt(true);
+        // Falling or stepping off before it holds misses it, whether or not a bail was seen yet.
+        const auto held_state = trainer::telemetry().physics_state;
+        if (s.skater && ((held_state >= wipeout_state && held_state < wipeout_state + 100) ||
+                         (held_state >= offboard_states_first && held_state < 600)))
+            send_attempt(false);
+        else if (now - t.landed_at >= land_hold_ms) send_attempt(true);
         return;
     }
     if (landing) {
@@ -2201,6 +2261,7 @@ void fill_trick_parts(overlay::ModesHud &h, const std::string &trick, std::strin
 }
 
 void build_hud(State &s, std::uint64_t now) {
+    if (const auto goofy = profile_runtime::game_stance_goofy()) s.goofy = *goofy;
     overlay::ModesHud h;
     if (s.game) {
         const auto &g = *s.game;
