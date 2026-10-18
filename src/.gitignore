@@ -1,0 +1,31 @@
+/build/
+/SpotifyHelper/target/
+/out/
+/artifacts/
+/logs/
+/.vs/
+/CMakeUserPresets.json
+__pycache__/
+*.log
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.lib
+*.exp
+*.keys
+*.pcap
+*.pcapng
+*.pdml
+*.mitm
+analysis/raw/**/*.ebx
+analysis/raw/**/*.res
+
+# Optional developer utilities stay local. CMake is self-contained.
+/tools/
+/tests/
+
+# Local research and extended documentation are not shipped.
+/analysis/
+/docs/
+/release

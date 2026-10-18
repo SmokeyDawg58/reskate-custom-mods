@@ -2,6 +2,7 @@
 #include "native_menu_internal.h"
 #include "native_menu_dump.h"
 #include "one_up_menu.h"
+#include "Extension/Modes/game_modes.h"
 #include "ui_sound.h"
 #include "Extension/Multiplayer/Session/session.h"
 #include "Extension/Multiplayer/Hud/game_ui_state.h"
@@ -750,6 +751,7 @@ overlay::HubPage native_menu_page() noexcept {
     return {true, page_shown.load(std::memory_order_relaxed)};
 }
 void tick_native_menu(std::uintptr_t base, bool loading) noexcept {
+    const modes::OwnUiWrites own_writes; // not skate.'s trick list: R.E.S.K.A.T.E. ignores these
     run_pending_ui_dump(base);
     // The menu sounds the overlay's pages asked for (ui_sound.h).
     tick_ui_sounds(base, loading);

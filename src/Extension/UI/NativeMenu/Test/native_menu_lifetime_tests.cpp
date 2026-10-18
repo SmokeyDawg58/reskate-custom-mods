@@ -599,6 +599,7 @@ void native_one_up_slider_values() {
     using namespace dingosdk::multiplayer::menu_data;
     check(native_slider_position(120,120,120)==0.f && native_slider_choice(1.f,120,120,10)==120,
           "A fixed Deathrace deadline has a finite readonly native slider");
+    check(native_setup_role("Letters")==NativeSetupRole::letters,"R.E.S.K.A.T.E. letters row is its own setting.");
     check(native_setup_role("Finish deadline")==NativeSetupRole::timer,
           "Renamed Deathrace deadline remains identifiable after a UI refresh");
     check(native_slider_choice((1.16f-1.f)/5.f,1,6,1)==1,

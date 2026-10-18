@@ -175,7 +175,8 @@ void logo_picker(const Context& c) {
     mode_art(c,std::array{c.field(s.oneup_logo,0x6e469d2a)},"UI/ReSkate/OneUp/img_OneUp_Blue_1024");
     for(const auto& d:throwdowns::registry().definitions())if(d.adapter==throwdowns::Adapter::game_mode && d.id!="native.skate") {
         auto& card=s.mode_cards.at(d.id);
-        if(!card.logo.handle)card.logo=picker_logo(c,card.tile,card.category,false,d.name);
+        // No generated logo: the donor tile's native artwork, as on the stock cards.
+        if(!card.logo.handle)card.logo=picker_logo(c,card.tile,card.category,d.logo.empty(),d.name);
         mode_art(c,std::array{c.field(card.logo,0x6e469d2a)},d.logo);
         append_tile(card.tile);
     }
@@ -264,7 +265,7 @@ void mode_render(const Context& c) {
             const auto deadline=mode_selector(c,shown,"mode-time","Finish deadline",{30,60,90,120,180,300,600,900,1800,3600},v.settings.duration_s," sec");
             if(deadline!=v.settings.duration_s)s.mode_status=modes::command("time",{std::to_string(deadline)});
         }
-        else {
+        else if(modes::timed(v.settings.mode)) {
             const auto duration=mode_selector(c,shown,"mode-time","Duration",{30,60,120,180,300,600,900,1800,3600},v.settings.duration_s," sec");
             if(duration!=v.settings.duration_s)s.mode_status=modes::command("time",{std::to_string(duration)});
         }
@@ -337,13 +338,211 @@ void mode_hud_publish(const Context& c,bool show,bool countdown,bool intro,bool 
     }
     std::vector<Value> visible;
     const auto append=[&](Value item) {if(item.handle)visible.push_back(item);};
+    const bool letters=show && h.letters_layout;
     if(show && h.placing_layout)append(h.editor_panel_item);
     if(race && h.gate_compass_visible)append(h.gate_compass_item);
     // Challenge titles now sit compactly above the compass; no large racing header panel.
     if(results)append(h.results_panel_item);
-    for(const auto item:{blind?h.blind_item:Value{},show?h.item:Value{},show?h.badge_item:Value{},show && h.placing_layout?h.placement_item:Value{},show && !h.placing_layout && h.clock_visible?h.clock_item:Value{},show && !h.placing_layout && !h.race_layout?h.score_item:Value{},countdown?h.countdown_item:Value{},intro?h.intro_item:Value{},results?h.results_item:Value{},race?h.race_item:Value{},race?h.race_position_item:Value{},race?h.race_elapsed_item:Value{},race?h.race_deadline_item:Value{},race?h.race_deadline_caption_item:Value{},race?h.race_progress_item:Value{},show && h.race_warning_visible?h.race_warning_item:Value{},show && h.placing_layout && h.clear_ring_visible?h.clear_ring_item:Value{},show && h.exit_visible?h.exit_panel_item:Value{},show && h.exit_visible?h.exit_item:Value{}})append(item);
+    for(const auto item:{blind?h.blind_item:Value{},show && !h.letters_layout?h.item:Value{},show && !h.letters_layout?h.badge_item:Value{},show && h.placing_layout?h.placement_item:Value{},show && !h.placing_layout && h.clock_visible?h.clock_item:Value{},show && !h.placing_layout && !h.race_layout && !h.letters_layout?h.score_item:Value{},
+        letters && !h.placing_layout?h.card_caption_item:Value{},letters && !h.placing_layout && h.card_image_visible?h.card_image_item:Value{},
+        letters && !h.placing_layout && h.card_title_visible?h.card_title_item:Value{},
+        letters && !h.placing_layout && h.callout_visible?h.callout_item:Value{},letters && !h.placing_layout && h.done_count?h.done_caption_item:Value{},
+countdown?h.countdown_item:Value{},intro?h.intro_item:Value{},results?h.results_item:Value{},race?h.race_item:Value{},race?h.race_position_item:Value{},race?h.race_elapsed_item:Value{},race?h.race_deadline_item:Value{},race?h.race_deadline_caption_item:Value{},race?h.race_progress_item:Value{},show && h.race_warning_visible?h.race_warning_item:Value{},show && h.placing_layout && h.clear_ring_visible?h.clear_ring_item:Value{},show && h.exit_visible?h.exit_panel_item:Value{},show && h.exit_visible?h.exit_item:Value{}})append(item);
     if(show && !blind && !results)for(const auto item:h.world_items)append(item);
     publish_hud_surface(c,h.stack,visible,true);
+}
+// R.E.S.K.A.T.E.'s trick card, centred under the compass: a caption, the trick's flick-it stick
+// picture (skate.'s own UI/Textures/FlickItGestureImages, the ones its Skatepedia shows, resident in
+// the game configuration), and the trick's name in skate.'s caps title style. Native label and
+// texture widgets only; plain labels have no fixed frame for a long name to run out of.
+Address flick_image(const Context& c,const std::string& steps) {
+    // The first flick-it picture of the Skatepedia steps: "[img {0}]FLICKIT_Kickflip_RS[/img]".
+    const auto at=steps.find("]FLICKIT_");if(at==std::string::npos)return 0;
+    const auto end=steps.find('[',at);if(end==std::string::npos)return 0;
+    const auto name=steps.substr(at+9,end-at-9);
+    for(const char* folder:{"RStick_Arrows_Yellow","RStick_Terminals_Yellow","LStick_Arrows_Yellow","LStick_Terminals_Yellow"}) {
+        try {
+            const auto path=std::string("UI/Textures/FlickItGestureImages/")+folder+"/img_FlickIt_"+name;
+            if(const auto found=asset(c,path.c_str())) {
+                // Once per picture: the asset kind the HUD's texture field gets (diagnostics).
+                static std::set<std::string> described;
+                if(described.insert(name).second) {
+                    const auto type=read<Address>(found+8);
+                    logging::log(logging::Level::info,logging::Channel::ui,"R.E.S.K.A.T.E.: flick-it picture {} found ({} asset, type {:#x}).",
+                        path,type==c.base+build::native_menu::texture_asset_type?"texture":type==c.base+build::native_menu::image_asset_type?"image":"other",
+                        type?type-c.base:0);
+                }
+                return found;
+            }
+        } catch(const std::exception&) {}
+    }
+    static std::set<std::string> reported;
+    if(reported.insert(name).second)logging::log(logging::Level::info,logging::Channel::ui,
+        "R.E.S.K.A.T.E.: no loaded flick-it picture for {}.",name);
+    return 0;
+}
+// One piece of R.E.S.K.A.T.E.'s HUD at a screen fraction (x, y) plus pixel offsets, pinned by
+// its left (pivot 0), centre (.5) or right (1) edge horizontally and its top (0) or bottom (1).
+void mode_card_place(const Context& c,Value anchor,std::array<float,2> size,float x,float pivot_x,float dx,float y,float pivot_y,float dy) {
+    c.set_if_changed(c.field(anchor,0x1cff7243),size);
+    const auto horizontal=c.field(anchor,0xde7d30c7),vertical=c.field(anchor,0x185a5736);
+    for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.field(horizontal,key),x);
+    c.set_if_changed(c.field(horizontal,0xfec5e0b1),pivot_x);
+    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.field(horizontal,key),dx);
+    for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.field(vertical,key),y);
+    c.set_if_changed(c.field(vertical,0xfec5e0b1),pivot_y);
+    for(const auto key:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.field(vertical,key),dy);
+}
+// A native label in one of skate.'s text styles, made as the header's labels are; align 0 left,
+// 2 centred.
+// R.E.S.K.A.T.E.'s text: a private copy of one of skate.'s white text styles with one of its own
+// font effects (the aqua neon outline, a red glow, a black outline and shadow) and its colour scaled
+// (red, green, blue). The game's coloured styles are not all loaded; one that is not falls back to
+// white. Any failure leaves plain white text rather than costing the HUD its frame.
+Value custom_text_style(const Context& c,Value& style,const char* base,const char* effect,std::array<float,3> rgb={1.f,1.f,1.f}) {
+    static bool failed{};
+    if(failed)return {};
+    if(!style.handle) try {
+        const auto copy=record_model(c,base);
+        if(effect)if(const auto found=asset(c,effect))c.set(c.field(copy,0x51332fc1),found);
+        const std::array<std::uint32_t,3> channels{0x6fb7b2a4,0x3b385eb0,0xd1cdb49a};
+        for(unsigned i=0;i<3;++i)c.set(c.path(copy,{0xc7a2ba80,0x2358a817,0xd32f6895,channels[i]}),rgb[i]);
+        style=copy;
+    } catch(const std::exception& e) {
+        failed=true;
+        logging::log(logging::Level::warning,logging::Channel::ui,"R.E.S.K.A.T.E.: text styles unavailable, shown plain: {}",e.what());
+        return {};
+    }
+    return style;
+}
+constexpr const char* neon_outline="UI/Foundations/Fonts/Styles/Dingo_2pxOutline_Aqua_FontEffect";
+constexpr const char* red_glow="UI/Foundations/Fonts/Styles/Dingo_3pxDropShadow_Negative_FontEffect";
+constexpr const char* clean_outline="UI/Foundations/Fonts/Styles/Dingo_2pxOutline_Black_MediumDropShadow_25_FontEffect";
+void set_label_style(const Context& c,Value label,Value style) {
+    for(const auto key:{0xf94d8cc6U,0xa1e84eb1U,0xfc23a999U,0x25189231U})c.set_if_changed(c.field(label,key),Ref{0,style.handle});
+}
+void mode_card_label(const Context& c,Value& label,const std::string& text,const char* style,int align,Value custom={}) {
+    auto& h=state().mode_hud;
+    if(!label.handle) {label=make(c,label_schema);c.copy(label,c.address(h.title));}
+    plain_label(c,label,text);
+    if(custom.handle)set_label_style(c,label,custom);else label_styles(c,label,style,style);
+    c.set_if_changed(c.field(label,0xc13ba637),false);c.set_if_changed(c.field(label,0xfc53d427),false);
+    c.set_if_changed(c.field(label,0x3d8639d0),align);c.set_if_changed(c.field(label,0x87ad624c),2);
+}
+// Labels are shown as the header shows its title: inside a native linear list mounted on the HUD
+// (a label mounted on its own is never drawn). The list is built once per set of labels.
+void mode_card_list(const Context& c,Value& list,std::span<const Value> labels,float row,float width,
+                    Value& anchor,Value& item,int id) {
+    const auto label_widget=asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget");
+    if(!list.handle || !hud_list_has_items(c,list,static_cast<unsigned>(labels.size()))) {
+        std::vector<Widget> cells;
+        for(const auto label:labels)cells.push_back({label_widget,{0,label.handle}});
+        hud_list(c,list,cells,false,row,4.f,0.f,width);
+    }
+    mount_hud(c,list,asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),anchor,item,id,false);
+}
+std::string mode_hud_key(modes::Mode mode);
+void mode_hud_cell(const Context& c,Value value,const std::string& text,float width,float height,const char* font,Value style={});
+// R.E.S.K.A.T.E.'s HUD, laid out as Skate 3's S.K.A.T.E.: a callout top centre for a moment
+// ("TRICK SET!", "SMOKEY  R.E.S"), "ALREADY BEEN DONE" top left, and on the left the trick to copy:
+// a caption, its flick-it picture and its name beside it. Native labels, lists and the HUD's logo
+// widget only. Its pieces use the custom HUD ids 46-50 (custom_hud_item owns mode_hud_id+0..63).
+void mode_letters_hud(const Context& c,const overlay::ModesHud& feed,
+                      const std::string& caption,const std::string& trick,const std::string& steps) {
+    auto& h=state().mode_hud;
+    const auto now=GetTickCount64();
+    // The callout: shown for 2.5 s after each new one.
+    if(feed.callout_serial!=h.callout_serial) {
+        h.callout_serial=feed.callout_serial;
+        if(!feed.callout.empty())h.callout_until=now+2500,h.callout_text=feed.callout;
+    }
+    h.callout_visible=now<h.callout_until;
+    if(h.callout_visible) {
+        mode_card_label(c,h.callout,h.callout_text,"TextStylesList/D94-Caps-Bold_White",2,
+                        custom_text_style(c,h.style_callout,"TextStylesList/D94-Caps-Bold_White",neon_outline));
+        mode_card_list(c,h.callout_list,std::array{h.callout},110.f,1600.f,h.callout_anchor,h.callout_item,mode_hud_id+49);
+        mode_card_place(c,h.callout_anchor,{1600.f,110.f},.5f,.5f,0.f,.24f,0.f,0.f);
+    }
+    // Already been done: boxed like the leaderboard (its title style and the HUD's name rows), the
+    // newest five tricks set this game. Every row is one width, capped, so the box never runs off the
+    // screen; a longer name is set in a smaller native style rather than scrolled (a label only moves
+    // a whole character at a time, which reads as lag).
+    h.done_count=std::min<std::size_t>(feed.done_tricks.size(),h.done_cells.size());
+    if(h.done_count) {
+        constexpr unsigned widest=704;
+        unsigned width=native_hud_name_width("ALREADY BEEN DONE"); // the title on one line
+        for(std::size_t i=0;i<h.done_count;++i)
+            width=std::max(width,std::min(widest,native_hud_name_width(feed.done_tricks[feed.done_tricks.size()-1-i])));
+        const auto small_chars=static_cast<std::size_t>((width-32)/17); // about what fits a row in SP38
+        mode_card_label(c,h.done_caption,"ALREADY BEEN DONE","TextStylesList/H52-XBold_White",0,
+                        custom_text_style(c,h.style_neon52,"TextStylesList/H52-XBold_White",neon_outline));
+        std::vector<Widget> cells{{asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget"),{0,h.done_caption.handle}}};
+        for(std::size_t i=0;i<h.done_count;++i) {
+            auto text=feed.done_tricks[feed.done_tricks.size()-1-i];
+            const bool small=native_hud_name_width(text)>width;
+            if(small && text.size()>small_chars && small_chars>4)text=text.substr(0,small_chars-3)+"...";
+            if(!h.done_cells[i].handle)h.done_cells[i]=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+            mode_hud_cell(c,h.done_cells[i],text,static_cast<float>(width),64.f,small?"TextStylesList/SP38-SemiB_White":"TextStylesList/H52-XBold_White",
+                          small?Value{}:custom_text_style(c,h.style_clean52,"TextStylesList/H52-XBold_White",clean_outline));
+            cells.push_back({asset(c,("UI/ReSkate/Throwdowns/HUD_"+mode_hud_key(modes::Mode::skate)+"_Name_"+std::to_string(width)+"_Widget").c_str()),
+                             {0,h.done_cells[i].handle}});
+        }
+        if(h.done_width!=width || h.done_rows!=h.done_count || !hud_list_has_items(c,h.done_list,static_cast<unsigned>(cells.size()))) {
+            hud_list(c,h.done_list,cells,false,64.f,8.f,0.f,static_cast<float>(width));
+            h.done_width=width;h.done_rows=h.done_count;
+        }
+        mount_hud(c,h.done_list,asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),
+                  h.done_caption_anchor,h.done_caption_item,mode_hud_id+50,false);
+        mode_card_place(c,h.done_caption_anchor,{static_cast<float>(width),72.f*static_cast<float>(h.done_count+1)},.03f,0.f,0.f,.12f,0.f,0.f);
+    }
+    // The trick to copy: the caption, then the stick picture with the name beside it.
+    mode_card_label(c,h.card_caption,caption,"TextStylesList/H52-XBold_White",0,
+                    custom_text_style(c,h.style_clean52,"TextStylesList/H52-XBold_White",clean_outline));
+    mode_card_list(c,h.card_caption_list,std::array{h.card_caption},60.f,1400.f,h.card_caption_anchor,h.card_caption_item,mode_hud_id+46);
+    mode_card_place(c,h.card_caption_anchor,{1400.f,60.f},.03f,0.f,0.f,.42f,0.f,0.f);
+    // The picture's model, set up as the Throwdown Panel's setting icons are (those draw): its size,
+    // its own layout in the slot (weight 1: zero collapses it) and a colour style.
+    if(!h.card_image.handle) {
+        h.card_image=make(c,texture_schema);
+        c.set(c.field(h.card_image,0xf524c836),140.f);c.set(c.field(h.card_image,0x6fbd254e),140.f);
+        for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
+            const bool vertical=axis==0x185a5736U;
+            for(const auto edge:{0x99bbed5aU,0x49943bedU})c.set(c.path(h.card_image,{axis,edge}),vertical?.5f:0.f);
+            c.set(c.path(h.card_image,{axis,0xfec5e0b1}),vertical?.5f:0.f);
+            c.set(c.path(h.card_image,{axis,0xd01f4a21}),1.f);
+        }
+        c.set(c.field(h.card_image,0xcd4a53c0),record_ref(c,"InteractivityColorStylesList/InteractiveColors.Core.AllWhite"));
+    }
+    auto image=trick.empty()?0:flick_image(c,steps);
+    if(modes::flick_test() && !trick.empty()) { // diagnostics: an image this HUD is known to draw
+        mode_art(c,std::array{c.field(h.card_image,0x6e469d2a)},"UI/ReSkate/OneUp/img_OneUp_Blue_1024");
+        image=read<Address>(c.address(c.field(h.card_image,0x6e469d2a)));
+    }
+    h.card_image_visible=image!=0;
+    if(image) {
+        // skate.'s own texture widget, inside a native list as the labels are (the HUD's logo widget
+        // keeps drawing its authored badge, whatever texture it is given).
+        if(read<Address>(c.address(c.field(h.card_image,0x6e469d2a)))!=image)c.set(c.field(h.card_image,0x6e469d2a),image);
+        if(!h.card_image_list.handle || !hud_list_has_items(c,h.card_image_list,1))
+            hud_list(c,h.card_image_list,{{asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget"),{0,h.card_image.handle}}},
+                     false,140.f,0.f,0.f,140.f);
+        mount_hud(c,h.card_image_list,asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget"),
+                  h.card_image_anchor,h.card_image_item,mode_hud_id+47,false);
+        mode_card_place(c,h.card_image_anchor,{140.f,140.f},.03f,0.f,0.f,.42f,0.f,64.f);
+    }
+    h.card_title_visible=!trick.empty();
+    if(!trick.empty()) {
+        mode_card_label(c,h.card_title,trick,"TextStylesList/H64-XBold_White",0,
+                        custom_text_style(c,h.style_clean64,"TextStylesList/H64-XBold_White",clean_outline));
+        mode_card_list(c,h.card_title_list,std::array{h.card_title},72.f,1300.f,h.card_title_anchor,h.card_title_item,mode_hud_id+48);
+        mode_card_place(c,h.card_title_anchor,{1300.f,72.f},.03f,0.f,image?160.f:0.f,.42f,0.f,98.f);
+    }
+}
+// The score block's width: R.E.S.K.A.T.E.'s holds a trick name and its stick picture.
+float mode_score_width(const modes::NativeView& v) { return v.settings.mode==modes::Mode::skate?900.f:480.f; }
+// The packed HUD art set for a mode. R.E.S.K.A.T.E. has none yet: it borrows 1-Up's.
+std::string mode_hud_key(modes::Mode mode) {
+    return std::string(native_hud_theme_key(modes::mode_key(mode)));
 }
 Address mode_hud_art(const Context& c,modes::Mode mode,const char* part) {
     return asset(c,(std::string("UI/ReSkate/Throwdowns/HUD_")+std::string(native_hud_theme_key(modes::mode_key(mode)))+"_"+part+"_Widget").c_str());
@@ -373,7 +572,7 @@ void mode_race_clocks(const Context& c,const modes::NativeView& v,std::uint64_t 
             plain_label(c,c.field(h.race_elapsed,0x94703efc),native_hud_race_time(clocks.countdown));
     }
 }
-void mode_hud_cell(const Context& c,Value value,const std::string& text,float width,float height,const char* font) {
+void mode_hud_cell(const Context& c,Value value,const std::string& text,float width,float height,const char* font,Value style) {
     match_panel_table_style(c,value);
     c.set_if_changed(c.field(value,0x13be0d51),std::array<float,2>{width,height});
     // The donor notice carries its own label constraint. Retaining it clips
@@ -381,7 +580,9 @@ void mode_hud_cell(const Context& c,Value value,const std::string& text,float wi
     match_panel_notice_width(c,value,std::max(1.f,width-24.f));
     c.set_if_changed(c.field(value,0x54258200),false);
     const auto label=c.field(value,0x94703efc);plain_label(c,label,text);
-    label_styles(c,label,font,font);c.set_if_changed(c.field(label,0xc13ba637),false);c.set_if_changed(c.field(label,0xfc53d427),false);
+    if(style.handle)set_label_style(c,label,style);
+    else label_styles(c,label,font,font);
+    c.set_if_changed(c.field(label,0xc13ba637),false);c.set_if_changed(c.field(label,0xfc53d427),false);
     c.set_if_changed(c.field(label,0x3d8639d0),2);c.set_if_changed(c.field(label,0x87ad624c),2);
 }
 void mode_hud_list_cell_size(const Context& c,Value list,unsigned i,float width,float height,Widget display={}) {
@@ -461,11 +662,11 @@ Address mode_hud_caption_art(const Context& c,float width) {
 Address mode_hud_heading_art(const Context& c,float width,unsigned height) {
     return asset(c,("UI/ReSkate/Throwdowns/Heading_"+std::to_string(static_cast<unsigned>(width))+"_"+std::to_string(height)+"_Widget").c_str());
 }
-void mode_board_columns(const Context& c,Value& list,std::array<Value,3>& labels,const std::array<float,3>& widths,bool race) {
+void mode_board_columns(const Context& c,Value& list,std::array<Value,3>& labels,const std::array<float,3>& widths,bool race,bool letters=false) {
     std::vector<Widget> cells;
     for(unsigned i=0;i<3;++i) {
         if(!labels[i].handle)labels[i]=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-        mode_hud_cell(c,labels[i],i==0?"POS":i==1?"NAME":race?"TIME":"SCORE",widths[i],52.f,"TextStylesList/H52-XBold_White");
+        mode_hud_cell(c,labels[i],i==0?"POS":i==1?"NAME":race?"TIME":letters?"LETTERS":"SCORE",widths[i],52.f,"TextStylesList/H52-XBold_White");
         cells.push_back({mode_hud_caption_art(c,widths[i]),{0,labels[i].handle}});
     }
     if(!hud_list_has_items(c,list,3))hud_list(c,list,cells,true,52.f,8.f);
@@ -491,9 +692,20 @@ void mode_race_standings(const Context& c,const modes::NativeView& v,const overl
         std::array<Value*,3> values{&row.rank,&row.name,&row.timer};std::vector<Widget> cells;
         for(unsigned column=0;column<3;++column) {
             if(!values[column]->handle)*values[column]=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-            const std::string text=column==0?(player.out?"--":std::to_string(i+1)+(i==0?"st":i==1?"nd":i==2?"rd":"th")):
-                column==1?feed.rows[i].name:race?mode_racer_time(v,player,now):player.out?"OUT":feed.rows[i].value;
-            mode_hud_cell(c,*values[column],text,h.race_widths[column],height,"TextStylesList/H52-XBold_White");
+            const std::string text=column==0?(player.out && v.settings.mode!=modes::Mode::skate?"--":std::to_string(i+1)+(i==0?"st":i==1?"nd":i==2?"rd":"th")):
+                column==1?feed.rows[i].name:race?mode_racer_time(v,player,now):player.out && !h.letters_layout?"OUT":feed.rows[i].value;
+            // R.E.S.K.A.T.E.: the letters earned so far ("R E S"), in skate.'s red; none yet, a grey dash.
+            // One plain cell, as every other mode's value (a list of letter labels nested in the row
+            // crashed the game as play began).
+            const bool letters=column==2 && h.letters_layout && !race;
+            std::string earned;
+            if(letters)for(const char ch:feed.rows[i].value)if(ch>='A' && ch<='Z')earned+=earned.empty()?std::string(1,ch):std::string(" ")+ch;
+            // skate.'s own white text style, tinted: red letters, a grey dash.
+            // R.E.S.K.A.T.E.'s other cells: white with a black outline and shadow, readable anywhere.
+            const Value style=!h.letters_layout || race?Value{}:!letters?custom_text_style(c,h.style_clean52,"TextStylesList/H52-XBold_White",clean_outline):
+                earned.empty()?custom_text_style(c,h.letters_grey,"TextStylesList/H52-XBold_White",clean_outline,{.55f,.55f,.55f}):
+                custom_text_style(c,h.letters_red,"TextStylesList/H52-XBold_White",red_glow,{1.f,.18f,.16f});
+            mode_hud_cell(c,*values[column],letters?(earned.empty()?std::string("-"):earned):text,h.race_widths[column],height,"TextStylesList/H52-XBold_White",style);
             std::string art;
             if(column==0)art="UI/ReSkate/Throwdowns/"+std::string(race?"RaceRank":"HUD_"+std::string(native_hud_theme_key(modes::mode_key(v.settings.mode)))+"_Rank")+"_Widget";
             else if(column==1)art="UI/ReSkate/Throwdowns/"+std::string(race?"RaceName":"HUD_"+std::string(native_hud_theme_key(modes::mode_key(v.settings.mode)))+"_Name")+"_"+std::to_string(static_cast<unsigned>(name_width))+"_Widget";
@@ -510,8 +722,9 @@ void mode_race_standings(const Context& c,const modes::NativeView& v,const overl
     for(unsigned i=0;i<refs.size();++i)mode_hud_list_cell_size(c,h.race_rows,i,width,height);
     if(feed.results)return; // Results owns these rows inside its single board.
     if(!h.race_title.handle)h.race_title=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-    mode_hud_cell(c,h.race_title,"LEADERBOARD",width,64.f,"TextStylesList/H52-XBold_White");
-    mode_board_columns(c,h.race_columns,h.race_captions,h.race_widths,race);
+    mode_hud_cell(c,h.race_title,"LEADERBOARD",width,64.f,"TextStylesList/H52-XBold_White",
+                  h.letters_layout && !race?custom_text_style(c,h.style_neon52,"TextStylesList/H52-XBold_White",neon_outline):Value{});
+    mode_board_columns(c,h.race_columns,h.race_captions,h.race_widths,race,v.settings.mode==modes::Mode::skate);
     const auto heading=mode_hud_heading_art(c,width,64);
     if(!hud_list_has_items(c,h.race_board,3))hud_list(c,h.race_board,{{heading,{0,h.race_title.handle}},
         {list_widget,{0,h.race_columns.handle}},{list_widget,{0,h.race_rows.handle}}},false,64.f,12.f,0.f,width);
@@ -523,8 +736,11 @@ void mode_race_standings(const Context& c,const modes::NativeView& v,const overl
     c.set_if_changed(c.field(h.race_anchor,0x1cff7243),std::array<float,2>{width,140.f+rows_height});
     for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
         const bool vertical=axis==0x185a5736U;
-        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.race_anchor,{axis,field}),vertical?native_hud_screen_anchor(native_hud_side_center):native_hud_screen_anchor(.994f));
-        c.set_if_changed(c.path(h.race_anchor,{axis,0xfec5e0b1}),vertical?.5f:1.f);
+        // R.E.S.K.A.T.E.'s standings sit bottom right, as Skate 3's S.K.A.T.E. scoreboard.
+        const float at=h.letters_layout?native_hud_screen_anchor(vertical?.95f:.97f):
+            vertical?native_hud_screen_anchor(native_hud_side_center):native_hud_screen_anchor(.994f);
+        for(const auto field:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.race_anchor,{axis,field}),at);
+        c.set_if_changed(c.path(h.race_anchor,{axis,0xfec5e0b1}),h.letters_layout?1.f:vertical?.5f:1.f);
         c.set_if_changed(c.path(h.race_anchor,{axis,0xd01f4a21}),1.f);
         for(const auto field:{0x40bfbff4U,0x1d233266U})c.set_if_changed(c.path(h.race_anchor,{axis,field}),0.f);
     }
@@ -594,7 +810,7 @@ void mode_results(const Context& c,const modes::NativeView& v,const overlay::Mod
     if(!h.results_notice.handle)h.results_notice=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
     mode_hud_cell(c,h.results_notice,feed.winner.empty()?(v.settings.mode==modes::Mode::race?"NO FINISHERS / DNF":"MATCH COMPLETE"):feed.winner+" WINS!",inside_width,96.f,"TextStylesList/H52-XBold_White");
     const auto notice=asset(c,("UI/ReSkate/Throwdowns/HUD_"+std::string(native_hud_theme_key(modes::mode_key(v.settings.mode)))+"_Results_"+std::to_string(panel_width-64)+"_Widget").c_str());
-    mode_board_columns(c,h.results_columns,h.results_captions,h.race_widths,v.settings.mode==modes::Mode::race);
+    mode_board_columns(c,h.results_columns,h.results_captions,h.race_widths,v.settings.mode==modes::Mode::race,v.settings.mode==modes::Mode::skate);
     if(!hud_list_has_items(c,h.results,4))hud_list(c,h.results,{{list_widget,{0,h.results_header.handle}},
         {notice,{0,h.results_notice.handle}},{list_widget,{0,h.results_columns.handle}},{list_widget,{0,h.race_rows.handle}}},false,144.f,24.f,0.f,inside_width);
     mode_hud_list_cell_size(c,h.results,0,inside_width,144.f);
@@ -667,7 +883,8 @@ void mode_world_markers(const Context& c,const overlay::ModesHud& feed) {
         mark(feed.points[i],label);
     }
     const auto placement=modes::native_view();
-    if(feed.placing && placement.cursor_valid)mark(feed.cursor,feed.route?"PLACE: "+std::string(placement.route_object==0?"START FLAG":placement.route_object==2?"FINISH":placement.route_object==3?"GUIDE":placement.route_object==4?"CHEVRON":"REQUIRED"):"PLACE HERE");
+    // R.E.S.K.A.T.E.'s preview cone already shows where the next one goes.
+    if(feed.placing && placement.cursor_valid && !placement.placing_corners)mark(feed.cursor,feed.route?"PLACE: "+std::string(placement.route_object==0?"START FLAG":placement.route_object==2?"FINISH":placement.route_object==3?"GUIDE":placement.route_object==4?"CHEVRON":"REQUIRED"):"PLACE HERE");
     for(const auto& player:feed.players)if(!player.self && player.it)mark(player.at,player.name+(feed.infection?"  INFECTED":"  IT"));
     for(const auto& tag:feed.tags)if(!tag.path.empty())mark(tag.path[tag.path.size()/2],"TAGGED");
 }
@@ -765,17 +982,19 @@ void mode_hud(const Context& c) {
         c.set_if_changed(c.field(value,0xc13ba637),false);c.set_if_changed(c.field(value,0xfc53d427),false);
         c.set_if_changed(c.field(value,0x87ad624c),2);
     }
-    h.placing_layout=feed.placing && race;
+    const bool cone_editor=feed.placing && v.placing_corners; // R.E.S.K.A.T.E.'s trick-zone cones
+    h.placing_layout=feed.placing && (race || cone_editor);
+    h.letters_layout=v.settings.mode==modes::Mode::skate;
     h.exit_visible=h.placing_layout && v.exit_confirm;
     if(h.placing_layout) {
         mount_hud(c,{},asset(c,"UI/ReSkate/Throwdowns/EditorPanel_Widget"),h.editor_panel_anchor,h.editor_panel_item,mode_hud_id+43,false);
-        c.set_if_changed(c.field(h.editor_panel_anchor,0x1cff7243),std::array<float,2>{880.f,1150.f});
+        c.set_if_changed(c.field(h.editor_panel_anchor,0x1cff7243),cone_editor?std::array<float,2>{500.f,370.f}:std::array<float,2>{880.f,1150.f}); // the cone set's 8 rows
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
             for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.editor_panel_anchor,{axis,key}),axis==0xde7d30c7U?native_hud_screen_anchor(.006f):native_hud_screen_anchor(.008f));
             for(const auto key:{0x40bfbff4U,0x1d233266U,0xfec5e0b1U})c.set_if_changed(c.path(h.editor_panel_anchor,{axis,key}),0.f);
         }
     }
-    if(feed.placing && race) {
+    if(h.placing_layout) {
         // LabelButton resolves the actual game's device glyphs and text style.
         // Each action gets its own bounded row instead of a concatenated line.
         constexpr std::array actions{
@@ -795,7 +1014,8 @@ void mode_hud(const Context& c) {
             std::pair{"UI_L3Click",""},
             std::pair{"UI_R3Click","Snap angle - / +"},
             std::pair{"UI_SelectButton","HOLD: Clear all gates"}};
-        bool created{};
+        bool created=h.placement_cones!=cone_editor; // the rows differ: rebuild them on a switch
+        h.placement_cones=cone_editor;
         std::vector<Widget> prompts;
         for(unsigned i=0;i<actions.size();++i) {
             auto& prompt=h.placement_prompts[i];
@@ -844,6 +1064,9 @@ void mode_hud(const Context& c) {
         for(unsigned i=0;i<prompts.size();++i) {
             const int pair=i==0?0:i==2?1:i==6?2:i==8?3:i==13?4:-1;
             Widget icons=prompts[i];
+            // The cone editor keeps the gate editor's buttons, minus gate-only ones.
+            if(cone_editor && pair>=0 && pair!=1 && pair!=2 && pair!=4){++i;continue;}
+            if(cone_editor && i==5)continue;
             const char* caption=actions[i].second;
             if(pair>=0) {
                 auto& list=h.placement_pairs[pair];
@@ -869,6 +1092,21 @@ void mode_hud(const Context& c) {
             if(i==9)dynamic_caption=v.rotating?"Tilt up / down":"Size "+std::to_string(static_cast<int>(std::lround(v.cursor_width/6.f*100.f)))+"%";
             if(i==12)dynamic_caption=v.route_snap?(v.arrow_height_snapped?"Snap ON (Chevron line locked)":std::format("Snap ON ({:.1f}m reach)",std::clamp(v.snap_degrees*.1f,.5f,6.f))):"Snap OFF";
             if(i==14)dynamic_caption="Rotation step: "+std::to_string(static_cast<int>(v.snap_degrees))+" deg";
+            if(cone_editor) {
+                const auto cones=v.settings.corners.size();
+                // How long the edge to the next cone would be, so sides can be matched.
+                if(i==4 && !v.settings.corners.empty() && v.cursor_valid) {
+                    const auto& last=v.settings.corners.back();
+                    dynamic_caption=std::format("Place cone ({:.0f} m)",std::hypot(v.cursor[0]-last[0],v.cursor[2]-last[2]));
+                } else if(i==4)dynamic_caption="Place cone";
+                if(i==12)dynamic_caption=v.route_snap?"Snap ON":"Snap OFF";
+                if(i==7)dynamic_caption="Undo / Redo cone";
+                if(i==3)dynamic_caption="Camera height";
+                if(i==10)dynamic_caption=cones>=3?"Finish zone":"Finish zone (3+ cones)";
+                if(i==11)dynamic_caption="Close";
+                if(i==14)dynamic_caption="Snap angle "+std::to_string(static_cast<int>(v.snap_degrees))+" deg";
+                if(i==15)dynamic_caption="Hold: clear all";
+            }
             plain_label(c,label,dynamic_caption);
             auto& line=h.placement_lines[line_index];
             if(!line.handle || created) {
@@ -900,7 +1138,7 @@ void mode_hud(const Context& c) {
         if(h.exit_visible) {
             mount_hud(c,{},asset(c,"UI/ReSkate/Throwdowns/ConfirmationPanel_Widget"),h.exit_panel_anchor,h.exit_panel_item,mode_hud_id+44,true);
             if(!h.exit_text.handle){h.exit_text=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");label_styles(c,h.exit_text,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");}
-            plain_label(c,h.exit_text,"LEAVE THE EDITOR?\nYour course is saved.");
+            plain_label(c,h.exit_text,cone_editor?"STOP PLACING CONES?":"LEAVE THE EDITOR?\nYour course is saved.");
             c.set_if_changed(c.field(h.exit_text,0xc13ba637),true);
             std::vector<Widget> modal{{label_widget,{0,h.exit_text.handle}}};
             for(unsigned i=0;i<2;++i) {
@@ -925,6 +1163,17 @@ void mode_hud(const Context& c) {
                 }
             }
         }
+        if(cone_editor) { // a title over the cone set's rows, in skate.'s accent: "TRICK ZONE - 4 CONES"
+            if(!h.placement_title.handle) {
+                h.placement_title=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
+                label_styles(c,h.placement_title,"TextStylesList/H52-XBold-Title_Bright","TextStylesList/H52-XBold-Title_Bright");
+                c.set_if_changed(c.field(h.placement_title,0xc13ba637),false);c.set_if_changed(c.field(h.placement_title,0xfc53d427),false);
+                c.set_if_changed(c.field(h.placement_title,0x87ad624c),2);c.set_if_changed(c.field(h.placement_title,0x3d8639d0),0);
+            }
+            const auto cones=v.settings.corners.size();
+            plain_label(c,h.placement_title,cones?std::format("TRICK ZONE  -  {} CONE{}",cones,cones==1?"":"S"):std::string("TRICK ZONE"));
+            lines.insert(lines.begin(),Widget{asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget"),{0,h.placement_title.handle}});
+        }
         if(created || !hud_list_has_items(c,h.placement_list,static_cast<unsigned>(lines.size())))
             hud_list(c,h.placement_list,lines,false,56.f,6.f,0.f,820.f);
         mount_hud(c,h.placement_list,list_widget,h.placement_anchor,h.placement_item,mode_hud_id+7,false);
@@ -944,7 +1193,7 @@ void mode_hud(const Context& c) {
     if(h.theme_mode!=static_cast<unsigned>(v.settings.mode) || !hud_list_has_items(c,h.score,2)) {
         h.theme_mode=static_cast<unsigned>(v.settings.mode);h.race_layout=race;
         hud_list(c,h.score,{{mode_hud_art(c,v.settings.mode,"Score"),{0,h.target.handle}},
-            {mode_hud_art(c,v.settings.mode,"Score"),{0,h.current.handle}}},false,72.f,8.f,0.f,480.f);
+            {mode_hud_art(c,v.settings.mode,"Score"),{0,h.current.handle}}},false,72.f,8.f,0.f,mode_score_width(v));
     }
     if(!h.badge.handle)h.badge=make(c,texture_schema);
     h.header.title=h.title;h.header.badge=h.badge;
@@ -966,11 +1215,39 @@ void mode_hud(const Context& c) {
     }
     const auto state=v.state;std::int32_t best{},mine{};
     if(state)for(const auto& standing:state->standings) {best=std::max(best,standing.score);if(standing.player==v.local)mine=standing.score;}
+    if(v.settings.mode==modes::Mode::skate) { // R.E.S.K.A.T.E.: the trick up, and the local player's letters
+        // Wide enough for "COPY", the stick picture and a long trick name ("Switch 360 Inward Heelflip FS 180").
+        for(const auto value:{h.target,h.current}) {
+            c.set_if_changed(c.field(value,0x13be0d51),std::array<float,2>{mode_score_width(v),72.f});
+            match_panel_notice_width(c,value,mode_score_width(v)-24.f);
+        }
+        int letters{};
+        if(state)for(const auto& standing:state->standings)if(standing.player==v.local)letters=std::max(0,standing.aux);
+        const auto spelled=modes::skate_letters(static_cast<unsigned>(letters),v.settings.strikes);
+        // Whose turn it is (the header is hidden), and the trick with its stick picture first, so a
+        // long name can never push it out of the box.
+        const bool my_turn=!state || !state->turn || state->turn==v.local;
+        std::string up="SOMEONE";
+        if(state)for(const auto& [id,name]:v.names)if(id==state->turn)up=name;
+        std::transform(up.begin(),up.end(),up.begin(),[](unsigned char ch){return static_cast<char>(std::toupper(ch));});
+        const auto kinds=v.settings.trick_kinds;
+        const std::string only=kinds==modes::trick_flips?"  -  FLIPS ONLY":kinds==modes::trick_grinds?"  -  GRINDS ONLY":
+            kinds==modes::trick_grabs?"  -  GRABS ONLY":"";
+        const bool copying=state && !state->trick.empty();
+        // What the player just did, while it is fresh ("LANDED: Heelflip 180"), else whose turn it is.
+        std::string caption=copying?(my_turn?"COPY THIS":up+" IS COPYING"):my_turn?"SET A TRICK"+only:up+" IS SETTING"+only;
+        if(my_turn && (feed.line.starts_with("Landed") || feed.line.starts_with("Missed")))caption=feed.line;
+        else if(my_turn && !feed.warning.empty())caption=feed.warning; // out of the trick zone
+        std::transform(caption.begin(),caption.end(),caption.begin(),[](unsigned char ch){return static_cast<char>(std::toupper(ch));});
+        mode_letters_hud(c,feed,caption,copying?state->trick:std::string(),copying?feed.trick_steps:std::string());
+        plain_label(c,c.field(h.current,0x94703efc),"LETTERS   "+(spelled.empty()?std::string("-"):spelled));
+    } else {
     plain_label(c,c.field(h.target,0x94703efc),"LEADER   "+std::to_string(best));
     plain_label(c,c.field(h.current,0x94703efc),"SCORE   "+std::to_string(mine));
+    }
     if(!race) {
         mount_hud(c,h.score,list_widget,h.score_anchor,h.score_item,mode_hud_id+59,false);
-        c.set_if_changed(c.field(h.score_anchor,0x1cff7243),std::array<float,2>{480.f,152.f});
+        c.set_if_changed(c.field(h.score_anchor,0x1cff7243),std::array<float,2>{mode_score_width(v),152.f});
         for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
             const bool y=axis==0x185a5736U;
             for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.score_anchor,{axis,key}),y?native_hud_screen_anchor(native_hud_side_center):native_hud_screen_anchor(.994f));
@@ -992,7 +1269,9 @@ void mode_hud(const Context& c) {
     }
     c.set_if_changed(c.field(h.clock,0x703c4d93),false);c.set_if_changed(c.field(h.clock,0x167131bb),true);c.set_if_changed(c.field(h.clock,0x6186003c),true);c.set_if_changed(c.field(h.clock,0xc11082ee),true);
     h.clock_visible=!race && !feed.clock.empty();
-    native_timer_seconds(c,h.clock,0x4cc5ec89,race?modes::race_warning_ms:static_cast<std::uint64_t>(v.settings.duration_s)*1000);
+    // Turn-based R.E.S.K.A.T.E.: the clock is the turn's.
+    native_timer_seconds(c,h.clock,0x4cc5ec89,race?modes::race_warning_ms:static_cast<std::uint64_t>(
+        v.settings.mode==modes::Mode::skate?v.settings.turn_s:v.settings.duration_s)*1000);
     auto remaining=state?state->remaining_ms:0;
     if(race && state && state->phase==modes::Phase::playing) {
         const auto me=std::find_if(state->standings.begin(),state->standings.end(),[&](const auto& row){return row.player==v.local;});

@@ -72,11 +72,24 @@ struct Settings {
 // R.E.S.K.A.T.E.: the setter lands a trick, everyone else copies it or takes a letter; a setter who misses
 // hands the set on. The tricks are skate.'s own names, as its score HUD lists them ("Kickflip",
 // "Heelflip + Seatbelt", "BS 50-50 Grind"); a trick set once cannot be set again. The leader picks the
-// kinds that may be set; a trick is of every kind any of its parts is.
+// kinds that may be set; a trick is of every kind any of its parts is, and may be set when any of them is allowed.
 inline constexpr std::uint8_t trick_flips = 1, trick_grabs = 2, trick_grinds = 4, trick_manuals = 8, all_trick_kinds = 0x0f;
 inline constexpr std::size_t max_trick_length = 80;
 std::uint8_t trick_kinds_of(std::string_view trick) noexcept;
 bool trick_allowed(const Settings &, std::string_view trick) noexcept;
+// How to do a trick, as skate.'s Skatepedia card shows it: its input steps in the game's own markup
+// ("[img {0}]FLICKIT_Kickflip_RS[/img]", the flick-it stick picture) for a regular or goofy stance.
+// Empty when the Skatepedia has no entry for it.
+std::string trick_steps(std::string_view trick, bool goofy);
+// The trick as it is set: its parts without a plain ollie popped into the part that counts.
+std::string set_trick_name(std::string_view trick);
+// An attempt copies the set trick when it has the same parts in the same order (case aside); a plain
+// ollie into it does not matter, anything more or less does.
+bool copies_trick(std::string_view attempt, std::string_view set) noexcept;
+// R.E.S.K.A.T.E.: ReSkate's own letters game (Mode::skate), refereed here and not by skate.'s
+// S.K.A.T.E. throwdown. One letter per miss; spelling the whole word puts a player out.
+inline constexpr std::string_view reskate_word = "RESKATE";
+inline constexpr std::uint8_t max_strikes = static_cast<std::uint8_t>(reskate_word.size());
 // "R.E.S" for three letters of R.E.S.K.A.T.E.; the letters spell as many as `strikes` allows.
 std::string skate_letters(unsigned letters, unsigned of);
 // What is missing before `mode start` (empty: ready).

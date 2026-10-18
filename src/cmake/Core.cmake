@@ -37,7 +37,7 @@ target_include_directories(dingosdk_json SYSTEM PRIVATE External)
 
 
 if(WIN32)
-    if(DINGOSDK_LEAN_PLAYTEST)
+    if(DINGOSDK_LEAN_PLAYTEST AND NOT DINGOSDK_LEAN_LOGGING)
         add_library(dingosdk_logging STATIC Engine/Core/Log/disabled.cpp)
     else()
         add_library(dingosdk_logging STATIC
@@ -46,6 +46,9 @@ if(WIN32)
         Engine/Core/Log/events.cpp
         Engine/Core/Log/paths.cpp
         Engine/Core/Log/crash.cpp)
+        if(DINGOSDK_LEAN_PLAYTEST)
+            target_sources(dingosdk_logging PRIVATE Engine/Core/Log/lean_backtrace_disabled.cpp)
+        endif()
     endif()
     target_link_libraries(dingosdk_logging PUBLIC dingosdk_console_core PRIVATE shell32 ole32)
     target_include_directories(dingosdk_logging SYSTEM PRIVATE External/spdlog/include External)

@@ -4,6 +4,9 @@
 #include "Extension/Assets/live_mods.h"
 #include "Extension/Assets/map_download.h"
 #include "Extension/Assets/map_icons.h"
+#include "Extension/Music/spotify_station.h"
+#include "Extension/Multiplayer/Hud/game_ui_state.h"
+#include "Extension/Music/music_inject.h"
 #include "Extension/World/texture_handle_limit.h"
 #include "Engine/Core/Log/logging.h"
 #include "Engine/Core/Profiling/profiler.h"
@@ -14,6 +17,7 @@
 #include "Extension/HallOfMeat/hall_of_meat.h"
 #include "Extension/RoadRash/road_rash.h"
 #include "Extension/BoardBreak/board_break.h"
+#include "Extension/Skater/grind_exit_control.h"
 #include "Extension/Skater/camera_observer.h"
 #include "Extension/UI/NativeMenu/native_menu.h"
 #include "Extension/Multiplayer/Hud/native_party.h"
@@ -831,6 +835,7 @@ void update_model(std::uintptr_t client, TickState& frame) {
     dingosdk::hall_of_meat::on_client_tick();
     dingosdk::road_rash::on_client_tick(client);
     dingosdk::board_break::on_client_tick(client);
+    dingosdk::grind_exit_control::on_client_tick(client);
     if (!has_request && now < r.next_model && state == r.previous_state) return;
     r.next_model = now + 500;
     DINGO_PROFILE_ZONE("tick/update_model/world model (500 ms)");
@@ -973,6 +978,8 @@ void update_model(std::uintptr_t client, TickState& frame) {
     const auto breakable_deck = dingosdk::board_break::deck();
     model.board_break = {dingosdk::board_break::available(), dingosdk::board_break::enabled(), !breakable_deck.empty(),
                          dingosdk::board_break::deck_label(breakable_deck)};
+    model.grind_exit = {dingosdk::grind_exit_control::available(), dingosdk::grind_exit_control::enabled(),
+                        dingosdk::grind_exit_control::toe_heel(), dingosdk::grind_exit_control::stance()};
     model.bindings = dingosdk::local_profile_controller_bindings();
     model.parks = dingosdk::local_profile_parks();
     model.world = dingosdk::local_profile_world_layers();
@@ -1239,6 +1246,21 @@ void tick(std::uintptr_t client, std::uintptr_t update) {
             dingosdk::map_download::tick();
             dingosdk::map_icons::tick();
     dingosdk::texture_handle_limit::tick();
+    // (Whether a menu of the game's is up, the music screen among them: a playlist changed then
+    // is the player's own choice, and one changed in play is a speaker's music being grabbed.)
+    {
+        const bool menu = dingosdk::multiplayer::sample_game_ui_state(r.base).in_menu;
+        static bool was{};
+        if (menu != was) {
+            was = menu;
+            try {
+                dingosdk::logging::log(dingosdk::logging::Level::debug, dingosdk::logging::Channel::music, "Trace: a menu of the game's is {}.", menu ? "up" : "no longer up");
+            } catch (...) {}
+        }
+        dingosdk::spotify_station::set_music_screen(menu);
+    }
+    dingosdk::spotify_station::tick();
+    dingosdk::music_inject::tick();
         }
         dingosdk::multiplayer::refresh_identity_lists();
         // How much memory the game holds, beside what a session adds to it: said when it has

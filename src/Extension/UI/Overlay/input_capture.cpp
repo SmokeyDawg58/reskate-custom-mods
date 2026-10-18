@@ -294,6 +294,27 @@ std::string xinput_entry_owners() {
     return text.empty() ? "none" : text;
 }
 
+std::atomic<dingosdk::overlay::GamepadFilter>& gamepad_filter() {
+    static std::atomic<dingosdk::overlay::GamepadFilter> value{};
+    return value;
+}
+// The game's own read only: not ReSkate's (overlay_input_access) and not an inner layer of a
+// read already being answered (Steam's hook going on to XInput runs inside OverlayInputAccess).
+void filter_pad(bool outer, DWORD user, XINPUT_STATE* output) noexcept {
+    if (!outer || !output) return;
+    const auto filter = gamepad_filter().load(std::memory_order_acquire);
+    if (!filter) return;
+    auto& g = output->Gamepad;
+    dingosdk::overlay::GamepadValues pad{g.wButtons, g.bLeftTrigger, g.bRightTrigger, g.sThumbLX, g.sThumbLY, g.sThumbRX, g.sThumbRY};
+    filter(static_cast<unsigned>(user), pad);
+    g.wButtons = pad.buttons;
+    g.bLeftTrigger = pad.left_trigger;
+    g.bRightTrigger = pad.right_trigger;
+    g.sThumbLX = pad.left_x;
+    g.sThumbLY = pad.left_y;
+    g.sThumbRX = pad.right_x;
+    g.sThumbRY = pad.right_y;
+}
 // Another program's hook on XInput that was put in front of the capture's own after it was
 // installed (Steam's overlay does, for Steam Input, and answers the game with its own pad
 // without going on to XInput): the capture then never sees the game's reads, and a menu that
@@ -303,6 +324,7 @@ template<std::size_t I>
 DWORD WINAPI captured_front(DWORD user, XINPUT_STATE* output) {
     const bool capture = block_polled_input();
     const bool menu=suppress_challenge_menu();
+    const bool outer = overlay_input_access == 0;
     note_prompt_read(prompt_xinput);
     DWORD result;
     { // It may go on to XInput's own entry point, which is hooked as well.
@@ -312,9 +334,12 @@ DWORD WINAPI captured_front(DWORD user, XINPUT_STATE* output) {
     if (result == ERROR_SUCCESS && output && capture) {
         output->Gamepad = {};
         output->dwPacketNumber ^= 0x80000000u;
-    } else if(result==ERROR_SUCCESS && output && menu) {
-        output->Gamepad.wButtons=game::owned_menu_buttons(output->Gamepad.wButtons,true);
-        output->dwPacketNumber ^= 0x40000000u;
+    } else if (result == ERROR_SUCCESS) {
+        filter_pad(outer, user, output);
+        if (output && menu) {
+            output->Gamepad.wButtons=game::owned_menu_buttons(output->Gamepad.wButtons,true);
+            output->dwPacketNumber ^= 0x40000000u;
+        }
     }
     return result;
 }
@@ -616,6 +641,7 @@ template<std::size_t I, bool Extended = false>
 DWORD WINAPI captured_xinput(DWORD user, XINPUT_STATE* output) {
     const auto& hook = Extended ? input_hooks().xinput_extended[I] : input_hooks().xinput_state[I];
     const bool capture = block_polled_input();
+    const bool outer = overlay_input_access == 0;
     note_prompt_read(prompt_xinput);
     const auto hidden = overlay_input_access ? std::uint16_t{} : static_cast<std::uint16_t>(
         mode_hidden_buttons.load(std::memory_order_relaxed) |
@@ -630,9 +656,12 @@ DWORD WINAPI captured_xinput(DWORD user, XINPUT_STATE* output) {
         // The game must notice a neutral state even if the physical packet did
         // not change between opening the menu and its next controller poll.
         output->dwPacketNumber ^= 0x80000000u;
-    } else if (result == ERROR_SUCCESS && output && hidden) {
-        output->Gamepad.wButtons &= static_cast<WORD>(~hidden);
-        output->dwPacketNumber ^= 0x40000000u;
+    } else if (result == ERROR_SUCCESS) {
+        filter_pad(outer, user, output);
+        if (output && hidden) { // a game mode's placement keeps these buttons for itself
+            output->Gamepad.wButtons &= static_cast<WORD>(~hidden);
+            output->dwPacketNumber ^= 0x40000000u;
+        }
     }
     return result;
 }
@@ -955,4 +984,8 @@ void pause_game_input(bool paused) noexcept {
 }
 bool key_down(int virtual_key) noexcept { detail::OverlayInputAccess access; return (GetAsyncKeyState(virtual_key) & 0x8000) != 0; }
 int take_mouse_wheel() noexcept { return detail::mode_mouse_wheel.exchange(0, std::memory_order_relaxed); }
+}
+
+extern "C" void DingoSDKOverlaySetGamepadFilter(dingosdk::overlay::GamepadFilter filter) {
+    dingosdk::overlay::detail::gamepad_filter().store(filter, std::memory_order_release);
 }
