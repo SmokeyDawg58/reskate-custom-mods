@@ -8,6 +8,8 @@ if(-not $manifest.files.PSObject.Properties['ReSkate.dll'] -or -not $manifest.fi
 $issues=New-Object 'System.Collections.Generic.List[string]'
 $checks=@()
 $assetPrefix='Mods/SmokeyDawg58-ReSkate_Throwdown_Assets/'
+$assetChecks=if($manifest.native_asset_files){$manifest.native_asset_files}else{$manifest.files}
+foreach($nativeFile in $manifest.native_assets.integrity_files){if(-not $assetChecks.PSObject.Properties[$nativeFile]){throw 'Missing native asset checksum.'}}
 $mods=Join-Path $data 'Mods'
 $assetDirectory=Join-Path $mods 'SmokeyDawg58-ReSkate_Throwdown_Assets'
 # Match the runtime: prefer the canonical installation, otherwise accept a
@@ -20,7 +22,7 @@ if(-not (Test-Path -LiteralPath $assetDirectory) -and (Test-Path -LiteralPath $m
         $valid=$true
         foreach($relative in $manifest.native_assets.integrity_files) {
             if(-not $relative.StartsWith($assetPrefix) -or $relative.Contains(':') -or @($relative -split '[\\/]' | Where-Object {$_ -eq '..' -or $_ -eq '.'}).Count) {throw 'Invalid native asset path.'}
-            $entry=$manifest.files.PSObject.Properties[$relative]
+            $entry=$assetChecks.PSObject.Properties[$relative]
             if(-not $entry){throw 'Missing native asset checksum.'}
             $path=Join-Path $candidate.FullName $relative.Substring($assetPrefix.Length).Replace('/',[IO.Path]::DirectorySeparatorChar)
             if(-not (Test-Path -LiteralPath $path -PathType Leaf) -or (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $entry.Value.sha256) {$valid=$false;break}
@@ -28,7 +30,9 @@ if(-not (Test-Path -LiteralPath $assetDirectory) -and (Test-Path -LiteralPath $m
         if($valid){$assetDirectory=$candidate.FullName;break}
     }
 }
-foreach($group in @($manifest.files,$manifest.supported_game)) {
+$groups=@($manifest.files,$manifest.supported_game)
+if($manifest.native_asset_files){$groups+=@($manifest.native_asset_files)}
+foreach($group in $groups) {
     foreach($entry in $group.PSObject.Properties) {
         $relative=$entry.Name
         # Mod managers may rewrite descriptive metadata. Native data and the

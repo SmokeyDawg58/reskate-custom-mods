@@ -1,5 +1,7 @@
 #include "Engine/Core/Log/logging.h"
 #include "Engine/Core/Profiling/profiler.h"
+#include "Engine/Core/Debug/crash_report.h"
+#include "Engine/Core/Debug/trace.h"
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -24,6 +26,15 @@ int main(int argc,char** argv) {
         dingosdk::profiler::set_hud(true);dingosdk::profiler::set_window(true);
         std::string error;
         if(dingosdk::profiler::active() || dingosdk::profiler::start_sampling({},error))throw std::runtime_error("No profiling workers in the playtest build.");
+        SetEnvironmentVariableW(L"RESKATE_TRACING",L"1");
+        SetEnvironmentVariableW(L"RESKATE_CRASH_REPORTING",L"1");
+        if(dingosdk::crash_report::start(directory)!=dingosdk::crash_report::StartResult::disabled ||
+           dingosdk::trace::start() || dingosdk::trace::active())
+            throw std::runtime_error("Lean 2.1.0 must not enable crash uploads or tracing from environment settings.");
+        dingosdk::trace::record("test","test",std::chrono::milliseconds(1));
+        dingosdk::trace::flush(std::chrono::milliseconds(1));
+        dingosdk::crash_report::stop();
+        if(std::filesystem::exists(directory))throw std::runtime_error("Disabled 2.1.0 reporting created output.");
         dingosdk::logging::shutdown();
         std::cout<<"Diagnostics stay disabled even when trace, console and profiling are requested.\n";
         return 0;

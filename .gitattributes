@@ -1,6 +1,5 @@
 * text eol=lf
 mods.patch -text
-
+src/** -text
 *.png -text
 *.wav -text
-src/assets/throwdowns/** -text

@@ -7,6 +7,7 @@
 #include "Extension/UI/NativeMenu/native_menu_data.h"
 #include "Extension/UI/NativeMenu/one_up_menu.h"
 #include "Extension/UI/NativeMenu/native_hud_selection.h"
+#include "grouped_number.h"
 #include "throwdown_lab.h"
 #include "throwdown_relay.h"
 #include "virtual_player_names.h"
@@ -989,10 +990,36 @@ void apply_throwdown_strings(Address base) noexcept {
         }
     } catch (...) {}
 }
+// ParseInt, reading a grouped number whole (grouped_number.h). Any script may call it.
+int (*parse_int_original)(const char* const*){};
+int parse_int_hook(const char* const* text) {
+    const auto parsed = throwdowns_text::parse_grouped_int(text ? *text : nullptr);
+    if (parsed.grouped) {
+        static std::atomic<unsigned> logged{};
+        if (logged.fetch_add(1, std::memory_order_relaxed) < 12) {
+            std::string shown(*text, strnlen(*text, 32));
+            for (auto& ch : shown) if (static_cast<unsigned char>(ch) < 0x20) ch = ' ';
+            logging::log(logging::Level::info, logging::Channel::progression,
+                "Scripts: \"{}\" read as {} (the game's own ParseInt stops at the first separator).", shown, parsed.value);
+        }
+    }
+    return parsed.value;
+}
+void install_parse_int(Address base) noexcept {
+    try {
+        if (read<std::array<unsigned char, 10>>(base + throwdowns::parse_int) != throwdowns::parse_int_prefix)
+            throw std::runtime_error("ParseInt fingerprint differs; grouped scores are read as the game reads them");
+        auto* const target = reinterpret_cast<void*>(base + throwdowns::parse_int);
+        if (hook_prepare(target, reinterpret_cast<void*>(&parse_int_hook), reinterpret_cast<void**>(&parse_int_original)) != HookOk ||
+            hook_enable(target) != HookOk)
+            throw std::runtime_error("Cannot replace ParseInt; grouped scores are read as the game reads them");
+    } catch (const std::exception& e) { logging::write(logging::Level::warning, logging::Channel::progression, e.what()); }
+}
 void initialize_native_throwdowns(Address base) noexcept {
     auto& s = state();
     if (s.attempted || !base) return;
     s.attempted = true; s.base = base;
+    install_parse_int(base);
     struct Hook { Address rva; std::array<unsigned char, 19> prefix; void* replacement; void** original; };
     const std::array hooks{
         Hook{throwdowns::player_in_activity,throwdowns::player_in_activity_prefix,reinterpret_cast<void*>(&player_in_activity_hook),reinterpret_cast<void**>(&s.player_in_activity)},

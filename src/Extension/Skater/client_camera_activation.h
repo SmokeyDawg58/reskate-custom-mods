@@ -7,7 +7,7 @@ namespace dingosdk::client_source::detail {
 // view still selects it. A late flag-picker camera reset can preserve every
 // object identity while handing the local view back to mode zero.
 inline bool verified_free_camera_view(const InteractiveDebug& debug, const SourceCameraSnapshot& camera) {
-    return debug.camera_owned && !debug.camera_ambiguous && !debug.first_person &&
+    return debug.camera_owned && !debug.camera_ambiguous && !debug.first_person && !debug.drone_follow &&
         camera.identity == debug.camera_identity && camera.mode == 1 &&
         camera.active == camera.identity.camera && camera.input_active && camera.view_enabled;
 }

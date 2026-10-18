@@ -1,5 +1,17 @@
+diff --git a/.gitignore b/.gitignore
+index 70500ef..5d22ac0 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -33,3 +33,7 @@ analysis/raw/**/*.res
+ # Drone model sources (assets/models/fpv/CREDITS.md): large; only the prepared drone.glb is kept.
+ /assets/models/fpv/dji_avata2.glb
+ /assets/models/fpv/fpv_drone.glb
++
++# External Throwdown payload and local Rust build output are packaged separately.
++/assets/one_up/native_assets.bin
++/SpotifyHelper/target/
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 4d820c3..333aba0 100644
+index f4cf838..e8e259c 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -26,6 +26,18 @@ if(WIN32)
@@ -23,7 +35,7 @@ index 4d820c3..333aba0 100644
  if(DINGOSDK_BUILD_PARK_EDITOR_TESTS)
 @@ -46,6 +58,9 @@ if(DINGOSDK_BUILD_PARK_EDITOR_TESTS AND WIN32)
      add_executable(dingosdk_park_editor_transaction_tests Extension/Objects/ParkEditor/Test/park_editor_transaction_tests.cpp)
-     target_link_libraries(dingosdk_park_editor_transaction_tests PRIVATE dingosdk_local_profile dingosdk_logging)
+     target_link_libraries(dingosdk_park_editor_transaction_tests PRIVATE dingosdk_local_profile dingosdk_logging dingosdk_hooks)
      add_test(NAME park_editor_transactions COMMAND dingosdk_park_editor_transaction_tests)
 +    add_executable(dingosdk_client_camera_activation_tests Extension/Skater/Test/client_camera_activation_tests.cpp)
 +    target_include_directories(dingosdk_client_camera_activation_tests PRIVATE "${PROJECT_SOURCE_DIR}")
@@ -65,10 +77,10 @@ index 4d820c3..333aba0 100644
 +        target_link_libraries(dingosdk_one_up_placement_tests PRIVATE dingosdk_logging)
 +        add_test(NAME one_up_flag_placement COMMAND dingosdk_one_up_placement_tests)
 +    endif()
-     if(WIN32)
-         add_executable(dingosdk_voice_tests Extension/Multiplayer/Test/voice_chat_tests.cpp Extension/Multiplayer/Net/protocol.cpp
-             Extension/Multiplayer/Net/delta_codec.cpp Extension/Multiplayer/Net/wire_codec.cpp)
-@@ -324,11 +369,13 @@ endif()
+     add_executable(dingosdk_map_fetch_policy_tests Extension/Multiplayer/Test/map_fetch_policy_tests.cpp)
+     target_include_directories(dingosdk_map_fetch_policy_tests PRIVATE "${PROJECT_SOURCE_DIR}")
+     add_test(NAME map_fetch_policy COMMAND dingosdk_map_fetch_policy_tests)
+@@ -392,11 +437,13 @@ endif()
  option(DINGOSDK_BUILD_HALL_OF_MEAT_TESTS "Build Hall of Meat regression tests" OFF)
  if(DINGOSDK_BUILD_HALL_OF_MEAT_TESTS)
      enable_testing()
@@ -87,8 +99,20 @@ index 4d820c3..333aba0 100644
      # skate.'s own skeleton mesh, read from the game's data and posed (with a Skate folder).
      add_executable(dingosdk_hall_of_meat_skeleton_tests Extension/HallOfMeat/Test/hall_of_meat_skeleton_tests.cpp
          Extension/HallOfMeat/hall_of_meat_skeleton.cpp)
+@@ -404,6 +451,11 @@ if(DINGOSDK_BUILD_HALL_OF_MEAT_TESTS)
+     target_link_libraries(dingosdk_hall_of_meat_skeleton_tests PRIVATE dingosdk_game_archives dingosdk_logging)
+     add_test(NAME hall_of_meat_skeleton COMMAND dingosdk_hall_of_meat_skeleton_tests "${DINGOSDK_TEST_GAME_ROOT}")
+ endif()
++# Interactive audio inspection utilities are not automated checks or player payloads.
++if(DINGOSDK_LEAN_PLAYTEST)
++    set_target_properties(dingosdk_external_player_probe dingosdk_app_audio_probe
++        PROPERTIES EXCLUDE_FROM_ALL TRUE)
++endif()
+ get_property(project_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+ foreach(target IN LISTS project_targets)
+     # (A build step, such as packing the built-in content, compiles nothing.)
 diff --git a/CMakePresets.json b/CMakePresets.json
-index 66b667f..c6787bd 100644
+index 66b667f..42ba001 100644
 --- a/CMakePresets.json
 +++ b/CMakePresets.json
 @@ -20,6 +20,19 @@
@@ -103,7 +127,7 @@ index 66b667f..c6787bd 100644
 +      "binaryDir": "${sourceDir}/build/lean-playtest-x64",
 +      "cacheVariables": {
 +        "DINGOSDK_LEAN_PLAYTEST": "ON",
-+        "DINGOSDK_VERSION": "2.0.7",
++        "DINGOSDK_VERSION": "2.1.0",
 +        "DINGOSDK_BUILD_LAUNCHER_TESTS": "ON",
 +        "DINGOSDK_BUILD_MULTIPLAYER_TESTS": "ON",
 +        "DINGOSDK_BUILD_BACKTRACE_TESTS": "OFF"
@@ -123,73 +147,42 @@ index 66b667f..c6787bd 100644
      }
    ]
  }
-diff --git a/Engine/Core/Debug/Test/backtrace_tests.cpp b/Engine/Core/Debug/Test/backtrace_tests.cpp
-index 90f7f65..39d2984 100644
---- a/Engine/Core/Debug/Test/backtrace_tests.cpp
-+++ b/Engine/Core/Debug/Test/backtrace_tests.cpp
-@@ -33,6 +33,46 @@ std::string read(const std::filesystem::path& path) {
-     std::ifstream file(path, std::ios::binary);
-     return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
- }
-+void launcher_log_retention(const std::filesystem::path& root) {
-+    const auto directory=root/L"launcher-retention";
-+    std::filesystem::create_directories(directory);
-+    const auto log=directory/L"ReSkate.log";
-+    const std::string original="first match\r\nsecond match locked\r\n";
-+    std::ofstream(log,std::ios::binary)<<original;
-+    logging::Options options;options.directory=directory;options.truncate_file=true;
-+    check(logging::initialize(options),"Restart fixture logging failed");
-+    logging::write(logging::Level::info,logging::Channel::runtime,"new launcher session");
-+    logging::shutdown();
-+    std::vector<std::filesystem::path> archives;
-+    for(const auto& entry:std::filesystem::directory_iterator(directory))
-+        if(entry.path()!=log)archives.push_back(entry.path());
-+    check(archives.size()==1 && read(archives.front())==original,
-+          "Reopening the launcher must retain the preceding locked game log exactly");
-+    const auto second=read(log);
-+    check(second.find("new launcher session")!=std::string::npos && second.find("second match locked")==std::string::npos,
-+          "New launcher output must use a separate current log after preservation");
-+    check(logging::initialize(options),"Second restart fixture logging failed");
-+    logging::write(logging::Level::info,logging::Channel::runtime,"another launcher session");
-+    logging::shutdown();
-+    unsigned copies{};bool second_saved=false;
-+    for(const auto& entry:std::filesystem::directory_iterator(directory))if(entry.path()!=log) {
-+        ++copies;second_saved|=read(entry.path())==second;
-+    }
-+    check(copies==2 && second_saved && read(archives.front())==original,
-+          "Consecutive launcher restarts cannot replace any previous archive");
-+    // Another writer can keep the original file readable only through its
-+    // own handle. Archive failure must append, never truncate that evidence.
-+    Handle blocked(CreateFileW(log.c_str(),GENERIC_READ,FILE_SHARE_WRITE,nullptr,OPEN_EXISTING,0,nullptr));
-+    check(blocked.value!=INVALID_HANDLE_VALUE,"Cannot prepare sharing-conflict fixture");
-+    const auto before_size=std::filesystem::file_size(log);
-+    check(logging::initialize(options),"Archive failure should still allow appended logging");
-+    logging::write(logging::Level::info,logging::Channel::runtime,"archive fallback append");
-+    logging::shutdown();
-+    CloseHandle(blocked.release());
-+    check(std::filesystem::file_size(log)>before_size && read(log).find("another launcher session")!=std::string::npos &&
-+          read(log).find("archive fallback append")!=std::string::npos,
-+          "An unavailable archive cannot erase the current log");
+diff --git a/Engine/Core/Debug/disabled.cpp b/Engine/Core/Debug/disabled.cpp
+new file mode 100644
+index 0000000..61d0e33
+--- /dev/null
++++ b/Engine/Core/Debug/disabled.cpp
+@@ -0,0 +1,20 @@
++#include "crash_report.h"
++#include "trace.h"
++namespace dingosdk::crash_report {
++StartResult start(const std::filesystem::path&) noexcept { return StartResult::disabled; }
++void stop() noexcept {}
++void capture(EXCEPTION_POINTERS*) noexcept {}
++void capture_game_fatal(DWORD, EXCEPTION_POINTERS*) noexcept {}
++void set_destination(std::wstring_view) noexcept {}
++void set_gpu(std::wstring_view, std::wstring_view) noexcept {}
 +}
- void endpoint_checks() {
-     Endpoint endpoint;
-     check(parse_endpoint(L"https://submit.backtrace.io/team/token/minidump", endpoint), "Hosted endpoint rejected");
-@@ -264,6 +304,7 @@ int wmain(int argc, wchar_t** argv) {
-         SetEnvironmentVariableW(L"RESKATE_BACKTRACE_URL", L"http://invalid/post");
-         check(start(root) == StartResult::failed, "Invalid endpoint enabled reporter");
-         endpoint_checks();
-+        launcher_log_retention(root);
-         attachment_checks(root);
-         queue_checks(root);
-         crash_check(root / L"direct", false);
++namespace dingosdk::trace {
++bool start() noexcept { return false; }
++bool active() noexcept { return false; }
++void record(std::string_view, std::string_view, std::chrono::milliseconds, bool, Tags, Measurements) noexcept {}
++void frame(std::uint64_t) noexcept {}
++FramePacing take_frame_pacing() noexcept { return {}; }
++void flush(std::chrono::milliseconds) noexcept {}
++std::string envelope(const Transaction&) { return {}; }
++std::wstring envelope_url(std::wstring_view) { return {}; }
++}
 diff --git a/Engine/Core/Log/Test/disabled_diagnostics_tests.cpp b/Engine/Core/Log/Test/disabled_diagnostics_tests.cpp
 new file mode 100644
-index 0000000..5ebb4b3
+index 0000000..a1ffde7
 --- /dev/null
 +++ b/Engine/Core/Log/Test/disabled_diagnostics_tests.cpp
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,42 @@
 +#include "Engine/Core/Log/logging.h"
 +#include "Engine/Core/Profiling/profiler.h"
++#include "Engine/Core/Debug/crash_report.h"
++#include "Engine/Core/Debug/trace.h"
 +#include <filesystem>
 +#include <iostream>
 +#include <stdexcept>
@@ -214,6 +207,15 @@ index 0000000..5ebb4b3
 +        dingosdk::profiler::set_hud(true);dingosdk::profiler::set_window(true);
 +        std::string error;
 +        if(dingosdk::profiler::active() || dingosdk::profiler::start_sampling({},error))throw std::runtime_error("No profiling workers in the playtest build.");
++        SetEnvironmentVariableW(L"RESKATE_TRACING",L"1");
++        SetEnvironmentVariableW(L"RESKATE_CRASH_REPORTING",L"1");
++        if(dingosdk::crash_report::start(directory)!=dingosdk::crash_report::StartResult::disabled ||
++           dingosdk::trace::start() || dingosdk::trace::active())
++            throw std::runtime_error("Lean 2.1.0 must not enable crash uploads or tracing from environment settings.");
++        dingosdk::trace::record("test","test",std::chrono::milliseconds(1));
++        dingosdk::trace::flush(std::chrono::milliseconds(1));
++        dingosdk::crash_report::stop();
++        if(std::filesystem::exists(directory))throw std::runtime_error("Disabled 2.1.0 reporting created output.");
 +        dingosdk::logging::shutdown();
 +        std::cout<<"Diagnostics stay disabled even when trace, console and profiling are requested.\n";
 +        return 0;
@@ -252,10 +254,10 @@ index 0000000..2f34a13
 +std::uint64_t latest_sequence() noexcept { return 0; }
 +}
 diff --git a/Engine/Core/Log/logger.cpp b/Engine/Core/Log/logger.cpp
-index ec8fceb..358c6ee 100644
+index 4744f1c..da51584 100644
 --- a/Engine/Core/Log/logger.cpp
 +++ b/Engine/Core/Log/logger.cpp
-@@ -31,10 +31,26 @@ public:
+@@ -32,10 +32,26 @@ public:
      SharedFile(const std::filesystem::path& path, bool truncate) {
          constexpr DWORD sharing = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
          if (truncate) {
@@ -309,10 +311,10 @@ index 06de3df..a1bcfd9 100644
  void log(Level level, Channel channel, std::format_string<Args...> format, Args&&... args) noexcept {
 diff --git a/Engine/Core/Profiling/disabled.cpp b/Engine/Core/Profiling/disabled.cpp
 new file mode 100644
-index 0000000..93d73eb
+index 0000000..fb8763f
 --- /dev/null
 +++ b/Engine/Core/Profiling/disabled.cpp
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,26 @@
 +#include "profiler.h"
 +
 +namespace dingosdk::profiler {
@@ -321,6 +323,12 @@ index 0000000..93d73eb
 +void record_client_update(std::uint64_t) noexcept {}
 +void record_client_frame(std::uint64_t) noexcept {}
 +void record_present() noexcept {}
++void keep_zones(bool) noexcept {}
++std::uint64_t last_client_own_ns() noexcept { return 0; }
++std::uint64_t presents() noexcept { return 0; }
++void mark_zones(ZoneMark& mark) noexcept { mark = {}; }
++std::vector<ZoneTime> zones_since(const ZoneMark&, std::size_t) noexcept { return {}; }
++
 +std::size_t history(Series, std::span<float>) noexcept { return 0; }
 +void set_hud(bool) noexcept {}
 +bool hud() noexcept { return false; }
@@ -334,7 +342,7 @@ index 0000000..93d73eb
 +void set_engine_labels(std::span<const Label>) noexcept {}
 +}
 diff --git a/Engine/Core/Profiling/profiler.h b/Engine/Core/Profiling/profiler.h
-index 029738d..907eff4 100644
+index d1e5d11..aaa682d 100644
 --- a/Engine/Core/Profiling/profiler.h
 +++ b/Engine/Core/Profiling/profiler.h
 @@ -54,10 +54,14 @@ public:
@@ -353,7 +361,7 @@ index 029738d..907eff4 100644
  // ---- frame timing ---------------------------------------------------------------------------
  // ReSkate's client tick (once per client update): its own work, timed.
 diff --git a/Engine/Game/Build/20260929/native_throwdowns.h b/Engine/Game/Build/20260929/native_throwdowns.h
-index 1745851..e61aade 100644
+index 5151b2f..84328d0 100644
 --- a/Engine/Game/Build/20260929/native_throwdowns.h
 +++ b/Engine/Game/Build/20260929/native_throwdowns.h
 @@ -4,6 +4,11 @@
@@ -570,23 +578,19 @@ index 0000000..1129482
 +}
 +}
 diff --git a/Engine/Vfs/Test/mod_merge_added_assets_tests.cpp b/Engine/Vfs/Test/mod_merge_added_assets_tests.cpp
-index 2a450d3..2092ae1 100644
+index f52c1ec..c7e89ed 100644
 --- a/Engine/Vfs/Test/mod_merge_added_assets_tests.cpp
 +++ b/Engine/Vfs/Test/mod_merge_added_assets_tests.cpp
-@@ -16,9 +16,12 @@
- #include "Engine/Resource/toc.h"
+@@ -18,6 +18,8 @@
  #include "Engine/Vfs/mod_catalog.h"
+ #include "Engine/Vfs/mod_merge_internal.h"
  #include "Engine/Vfs/native_db.h"
 +#include "Engine/Vfs/race_core_assets.h"
 +#include "Engine/Vfs/game_archives.h"
  
  #include <Windows.h>
  
-+#include <algorithm>
- #include <cstring>
- #include <filesystem>
- #include <fstream>
-@@ -157,7 +160,8 @@ fb::Sha1 sha(const std::string& name, unsigned version) {
+@@ -162,9 +164,11 @@ fb::Sha1 sha(const std::string& name, unsigned version) {
  }
  
  struct Ebx { std::string name; unsigned version; Bytes payload; };
@@ -594,9 +598,13 @@ index 2a450d3..2092ae1 100644
 +struct Resource { std::string name; Bytes payload; std::uint32_t type{0xb2c465f6}; };
 +struct Chunk { fb::Guid id; Bytes payload; };
  
- fb::BinaryBundle manifest_of(const std::vector<Ebx>& assets, const std::vector<Resource>& resources) {
+-fb::BinaryBundle manifest_of(const std::vector<Ebx>& assets, const std::vector<Resource>& resources) {
++fb::BinaryBundle manifest_of(const std::vector<Ebx>& assets, const std::vector<Resource>& resources,
++                            const std::vector<Chunk>& chunks = {}, const Bytes& metadata = {}) {
      fb::BinaryBundle manifest;
-@@ -175,7 +179,7 @@ fb::BinaryBundle manifest_of(const std::vector<Ebx>& assets, const std::vector<R
+     for (const auto& asset : assets) {
+         fb::BundleAsset entry;
+@@ -180,11 +184,21 @@ fb::BinaryBundle manifest_of(const std::vector<Ebx>& assets, const std::vector<R
          entry.name = resource.name;
          entry.sha1 = sha(resource.name, 0);
          entry.resourceId = 7;
@@ -605,17 +613,48 @@ index 2a450d3..2092ae1 100644
          entry.resourceMeta.assign(16, std::byte{0});
          entry.originalSize = resource.payload.size();
          manifest.resources.push_back(std::move(entry));
-@@ -187,7 +191,7 @@ struct Fixture {
+     }
++    for (const auto& chunk : chunks) {
++        fb::BundleAsset entry;
++        entry.kind = fb::AssetKind::chunk;
++        entry.name = chunk.id.string();
++        entry.guid = chunk.id;
++        entry.sha1 = sha(entry.name, 0);
++        entry.originalSize = chunk.payload.size();
++        manifest.chunks.push_back(std::move(entry));
++    }
++    manifest.chunkMetadata = metadata;
+     return manifest;
+ }
+ 
+@@ -192,7 +206,8 @@ struct Fixture {
      fs::path root;
      mods::Catalog catalog;
  
 -    explicit Fixture(const std::string& name) {
-+    explicit Fixture(const std::string& name,bool core = false) {
++    explicit Fixture(const std::string& name,bool core = false,
++                     const std::vector<Chunk>& stock_chunks = {},const Bytes& stock_metadata = {}) {
          wchar_t temp[MAX_PATH]{};
          GetTempPathW(MAX_PATH, temp);
          root = fs::path(temp) / ("reskate-merge-added-" + std::to_string(GetCurrentProcessId()) + "-" + name);
-@@ -214,7 +218,7 @@ struct Fixture {
+@@ -208,7 +223,7 @@ struct Fixture {
+         const auto region = [&](const std::vector<Ebx>& list) {
+             // The asset list is the region's first file, as it is in every bundle of the game:
+             // a bundle one mod alone ships then passes through as that mod built it.
+-            const auto listing = fb::write_binary_bundle(manifest_of(list, {}));
++            const auto listing = fb::write_binary_bundle(manifest_of(list, {},stock_chunks,stock_metadata));
+             std::vector<fb::BundleFileInfo> files{{{false, package, 1}, static_cast<std::uint32_t>(archive.size()),
+                                                    static_cast<std::uint32_t>(listing.size())}};
+             archive.insert(archive.end(), listing.begin(), listing.end());
+@@ -217,9 +232,14 @@ struct Fixture {
+                 files.push_back({{false, package, 1}, static_cast<std::uint32_t>(archive.size()), static_cast<std::uint32_t>(payload.size())});
+                 archive.insert(archive.end(), payload.begin(), payload.end());
              }
++            for (const auto& chunk : stock_chunks) {
++                const auto payload=encoded(chunk.payload);
++                files.push_back({{false,package,1},static_cast<std::uint32_t>(archive.size()),static_cast<std::uint32_t>(payload.size())});
++                archive.insert(archive.end(),payload.begin(),payload.end());
++            }
              return fb::write_bundle_region(files);
          };
 -        const std::vector<fb::TocBundle> bundles{{bundle_name, region(assets), 1}, {second_bundle, region(second), 1}};
@@ -623,19 +662,24 @@ index 2a450d3..2092ae1 100644
          write(catalog.data_root / "Data" / "layout.toc", layout_toc());
          write(catalog.data_root / "Data" / "Win32" / "test_shared.toc", fb::write_patch_toc(bundles));
          write(catalog.data_root / "Data" / "Win32" / "pkg" / "cas_01.cas", archive);
-@@ -226,7 +230,8 @@ struct Fixture {
+@@ -231,8 +251,10 @@ struct Fixture {
  
      // A mod with its own copy of a bundle: the manifest first (raw), then every payload.
      void add(const std::string& name, bool levels, const std::string& toc, const std::vector<std::string>& superbundles,
 -             const std::vector<Ebx>& assets, const std::vector<Resource>& resources = {}, const char* bundle = bundle_name) {
+-        const auto listing = fb::write_binary_bundle(manifest_of(assets, resources));
 +             const std::vector<Ebx>& assets, const std::vector<Resource>& resources = {}, const char* bundle = bundle_name,
-+             const std::vector<Chunk>& chunks = {}) {
-         const auto listing = fb::write_binary_bundle(manifest_of(assets, resources));
++             const std::vector<Chunk>& chunks = {}, const std::vector<Chunk>& bundle_chunks = {},
++             const Bytes& metadata = {}) {
++        const auto listing = fb::write_binary_bundle(manifest_of(assets, resources, bundle_chunks, metadata));
          Bytes archive(listing);
          std::vector<fb::BundleFileInfo> files{{{true, package, 1}, 0, static_cast<std::uint32_t>(listing.size())}};
-@@ -238,9 +243,16 @@ struct Fixture {
+         const auto store = [&](const Bytes& payload) {
+@@ -242,10 +264,18 @@ struct Fixture {
+         };
          for (const auto& asset : assets) store(asset.payload);
          for (const auto& resource : resources) store(resource.payload);
++        for (const auto& chunk : bundle_chunks) store(chunk.payload);
          const std::vector<fb::TocBundle> bundles{{bundle, fb::write_bundle_region(files), 1}};
 +        std::vector<fb::TocChunk> toc_chunks;
 +        for (const auto& chunk : chunks) {
@@ -651,7 +695,7 @@ index 2a450d3..2092ae1 100644
          write(directory / "Win32" / "pkg" / "cas_01.cas", archive);
          mods::Mod mod;
          mod.name = name;
-@@ -424,6 +436,41 @@ void carried_into_another_bundle_with_the_list(bool music_first) {
+@@ -452,6 +482,41 @@ void carried_into_another_bundle_with_the_list(bool music_first) {
             std::to_string(built) + " built)");
  }
  
@@ -693,7 +737,7 @@ index 2a450d3..2092ae1 100644
  // A mod replaced while the game runs (a map at another version): the merge reads its new files
  // where it puts them now, not where the old ones lay.
  void replaced_while_the_game_runs() {
-@@ -453,9 +500,72 @@ void replaced_while_the_game_runs() {
+@@ -481,6 +546,148 @@ void replaced_while_the_game_runs() {
      report = mods::merge_mods(fixture.catalog, {}, {.live = true});
      expect(report.built && report.issue.empty() && !noted("placed again"), "replaced: placed again without a change\n" + describe(report));
  }
@@ -722,17 +766,17 @@ index 2a450d3..2092ae1 100644
 +    const auto add_badges = [&] {
 +        fixture.add("badges", false, shared_toc, {}, assets, resources, bundle_name, chunks);
 +    };
-+    constexpr char second_map_toc[] = "levels/test/map2.toc";
++    constexpr char texture_second_map_toc[] = "levels/test/map2.toc";
 +    const auto add_maps = [&] {
 +        fixture.add("map", true, map_toc, {map_superbundle}, game_copy());
-+        fixture.add("map2", true, second_map_toc, {"Win32/levels/test/map2"}, game_copy());
++        fixture.add("map2", true, texture_second_map_toc, {"Win32/levels/test/map2"}, game_copy());
 +    };
 +    if (map_first) { add_maps(); add_badges(); } else { add_badges(); add_maps(); }
 +    const auto verify = [&](const char* phase) {
 +        const auto output = fixture.catalog.root / mods::generated_folder;
 +        auto layout = vfs::read_layout(output / "layout.toc");
 +        vfs::GameArchives archives(output, layout.root);
-+        for (const auto* relative : {map_toc, second_map_toc}) {
++        for (const auto* relative : {map_toc, texture_second_map_toc}) {
 +            const std::string context = std::string(phase) + ": " + relative;
 +            const auto toc = fb::read_toc(read(output / "Win32" / relative));
 +            fb::verify_toc(toc);
@@ -758,25 +802,131 @@ index 2a450d3..2092ae1 100644
 +    expect(report.built && report.issue.empty(), "badge texture: live merge builds\n" + describe(report));
 +    verify("live merge");
 +}
++// Captured map freeze: the Chevron RES reached the map's replacement core,
++// but its 848-byte bundled geometry chunk did not. Use the captured nonuniform
++// ID and its native little-endian RES layout, and retain the source metadata.
++void mesh_bundle_chunks_survive_map_changes(bool map_first,bool with_stock = false) {
++    auto assets = game_copy();
++    assets.front() = {"test/playlist", 1, ebx_document(guid(1), {guid(80)})};
++    assets.push_back({"test/arrow", 0, ebx_document(guid(80), {guid(81)})});
++    assets.push_back({"test/arrow_mesh", 0, ebx_document(guid(81), {})});
++    fb::Guid wanted;
++    const unsigned char id[]{0x66,0x78,0xc6,0x53,0x92,0x65,0x74,0x92,0x10,0x5c,0xeb,0x83,0x5e,0x72,0xf8,0xc9};
++    std::memcpy(wanted.bytes.data(), id, sizeof(id));
++    Bytes header(0x144);
++    auto little = wanted;
++    std::reverse(little.bytes.begin(), little.bytes.begin() + 4);
++    std::reverse(little.bytes.begin() + 4, little.bytes.begin() + 6);
++    std::reverse(little.bytes.begin() + 6, little.bytes.begin() + 8);
++    expect(wanted.string()=="53c67866-6592-9274-105c-eb835e72f8c9","captured Chevron chunk identity");
++    put_guid(header, map_first ? wanted : little);
++    const Bytes geometry(848, std::byte{0x5a});
++    const auto record = [](unsigned hash) {
++        db::Node row; row.type = 2; row.terminated = true;
++        db::Node h; h.type = 8; h.named = true; h.name = "h32";
++        h.owned = {static_cast<unsigned char>(hash),0,0,0}; row.children.push_back(h);
++        return row;
++    };
++    const auto metadata_bytes = [&](const std::vector<db::Node>& records) {
++        db::Node list;list.type=1;list.terminated=true;list.children=records;
++        const auto bytes=db::write(list);
++        return Bytes(reinterpret_cast<const std::byte*>(bytes.data()),reinterpret_cast<const std::byte*>(bytes.data()+bytes.size()));
++    };
++    // The stock manifest order differs from its GUID-ordered metadata. A map
++    // preserves those rows and appends its own; it must not become the baseline.
++    const std::vector<Chunk> stock=with_stock?std::vector<Chunk>{{guid(0x50),Bytes{std::byte{5}}},
++        {guid(0x30),Bytes{std::byte{3}}}}:std::vector<Chunk>{};
++    const std::vector<db::Node> stock_rows=with_stock?std::vector<db::Node>{record(31),record(51)}:std::vector<db::Node>{};
++    auto source_rows=stock_rows;source_rows.insert(source_rows.end(),{record(17),record(23)});
++    auto source_chunks=stock;source_chunks.insert(source_chunks.end(),{{wanted,geometry},{guid(91),Bytes{std::byte{0x99}}}});
++    Fixture fixture(std::string(map_first?"mesh-map-first":"mesh-assets-first")+(with_stock?"-stock":""),false,
++                    stock,with_stock?metadata_bytes(stock_rows):Bytes{});
++    const auto add_assets = [&] {
++        fixture.add("arrows", false, shared_toc, {}, assets, {{"test/arrow_mesh",header,0x49b156d4}},
++                    bundle_name, {}, source_chunks, metadata_bytes(source_rows));
++    };
++    const auto add_maps = [&] {
++        fixture.add("map", true, map_toc, {map_superbundle}, game_copy(),{},bundle_name,{},stock,
++                    with_stock?metadata_bytes(stock_rows):Bytes{});
++        fixture.add("map2", true, "levels/test/map2.toc", {"Win32/levels/test/map2"}, game_copy(),{},bundle_name,{},stock,
++                    with_stock?metadata_bytes(stock_rows):Bytes{});
++    };
++    if (map_first) { add_maps(); add_assets(); } else { add_assets(); add_maps(); }
++    const auto verify = [&](const char* phase) {
++        const auto output = fixture.catalog.root / mods::generated_folder;
++        auto layout = vfs::read_layout(output/"layout.toc");
++        vfs::GameArchives archives(output,layout.root);
++        for (const auto* relative : {map_toc,"levels/test/map2.toc"}) {
++            const std::string context = std::string(phase)+": "+relative;
++            const auto toc = fb::read_toc(read(output/"Win32"/relative));
++            const auto region = fb::read_bundle_region(toc.bundles.front().region);
++            const auto& first = region.files.front();
++            const auto manifest = archives.read_manifest(output,first.location,first.offset,first.size,fixture.catalog.data_root);
++            const auto found = std::ranges::find_if(manifest.chunks,[&](const auto& c){return c.guid==wanted;});
++            expect(found!=manifest.chunks.end(),context+": Chevron geometry accompanies mesh RES");
++            expect(manifest.chunks.size()==stock.size()+1,context+": unrelated bundled geometry stays out");
++            if (found!=manifest.chunks.end()) {
++                const auto index=static_cast<std::size_t>(found-manifest.chunks.begin());
++                const auto& file=region.files.at(1+manifest.ebx.size()+manifest.resources.size()+index);
++                expect(fb::decode_cas(archives.read(output,file.location,file.offset,file.size))==geometry,
++                       context+": geometry bytes survive archive relocation");
++                auto expected=stock_rows;expected.push_back(record(17));
++                expect(manifest.chunkMetadata==metadata_bytes(expected),context+": exact stock and dependency records retained");
++            }
++        }
++    };
++    auto report=mods::merge_mods(fixture.catalog);
++    expect(report.built && report.issue.empty(),"mesh chunk initial merge builds\n"+describe(report));
++    verify("initial merge");
++    fixture.add("tweak",false,shared_toc,{},game_copy());
++    report=mods::merge_mods(fixture.catalog,{}, {.live=true});
++    expect(report.built && report.issue.empty(),"mesh chunk live merge builds\n"+describe(report));
++    verify("live merge");
++}
+ // The merged patch, read the way the merge reads it.
+ struct Patch {
+     explicit Patch(const Fixture& fixture)
+@@ -655,6 +862,12 @@ void two_merges_write_the_same_bytes() {
  } // namespace
  
  int main() try {
++    mesh_bundle_chunks_survive_map_changes(true);
++    mesh_bundle_chunks_survive_map_changes(false);
++    mesh_bundle_chunks_survive_map_changes(true,true);
++    mesh_bundle_chunks_survive_map_changes(false,true);
 +    texture_resource_pixels_survive_map_changes(true);
 +    texture_resource_pixels_survive_map_changes(false);
      replaced_while_the_game_runs();
      const auto baseline = map_only();
      expect(baseline > 0, "map only: the map's copy exists (" + std::to_string(baseline) + ")");
-@@ -467,6 +577,10 @@ int main() try {
-     two_music_mods_both_carried_into_maps_copy(baseline);
+@@ -667,6 +880,10 @@ int main() try {
+     copies_equal_to_the_games_are_not_edits();
      carried_into_another_bundle_with_the_list(true);
      carried_into_another_bundle_with_the_list(false);
 +    deathrace_runtime_roots_survive_core_replacement(true,true,true);
 +    deathrace_runtime_roots_survive_core_replacement(false,true,true);
 +    deathrace_runtime_roots_survive_core_replacement(true,false,true);
 +    deathrace_runtime_roots_survive_core_replacement(true,true,false);
-     if (failures) {
-         std::cerr << failures << " failure(s)\n";
-         return 1;
+     carried_payload_written_once();
+     every_placement_lands_in_an_archive();
+     a_mod_archive_numbered_like_a_placeholder();
+diff --git a/Engine/Vfs/Test/mod_merge_audit_tests.cpp b/Engine/Vfs/Test/mod_merge_audit_tests.cpp
+index 321ba3e..d8aefe6 100644
+--- a/Engine/Vfs/Test/mod_merge_audit_tests.cpp
++++ b/Engine/Vfs/Test/mod_merge_audit_tests.cpp
+@@ -1053,6 +1053,12 @@ int main(int argc, char** argv) try {
+     audit.root = argv[1];
+     if (!audit.merge()) return audit.summary();
+     audit.load();
++    if (argc>2 && std::string_view(argv[2])=="--chunk-metadata-only") {
++        audit.mods_against_patch();
++        if (audit.chunkBundles.empty()) throw std::runtime_error("No chunk-bearing bundles were selected for the metadata audit");
++        audit.chunk_metadata();
++        return audit.summary();
++    }
+     audit.placements();
+     audit.payloads(argc > 2 ? fs::path(argv[2]) : fs::path{});
+     audit.mods_against_patch();
 diff --git a/Engine/Vfs/Test/native_asset_package_tests.cpp b/Engine/Vfs/Test/native_asset_package_tests.cpp
 new file mode 100644
 index 0000000..b2b0e5a
@@ -885,11 +1035,11 @@ index 0000000..b2b0e5a
 +    } catch(const std::exception& error) {std::cerr<<error.what()<<'\n';return 1;}
 +}
 diff --git a/Engine/Vfs/mod_catalog.cpp b/Engine/Vfs/mod_catalog.cpp
-index d0cd48d..b3a3194 100644
+index 313b107..bdbf623 100644
 --- a/Engine/Vfs/mod_catalog.cpp
 +++ b/Engine/Vfs/mod_catalog.cpp
-@@ -1,6 +1,10 @@
- #include "mod_catalog.h"
+@@ -3,6 +3,10 @@
+ #include "builtin_packs.h"
  
  #include "mod_merge.h"
 +#include "one_up_core_assets.h"
@@ -898,9 +1048,9 @@ index d0cd48d..b3a3194 100644
 +#endif
  #include "native_db.h"
  #include "Engine/Core/Json/json.h"
- 
-@@ -293,6 +297,16 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
-     auto list = scan_mods(data_root);
+ #include "Engine/Game/Build/supported_build.h"
+@@ -326,6 +330,16 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
+     for (auto& note : builtin_notes) list.notes.push_back(std::move(note));
      result.root = std::move(list.root);
      result.present = list.present;
 +    try {
@@ -916,7 +1066,7 @@ index d0cd48d..b3a3194 100644
      if (!result.present) return result;
      for (auto& note : list.notes) result.notes.push_back(std::move(note));
      if (!list.issue.empty()) {
-@@ -366,6 +380,11 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
+@@ -412,6 +426,11 @@ Catalog load_catalog(const std::filesystem::path& data_root, const MergeObserver
              }
          }
          for (auto& entry : list.entries) {
@@ -928,8 +1078,166 @@ index d0cd48d..b3a3194 100644
              if (!entry.enabled) {
                  if (std::find(result.set_aside.begin(), result.set_aside.end(), entry.mod.name) == result.set_aside.end()) {
                      result.notes.push_back("Mod disabled in mods.json: " + entry.mod.name);
+diff --git a/Engine/Vfs/mod_merge_combine.cpp b/Engine/Vfs/mod_merge_combine.cpp
+index 34a4032..567e164 100644
+--- a/Engine/Vfs/mod_merge_combine.cpp
++++ b/Engine/Vfs/mod_merge_combine.cpp
+@@ -42,6 +42,7 @@ struct Asset {
+     // For a chunk: where its record is in the chunk metadata of the copy this version
+     // of it came in, and where the game's copy lists the chunk (merge_chunk_metadata).
+     ChunkRecord record;
++    const AssetAddition* carried_from{};
+ };
+ 
+ // Where one contributor's copy of an asset lives, so conflicting copies can be
+@@ -237,6 +238,11 @@ std::vector<std::byte> merge_chunk_metadata(std::span<const std::vector<std::byt
+     for (std::size_t index = 0; whole && index < chunks.size(); ++index)
+         whole = chunks[index].copy == first && chunks[index].index == index &&
+                 (!shippedList || chunks[index].shipped == index);
++    // A carried dependency can be only the first chunk of a larger source
++    // bundle. Matching its indices does not mean that source's whole list fits.
++    if (whole && !shippedList)
++        whole = native_db::read(unsigned_bytes(lists[first]), "chunk metadata", nullptr,
++            {.unique_fields=false,.max_entries=lists[first].size()}).children.size()==chunks.size();
+     if (whole) return lists[first];
+ 
+     std::vector<std::optional<native_db::Node>> read(lists.size());
+@@ -370,12 +376,17 @@ fb::TocDocument combine(const fs::path& baseToc, const fs::path& baseRoot,
+     std::multimap<fb::Guid, std::pair<const std::string*, const AssetAddition*>> addedByGuid;
+     // The resource a mod added to a bundle under a name, by bundle, mod and name.
+     std::map<std::tuple<std::string, std::string, std::string>, const AssetAddition*> companions;
++    std::map<const AssetAddition*,const std::string*> additionBundles;
++    std::map<std::tuple<std::string,std::string,fb::Guid>,const AssetAddition*> bundleChunks;
+     for (const auto& [bundleName, list] : overrides.added)
+         for (const auto& addition : list) {
++            additionBundles.emplace(&addition,&bundleName);
+             if (addition.asset.kind == fb::AssetKind::ebx)
+                 addedByGuid.emplace(addition.file, std::pair{&bundleName, &addition});
+             else if (addition.asset.kind == fb::AssetKind::resource)
+                 companions.emplace(std::tuple{bundleName, addition.mod, lower(addition.asset.name)}, &addition);
++            else if (addition.asset.kind == fb::AssetKind::chunk)
++                bundleChunks.emplace(std::tuple{bundleName,addition.mod,addition.asset.guid},&addition);
+         }
+     // The carried place each addition got in this superbundle, by install chunk.
+     std::map<std::pair<std::uint32_t, const AssetAddition*>, fb::BundleFileInfo> carriedAt;
+@@ -647,10 +658,20 @@ fb::TocDocument combine(const fs::path& baseToc, const fs::path& baseRoot,
+                         take.push_back(companion->second);
+                 }
+             }
++            // Expand only the selected EBX/RES dependencies, including imports
++            // carried from another source bundle. Unrelated geometry stays out.
++            for (std::size_t index=0;index<take.size();++index) {
++                const auto* asset=take[index];
++                const auto* from=additionBundles.at(asset);
++                for (const auto& id:asset->chunk_names)
++                    if (const auto found=bundleChunks.find({*from,asset->mod,id});found!=bundleChunks.end() &&
++                        taking.insert(found->second).second) take.push_back(found->second);
++            }
+             if (!take.empty()) {
+                 std::set<std::string, std::less<>> present;
+                 for (const auto& asset : casManifest.ebx) present.insert(asset_key(asset));
+                 for (const auto& asset : casManifest.resources) present.insert(asset_key(asset));
++                for (const auto& asset : casManifest.chunks) present.insert(asset_key(asset));
+                 const auto installChunk = region.files.front().location.installChunk;
+                 for (const auto* addition : take) {
+                     if (!present.insert(asset_key(addition->asset)).second) continue;
+@@ -660,6 +681,7 @@ fb::TocDocument combine(const fs::path& baseToc, const fs::path& baseRoot,
+                             placed = carriedAt.emplace(std::pair{installChunk, addition},
+                                 store.carry(installChunk, manifestArchive, addition->encoded)).first;
+                         additions.push_back({addition->asset, placed->second});
++                        additions.back().carried_from=addition;
+                         addedFrom.insert(addition->mod);
+                     } catch (const std::exception& error) {
+                         report.notes.push_back(modName + ": " + bundle.name + ": " + addition->asset.name +
+@@ -694,14 +716,54 @@ fb::TocDocument combine(const fs::path& baseToc, const fs::path& baseRoot,
+         // Added EBX go after this copy's own EBX and added resources after its own
+         // resources, ahead of its chunks; after the indexed moves above so their
+         // positions still hold.
++        // A map's replacement bundle can retain the game's GUID-ordered rows
++        // and append its own rows. Use the actual game's baseline to interpret
++        // those records; the map's whole table is not a new stock baseline.
++        const auto defaults=overrides.bundle_chunk_defaults.find(key);
++        const bool hasDefaults=defaults!=overrides.bundle_chunk_defaults.end();
++        std::vector<std::vector<std::byte>> chunkLists;
++        if (hasDefaults) chunkLists.push_back(defaults->second.metadata);
++        const auto ownList=chunkLists.size();
++        chunkLists.push_back(casManifest.chunkMetadata);
++        std::vector<ChunkRecord> chunkRecords;
++        std::vector<fb::Guid> originalChunks;
++        if (hasDefaults) originalChunks=defaults->second.chunks;
++        std::map<fb::Guid,std::size_t> stockChunks;
++        for (std::size_t index=0;index<originalChunks.size();++index) stockChunks.emplace(originalChunks[index],index);
++        for (std::size_t index=0;index<casManifest.chunks.size();++index) {
++            const auto id=casManifest.chunks[index].guid;
++            const auto shipped=stockChunks.find(id);
++            chunkRecords.push_back({id,chunkLists[ownList].empty()?ChunkRecord::none:ownList,index,
++                shipped==stockChunks.end()?ChunkRecord::none:shipped->second});
++        }
++        bool chunksAdded{};
+         for (auto& addition : additions) {
+-            const auto ebx = addition.asset.kind == fb::AssetKind::ebx;
+-            const auto at = static_cast<std::ptrdiff_t>(1 + casManifest.ebx.size() + (ebx ? 0 : casManifest.resources.size()));
+-            (ebx ? casManifest.ebx : casManifest.resources).push_back(std::move(addition.asset));
+-            region.files.insert(region.files.begin() + at, addition.file);
+-            inPatch.insert(inPatch.begin() + at, true);
++            auto at=1+casManifest.ebx.size();
++            if (addition.asset.kind==fb::AssetKind::ebx) casManifest.ebx.push_back(std::move(addition.asset));
++            else if (addition.asset.kind==fb::AssetKind::resource) {
++                at+=casManifest.resources.size();casManifest.resources.push_back(std::move(addition.asset));
++            } else {
++                at+=casManifest.resources.size()+casManifest.chunks.size();
++                const auto* source=addition.carried_from;
++                if (!source) throw std::runtime_error("Carried bundle chunk has no source record");
++                auto copy=ChunkRecord::none;
++                if (source->chunk_metadata && !source->chunk_metadata->empty()) {
++                    auto found=std::find(chunkLists.begin(),chunkLists.end(),*source->chunk_metadata);
++                    if (found==chunkLists.end()) found=chunkLists.insert(chunkLists.end(),*source->chunk_metadata);
++                    copy=static_cast<std::size_t>(found-chunkLists.begin());
++                }
++                const auto shipped=stockChunks.find(addition.asset.guid);
++                chunkRecords.push_back({addition.asset.guid,copy,source->chunk_index,
++                    shipped==stockChunks.end()?ChunkRecord::none:shipped->second});
++                casManifest.chunks.push_back(std::move(addition.asset));
++                chunksAdded=true;
++            }
++            region.files.insert(region.files.begin() + static_cast<std::ptrdiff_t>(at), addition.file);
++            inPatch.insert(inPatch.begin() + static_cast<std::ptrdiff_t>(at), true);
+             used.emplace(addition.file.location.installChunk, addition.file.location.archive);
+         }
++        if (chunksAdded) casManifest.chunkMetadata=merge_chunk_metadata(chunkLists,chunkRecords,
++            hasDefaults?0:ChunkRecord::none,originalChunks);
+         const auto fresh = !states.contains(key);
+         if (fresh) { order.push_back(bundle.name); states.emplace(key, BundleState{}); }
+         auto& state = states.at(key);
+diff --git a/Engine/Vfs/mod_merge_internal.h b/Engine/Vfs/mod_merge_internal.h
+index 0b1344b..51147f4 100644
+--- a/Engine/Vfs/mod_merge_internal.h
++++ b/Engine/Vfs/mod_merge_internal.h
+@@ -10,6 +10,7 @@
+ #include <cstdint>
+ #include <filesystem>
+ #include <map>
++#include <memory>
+ #include <optional>
+ #include <set>
+ #include <span>
+@@ -273,8 +274,14 @@ struct AssetAddition {
+     // guids of the documents it refers to in turn (a song names its wave).
+     fb::Guid file;
+     std::vector<fb::Guid> names;
++    // Bundled mesh/texture data follows the EBX/RES that references it.
++    std::vector<fb::Guid> chunk_names;
++    std::shared_ptr<const std::vector<std::byte>> chunk_metadata;
++    std::size_t chunk_index{};
+ };
+ struct AssetOverrides {
++    struct ChunkDefaults { std::vector<std::byte> metadata; std::vector<fb::Guid> chunks; };
++    std::map<std::string,ChunkDefaults,std::less<>> bundle_chunk_defaults;
+     // By lower-case asset name, then the game's sha1 the change replaces.
+     std::map<std::string, std::map<fb::Sha1, AssetOverride>, std::less<>> changed;
+     // Separate from EBX: a script's EBX wrapper can have the same asset name.
 diff --git a/Engine/Vfs/mod_merge_overrides.cpp b/Engine/Vfs/mod_merge_overrides.cpp
-index 295576a..a38be8a 100644
+index ec5412f..d764272 100644
 --- a/Engine/Vfs/mod_merge_overrides.cpp
 +++ b/Engine/Vfs/mod_merge_overrides.cpp
 @@ -1,4 +1,5 @@
@@ -938,7 +1246,61 @@ index 295576a..a38be8a 100644
  #include "Engine/Resource/cas_codec.h"
  #include "Engine/Resource/ebx_document.h"
  #include "Engine/Resource/ebx_merge.h"
-@@ -210,6 +211,11 @@ ModRead read_mod(const Mod& mod, const RelativeFiles& files, const CasStore& sto
+@@ -86,6 +87,9 @@ struct ModRead {
+     // own, it could arrive in another mod's bundle without the resources
+     // and chunks it was added with.
+     std::vector<std::pair<std::string, AssetAddition>> candidates, companions;
++    struct BundleChunk { std::string bundle; AssetAddition addition; fb::BundleFileInfo file; };
++    std::vector<BundleChunk> bundleChunks;
++    std::map<std::string,AssetOverrides::ChunkDefaults,std::less<>> chunkDefaults;
+     std::vector<bool> unreadable;                                    // per candidate: never follows
+     std::map<std::string, std::set<fb::Guid>, std::less<>> addedIn;  // the documents it added to each bundle, by guid
+     std::vector<fb::TocChunk> newChunks;   // TOC chunks the game's TOCs do not have
+@@ -99,7 +103,7 @@ struct ModRead {
+ ModRead read_mod(const Mod& mod, const RelativeFiles& files, const CasStore& store, const fs::path& baseRoot,
+                  const fs::path& gameRoot, Shared<GameToc>& gameTocs, Shared<GameBundle>& gameBundles) {
+     ModRead read;
+-    auto& [candidates, companions, unreadable, addedIn, newChunks, imported, changes, scripts, notes, failure] = read;
++    auto& [candidates, companions, bundleChunks, chunkDefaults, unreadable, addedIn, newChunks, imported, changes, scripts, notes, failure] = read;
+     const auto decoded = [&](std::span<const std::byte> encoded) {
+         return fb::ebx::read_document(fb::decode_cas(encoded, {gameRoot}));
+     };
+@@ -137,6 +141,12 @@ ModRead read_mod(const Mod& mod, const RelativeFiles& files, const CasStore& sto
+                     }
+                 });
+                 if (!modListing || !known.listing) continue;
++                if (!known.listing->manifest.chunkMetadata.empty() && !chunkDefaults.contains(bundleName)) {
++                    AssetOverrides::ChunkDefaults defaults;
++                    defaults.metadata=known.listing->manifest.chunkMetadata;
++                    for (const auto& entry:known.listing->manifest.chunks) defaults.chunks.push_back(entry.guid);
++                    chunkDefaults.emplace(bundleName,std::move(defaults));
++                }
+                 const auto& gameListing = known.listing;
+                 const auto& original = known.original;
+                 for (std::size_t index = 0; index < modListing->manifest.ebx.size(); ++index) {
+@@ -201,6 +211,21 @@ ModRead read_mod(const Mod& mod, const RelativeFiles& files, const CasStore& sto
+                         scripts.push_back({name, originalScript->second->sha1, std::nullopt, notes.size() - 1});
+                     }
+                 }
++                // Keep chunk locations, not their potentially large payloads. Only
++                // data named by a retained mesh/texture is read and carried later.
++                const auto& chunks = modListing->manifest.chunks;
++                const auto chunkMetadata = chunks.empty() ? nullptr :
++                    std::make_shared<const std::vector<std::byte>>(modListing->manifest.chunkMetadata);
++                for (std::size_t index = 0; index < chunks.size(); ++index) {
++                    const auto at = modListing->first + modListing->manifest.ebx.size() +
++                        modListing->manifest.resources.size() + index;
++                    if (at >= modListing->files.size()) continue;
++                    AssetAddition addition{mod.name, chunks[index], {}, tocKey};
++                    addition.asset.name = addition.asset.guid.string();
++                    addition.chunk_metadata = chunkMetadata;
++                    addition.chunk_index = index;
++                    bundleChunks.push_back({bundleName, std::move(addition), modListing->files[at]});
++                }
+                 // Resources the mod adds, kept to go with an added EBX of the same name
+                 // (a wave's sound-bank resource registers the wave with the audio system).
+                 for (std::size_t index = 0; index < modListing->manifest.resources.size(); ++index) {
+@@ -226,6 +251,11 @@ ModRead read_mod(const Mod& mod, const RelativeFiles& files, const CasStore& sto
              addition.file = document.fileGuid;
              for (const auto& reference : document.imports) addition.names.push_back(reference.fileGuid);
              addedIn[candidates[index].first].insert(addition.file);
@@ -950,7 +1312,17 @@ index 295576a..a38be8a 100644
          } catch (const std::exception&) { unreadable[index] = true; }
      }
      return read;
-@@ -333,7 +339,13 @@ AssetOverrides collect_asset_overrides(const std::vector<const Mod*>& mods,
+@@ -287,7 +317,8 @@ AssetOverrides collect_asset_overrides(const std::vector<const Mod*>& mods,
+         const auto* mod = asked[slot].first;
+         auto& read = reads[slot];
+         if (read.failure) std::rethrow_exception(read.failure);
+-        auto& [candidates, companions, unreadable, addedIn, newChunks, imported, changes, scripts, notes, failure] = read;
++        auto& [candidates, companions, bundleChunks, chunkDefaults, unreadable, addedIn, newChunks, imported, changes, scripts, notes, failure] = read;
++        for (auto& [bundle,defaults]:chunkDefaults) out.bundle_chunk_defaults.try_emplace(bundle,std::move(defaults));
+         std::size_t changed{};
+         // A higher mod's version of an asset, which this mod's change is combined with
+         // below, may name what this mod adds.
+@@ -354,7 +385,62 @@ AssetOverrides collect_asset_overrides(const std::vector<const Mod*>& mods,
              // One addition per kind and name in a bundle (keep): this mod's, or not.
              const auto& index = addedAt[bundle];
              const auto held = index.find({fb::AssetKind::ebx, lower(companion.asset.name)});
@@ -962,10 +1334,59 @@ index 295576a..a38be8a 100644
 +                })) == race_core_roots.size();
 +            if ((held != index.end() && found->second[held->second].mod == mod->name) || checkpointShader)
 +                keep(bundle, std::move(companion));
++        }
++        // A native mesh RES can refer to geometry in its bundle, rather than
++        // the superbundle TOC. Carrying only EBX/RES leaves the engine probing
++        // its chunk hash table forever on replacement-map bundles.
++        if (!bundleChunks.empty()) {
++            std::map<fb::Guid, fb::Guid> aliases;
++            std::vector<bool> starts(0x10000);
++            const auto add_alias = [&](const fb::Guid& bytes, const fb::Guid& id) {
++                aliases.emplace(bytes,id);
++                starts[std::to_integer<std::size_t>(bytes.bytes[0])*256 +
++                       std::to_integer<std::size_t>(bytes.bytes[1])] = true;
++            };
++            for (const auto& chunk : bundleChunks) {
++                const auto& id=chunk.addition.asset.guid;
++                add_alias(id,id);
++                auto swapped=id;
++                std::reverse(swapped.bytes.begin(),swapped.bytes.begin()+4);
++                std::reverse(swapped.bytes.begin()+4,swapped.bytes.begin()+6);
++                std::reverse(swapped.bytes.begin()+6,swapped.bytes.begin()+8);
++                add_alias(swapped,id);
++            }
++            std::map<std::string,std::set<fb::Guid>,std::less<>> referenced;
++            for (auto& [bundle,list] : out.added)
++                for (auto& addition : list) {
++                    if (addition.mod!=mod->name || addition.asset.kind==fb::AssetKind::chunk) continue;
++                    std::vector<std::byte> bytes;
++                    try { bytes=fb::decode_cas(addition.encoded,{gameRoot}); }
++                    catch (const std::exception&) { continue; }
++                    std::set<fb::Guid> named;
++                    for (std::size_t at=0;at+16<=bytes.size();++at) {
++                        if (!starts[std::to_integer<std::size_t>(bytes[at])*256+
++                                    std::to_integer<std::size_t>(bytes[at+1])]) continue;
++                        fb::Guid key;std::memcpy(key.bytes.data(),bytes.data()+at,16);
++                        if (const auto found=aliases.find(key);found!=aliases.end()) named.insert(found->second);
++                    }
++                    addition.chunk_names.assign(named.begin(),named.end());
++                    referenced[bundle].insert(named.begin(),named.end());
++                }
++            std::size_t carried{};
++            for (auto& chunk : bundleChunks) {
++                const auto found=referenced.find(chunk.bundle);
++                if (found==referenced.end() || !found->second.contains(chunk.addition.asset.guid)) continue;
++                const auto& file=chunk.file;
++                chunk.addition.encoded=store.read(file.location.patch?mod->directory:baseRoot,
++                    file.location,file.offset,file.size);
++                if (keep(chunk.bundle,std::move(chunk.addition))) ++carried;
++            }
++            if (carried) report.notes.push_back(mod->name+": "+std::to_string(carried)+
++                " referenced bundle chunk(s) accompany mesh/texture additions into map copies");
          }
          for (auto& change : changes) {
              // What the change names of the assets the mod added beside it. The mod
-@@ -398,13 +410,15 @@ AssetOverrides collect_asset_overrides(const std::vector<const Mod*>& mods,
+@@ -419,13 +505,15 @@ AssetOverrides collect_asset_overrides(const std::vector<const Mod*>& mods,
              report.notes.push_back(mod->name + ": " + std::to_string(clash.first) +
                  " added asset(s) share a name with ones " + other + " adds, e.g. " + clash.second +
                  "; other mods' copies of the bundle get " + other + "'s");
@@ -1274,10 +1695,10 @@ index 0000000..c982265
 +}
 +}
 diff --git a/Extension/Console/commands.cpp b/Extension/Console/commands.cpp
-index a8245e6..178d9d5 100644
+index b449231..cc386a8 100644
 --- a/Extension/Console/commands.cpp
 +++ b/Extension/Console/commands.cpp
-@@ -225,6 +225,7 @@ const Commands &game_commands() {
+@@ -228,6 +228,7 @@ const Commands &game_commands() {
          register_perf_commands(*result);
          register_item_commands(*result);
          register_trainer_commands(*result);
@@ -1286,7 +1707,7 @@ index a8245e6..178d9d5 100644
          register_road_rash_commands(*result);
          register_board_break_commands(*result);
 diff --git a/Extension/Console/commands.h b/Extension/Console/commands.h
-index 71ae717..4030b50 100644
+index 828ecd1..69ca5eb 100644
 --- a/Extension/Console/commands.h
 +++ b/Extension/Console/commands.h
 @@ -26,6 +26,7 @@ void register_perf_commands(Commands &);
@@ -1309,7 +1730,7 @@ index 0000000..736e0ba
 +void start_memory_trace_from_environment() noexcept {}
 +}
 diff --git a/Extension/Customization/local_player_card_runtime.cpp b/Extension/Customization/local_player_card_runtime.cpp
-index 85d968a..1154b30 100644
+index 56a7ac8..b501c9b 100644
 --- a/Extension/Customization/local_player_card_runtime.cpp
 +++ b/Extension/Customization/local_player_card_runtime.cpp
 @@ -6,6 +6,8 @@
@@ -1321,7 +1742,7 @@ index 85d968a..1154b30 100644
  #include "Extension/Multiplayer/Steam/steam_social.h"
  
  namespace dingosdk::profile_runtime {
-@@ -209,8 +211,8 @@ bool publish_player_card(const profile::CosmeticLoadout& value) {
+@@ -211,8 +213,8 @@ bool publish_player_card(const profile::CosmeticLoadout& value) {
          // In-throwdown / throwdown-host flags. The throwdown Quit action does
          // nothing unless the first is set; the second is only for the local
          // player's own drop (a joined one is left, not cancelled).
@@ -1333,10 +1754,10 @@ index 85d968a..1154b30 100644
          if (const auto field = n.field(model, handle, 11, UINT32_MAX, false))
              n.publish(model, field, s.base + addr::engine::bool_type, &throwdown);
 diff --git a/Extension/HallOfMeat/hall_of_meat.cpp b/Extension/HallOfMeat/hall_of_meat.cpp
-index e47e7b2..c562cf5 100644
+index 1d2a913..3fac351 100644
 --- a/Extension/HallOfMeat/hall_of_meat.cpp
 +++ b/Extension/HallOfMeat/hall_of_meat.cpp
-@@ -14,6 +14,7 @@
+@@ -15,6 +15,7 @@
  #include <cmath>
  #include <format>
  #include <string>
@@ -1344,7 +1765,7 @@ index e47e7b2..c562cf5 100644
  #include <vector>
  
  namespace dingosdk::hall_of_meat {
-@@ -23,10 +24,13 @@ constexpr std::string_view best_prefix = "HallOfMeat.Best."; // + the level, low
+@@ -24,10 +25,13 @@ constexpr std::string_view best_prefix = "HallOfMeat.Best."; // + the level, low
  
  struct State {
      std::atomic<bool> ready{}, on{}; // the switch: started, and switched on
@@ -1358,7 +1779,7 @@ index e47e7b2..c562cf5 100644
      // The current map's best Meat (known once the client tick named the map), where the last
      // finished bail that showed stands against it, and whether a new best is still to be saved.
      bool best_known{}, best_unsaved{};
-@@ -42,6 +46,8 @@ State& state() { static auto* value = new State; return *value; }
+@@ -43,6 +47,8 @@ State& state() { static auto* value = new State; return *value; }
  void finished(State& s, const Summary& ended) noexcept {
      s.summary = ended;
      s.summary_pending = true;
@@ -1367,7 +1788,7 @@ index e47e7b2..c562cf5 100644
      s.standing = ended.shown && s.best_known ? standing(s.best, ended.tally.score) : Standing{};
      if (s.standing.new_best) {
          s.best = s.standing.best;
-@@ -114,6 +120,8 @@ bool start(std::uintptr_t base) noexcept {
+@@ -115,6 +121,8 @@ bool start(std::uintptr_t base) noexcept {
      start_hud(base);
      const bool on = profile_runtime::local_preference(preference).value_or(false);
      // The overlay builds its atlas once, when its graphics start, so the images are read now.
@@ -1376,7 +1797,7 @@ index e47e7b2..c562cf5 100644
      overlay::prepare_hall_of_meat_images();
      s.on.store(on, std::memory_order_release);
      if (on) set_no_bail_step_observer(&observe_step);
-@@ -153,7 +161,7 @@ void on_client_tick() noexcept {
+@@ -157,7 +165,7 @@ void on_client_tick() noexcept {
          // The renderer's picture of the skater is only read while a bail shows.
          follow_render(card);
          // The card takes the place of skate.'s bottom left HUD while it shows: the bail is what counts.
@@ -1385,7 +1806,7 @@ index e47e7b2..c562cf5 100644
          // A break slows the game down (in single player only: hall_of_meat_slow_motion.h).
          (void)s.slow_motion.set(speed);
          if (pending && logging::enabled(logging::Level::debug)) log_bail(summary);
-@@ -179,22 +187,50 @@ void set_level(std::string_view level) noexcept {
+@@ -183,22 +191,50 @@ void set_level(std::string_view level) noexcept {
  }
  
  bool available() noexcept { return state().ready.load(std::memory_order_acquire); }
@@ -10474,10 +10895,10 @@ index 0000000..6b44976
 +StickPath trick_gesture(std::string_view trick);
 +} // namespace dingosdk::modes
 diff --git a/Extension/Multiplayer/Hud/native_party.cpp b/Extension/Multiplayer/Hud/native_party.cpp
-index 930e4fe..70816c7 100644
+index 6a175c1..fb9e73a 100644
 --- a/Extension/Multiplayer/Hud/native_party.cpp
 +++ b/Extension/Multiplayer/Hud/native_party.cpp
-@@ -484,6 +484,15 @@ std::string native_party_status() {
+@@ -512,6 +512,15 @@ std::string native_party_status() {
      auto &s = state(); std::lock_guard lock(s.status_mutex);
      return s.status + " Map party markers: " + std::to_string(s.map_count.load()) + ".";
  }
@@ -10494,10 +10915,10 @@ index 930e4fe..70816c7 100644
  bool native_party_map_markers() noexcept { return state().map_markers.load(std::memory_order_acquire); }
  bool native_party_map_icon_visible(std::size_t slot) noexcept {
 diff --git a/Extension/Multiplayer/Hud/native_party.h b/Extension/Multiplayer/Hud/native_party.h
-index 856e908..1ad9eb3 100644
+index d738b97..25edb3d 100644
 --- a/Extension/Multiplayer/Hud/native_party.h
 +++ b/Extension/Multiplayer/Hud/native_party.h
-@@ -36,6 +36,8 @@ void update_party_position(const Pose *pose) noexcept;
+@@ -40,6 +40,8 @@ void update_party_position(const Pose *pose) noexcept;
  void spectate_party_member(std::uint64_t id) noexcept;
  // Returns only a record owned by this adapter, validated against this manager.
  std::uint64_t native_party_player_info(std::uintptr_t manager, std::size_t slot) noexcept;
@@ -10507,7 +10928,7 @@ index 856e908..1ad9eb3 100644
  // Whether players can form parties: in a session, a lobby or a dedicated server. Outside one
  // the game's party buttons are refused.
 diff --git a/Extension/Multiplayer/Hud/native_party_hooks.cpp b/Extension/Multiplayer/Hud/native_party_hooks.cpp
-index f74c419..c3d8f2b 100644
+index 398724c..02a2fd8 100644
 --- a/Extension/Multiplayer/Hud/native_party_hooks.cpp
 +++ b/Extension/Multiplayer/Hud/native_party_hooks.cpp
 @@ -4,6 +4,7 @@
@@ -10517,8 +10938,8 @@ index f74c419..c3d8f2b 100644
 +#include "Extension/Throwdowns/one_up_runtime.h"
  #include "Engine/Core/Platform/memory.h"
  #include "follow_camera.h"
- #include "Engine/Game/Build/20260929/profile.h"
-@@ -542,6 +543,13 @@ std::uint32_t teleport_hook(Address reason, const void *matrix, Address destinat
+ #include "Extension/Customization/local_player_card_runtime.h"
+@@ -557,6 +558,13 @@ std::uint32_t teleport_hook(Address reason, const void *matrix, Address destinat
      // lip mount. While the local player waits for their S.K.A.T.E. turn, the turn start's
      // teleport of the local skater (id 0) lands it on foot. Kept in a static: the native
      // copies the options into its components, but must never see a dead buffer.
@@ -10533,27 +10954,27 @@ index f74c419..c3d8f2b 100644
          static thread_local std::array<std::uint8_t, 3> on_foot{};
          if (memory::peek_bytes(stance, on_foot.data(), on_foot.size()) && on_foot[0]) {
 diff --git a/Extension/Multiplayer/Remote/native_skater.cpp b/Extension/Multiplayer/Remote/native_skater.cpp
-index ff94f0f..630c3cf 100644
+index 654802d..6d95093 100644
 --- a/Extension/Multiplayer/Remote/native_skater.cpp
 +++ b/Extension/Multiplayer/Remote/native_skater.cpp
-@@ -1,6 +1,7 @@
- #include "native_skater_internal.h"
+@@ -2,6 +2,7 @@
+ #include "native_prop.h"
  #include "native_pose_layout.h"
  #include "puppet_cost.h"
 +#include "Extension/Modes/race_world.h"
  #include "Extension/Multiplayer/Session/monotonic_clock.h"
  #include "Extension/Multiplayer/Session/peer_slots.h"
  #include "Extension/BoardBreak/board_break.h"
-@@ -383,6 +384,7 @@ void animation_hook(std::uintptr_t component, std::uintptr_t update) {
+@@ -384,6 +385,7 @@ void animation_hook(std::uintptr_t component, std::uintptr_t update) {
          listener(component);
  }
  void destroy_hook(std::uintptr_t entity, std::uintptr_t owner) {
 +    modes::race_world::entity_destroyed(entity);
      // Other SDK-created actors share this hook; they must forget the entity
      // before the engine frees it.
-     if (const auto listener = shared().destroyed_listener.load(std::memory_order_acquire))
+     prop_entity_destroyed(entity);
 diff --git a/Extension/Multiplayer/Session/session.cpp b/Extension/Multiplayer/Session/session.cpp
-index 5575a05..c8f0d1d 100644
+index 8541736..762b54b 100644
 --- a/Extension/Multiplayer/Session/session.cpp
 +++ b/Extension/Multiplayer/Session/session.cpp
 @@ -1,4 +1,7 @@
@@ -10561,10 +10982,10 @@ index 5575a05..c8f0d1d 100644
 +#include "Extension/Throwdowns/one_up_runtime.h"
 +#include "Extension/Throwdowns/one_up_local_input.h"
 +#include "Extension/Throwdowns/throwdown_lab.h"
- #include "Extension/Multiplayer/Hud/native_player_ui.h"
- #include "Extension/Multiplayer/Hud/native_indicators.h"
- #include "Extension/Multiplayer/Hud/native_party.h"
-@@ -9,6 +12,7 @@
+ #include "Engine/Core/Hooks/hooks.h"
+ #include "Extension/Skater/drone_beacon.h"
+ #include "Engine/Core/Debug/trace.h"
+@@ -12,6 +15,7 @@
  #include "Extension/Multiplayer/Hud/follow_camera.h"
  #include "Extension/Throwdowns/native_throwdowns.h"
  #include "Extension/Throwdowns/throwdown_relay.h"
@@ -10572,7 +10993,7 @@ index 5575a05..c8f0d1d 100644
  #include "Extension/Progression/script_natives.h"
  #include "Extension/Multiplayer/Steam/steam_social.h"
  #include "Extension/Profile/local_profile_runtime.h"
-@@ -344,7 +348,7 @@ void publish_party(Session &s) {
+@@ -358,7 +362,7 @@ void publish_party(Session &s) {
  // every tick, with no session too, so linked drops are removed when it ends. The input
  // persists: its player list is rebuilt when the admitted players change, and names
  // (Steam lookups) are refreshed once a second.
@@ -10581,7 +11002,7 @@ index 5575a05..c8f0d1d 100644
      auto &input = s.throwdown_input;
      const bool in_session = s.mode == Mode::host || s.mode == Mode::join;
      const auto local = in_session ? s.transport.status().local_id : 0;
-@@ -392,14 +396,39 @@ void relay_throwdowns(Session &s, bool in_world) {
+@@ -406,14 +410,39 @@ void relay_throwdowns(Session &s, bool in_world) {
              d2 = (other->position[0] - me->position[0]) * (other->position[0] - me->position[0]) +
                   (other->position[1] - me->position[1]) * (other->position[1] - me->position[1]) +
                   (other->position[2] - me->position[2]) * (other->position[2] - me->position[2]);
@@ -10623,7 +11044,7 @@ index 5575a05..c8f0d1d 100644
      for (auto &text : take_throwdown_relay_notices()) add_chat(s, 0, "ReSkate", std::move(text));
  }
  // A player in the local coop celebration stands at their spot there: the whole pose moves,
-@@ -577,8 +606,9 @@ void render(Session &s, std::uintptr_t client, const NativeFrame &local, std::ui
+@@ -605,8 +634,9 @@ void render(Session &s, std::uintptr_t client, const NativeFrame &local, std::ui
              update_developer_board(s.base, remote_board_entity(), developer_id(p), remote_skater_generation(), p.developer_board,
                                     mark_styles(p));
              present_audio(p);
@@ -10635,7 +11056,7 @@ index 5575a05..c8f0d1d 100644
              return;
          }
          p.visible = false;
-@@ -603,7 +633,7 @@ void render(Session &s, std::uintptr_t client, const NativeFrame &local, std::ui
+@@ -631,7 +661,7 @@ void render(Session &s, std::uintptr_t client, const NativeFrame &local, std::ui
                      native_pass = true;
                      p.applied_cosmetics = 0; // the new actor wears no recipe yet
                  }
@@ -10644,7 +11065,7 @@ index 5575a05..c8f0d1d 100644
                  const auto spot = hidden ? std::nullopt
                                           : throwdown_relay_celebration_offset(p.member.id, p.render_pose.root.position);
                  p.visible = show_remote(s.base, client, local,
-@@ -638,9 +668,11 @@ void render(Session &s, std::uintptr_t client, const NativeFrame &local, std::ui
+@@ -666,9 +696,11 @@ void render(Session &s, std::uintptr_t client, const NativeFrame &local, std::ui
                      apply_cosmetics(p, spawning);
                      // The spectate camera follows this every frame; the map and
                      // indicators below only need network-rate updates.
@@ -10659,7 +11080,7 @@ index 5575a05..c8f0d1d 100644
                          update_player_ui(s.base, &p.render_pose, p.member.name);
                          p.ui_visible = true;
                          p.next_ui_update = now + network_tick_us;
-@@ -891,9 +923,19 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool ready, std::string_vi
+@@ -938,9 +970,19 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool ready, std::string_vi
              erase_password(s.lobby_password);
          expire_remote_collision(base, now_us());
          if (s.mode == Mode::off) {
@@ -10681,7 +11102,7 @@ index 5575a05..c8f0d1d 100644
              // Without a session the UI model follows at the same 10 Hz as in one;
              // commands still publish at once.
              if (const auto now = now_us(); now >= s.next_publish) {
-@@ -988,9 +1030,13 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool ready, std::string_vi
+@@ -1039,9 +1081,13 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool ready, std::string_vi
              networking(s, local, receive_at);
          for (const auto &note : s.transport.take_direct_notes())
              logging::log(logging::Level::info, logging::Channel::runtime, "Multiplayer: {}", note);
@@ -10698,16 +11119,16 @@ index 5575a05..c8f0d1d 100644
          const auto send_at = now_us();
          s.client_timing.record(ClientTiming::network, receive_at, send_at);
 diff --git a/Extension/Multiplayer/Session/session_commands.cpp b/Extension/Multiplayer/Session/session_commands.cpp
-index a44cd16..724516f 100644
+index cc5fc45..bab7e67 100644
 --- a/Extension/Multiplayer/Session/session_commands.cpp
 +++ b/Extension/Multiplayer/Session/session_commands.cpp
 @@ -1,4 +1,5 @@
  #include "session_internal.h"
 +#include "Extension/Throwdowns/one_up_runtime.h"
+ #include "Engine/Core/Platform/path_text.h"
  #include "Extension/Multiplayer/Steam/steam_social.h"
  #include "Extension/Multiplayer/Hud/native_indicators.h"
- #include "Extension/Multiplayer/Hud/native_player_ui.h"
-@@ -418,6 +419,10 @@ std::string edit_player_distance(Session &s, std::string_view argument) {
+@@ -430,6 +431,10 @@ std::string edit_player_distance(Session &s, std::string_view argument) {
                                                : "Players within " + std::to_string(static_cast<int>(value)) + " m are shown as skaters.";
  }
  std::string start_pose_dump(Session &s, std::string_view argument) {
@@ -10718,24 +11139,24 @@ index a44cd16..724516f 100644
      int seconds{};
      const auto parsed = std::from_chars(argument.data(), argument.data() + argument.size(), seconds);
      if (parsed.ec != std::errc{} || parsed.ptr != argument.data() + argument.size() || seconds < 1 || seconds > 600)
-@@ -434,6 +439,7 @@ std::string start_pose_dump(Session &s, std::string_view argument) {
+@@ -446,6 +451,7 @@ std::string start_pose_dump(Session &s, std::string_view argument) {
      s.pose_dump_until = now_us() + static_cast<std::uint64_t>(seconds) * 1000000;
      s.pose_dump_count = 0;
-     return "Recording your poses for " + std::to_string(seconds) + " s to " + file.string() + ". Skate as you normally would.";
+     return "Recording your poses for " + std::to_string(seconds) + " s to " + path_utf8(file) + ". Skate as you normally would.";
 +#endif
  }
  std::string edit_direct_connections(Session &s, std::string_view argument) {
      const auto enabled = parse_switch(argument, s.prefer_direct);
-@@ -615,7 +621,7 @@ bool own_mark_command(std::string_view action) {
+@@ -627,7 +633,7 @@ bool own_mark_command(std::string_view action) {
  }
  } // namespace
  bool queue_command(std::string_view action, std::string_view argument, std::string_view password) {
 -    if (launcher::offline_mode() && !own_mark_command(action)) return false;
 +    if (launcher::offline_mode() && !own_mark_command(action) && action!="oneup") return false;
-     if ((action != "host" && action != "host-config" && action != "join" && action != "rejoin" && action != "join-lobby" && action != "join-friend-lobby" && action != "stop" &&
+     if ((action != "host" && action != "host-config" && action != "join" && action != "rejoin" && action != "join-lobby" && action != "join-friend-lobby" && action != "stop" && action != "stop-map-fetch" &&
           action != "distances" && action != "object-placement" && action != "object-limit" && action != "kick" && action != "clear-objects" &&
           action != "nametags" && action != "chat-visible" && action != "chat-filter" &&
-@@ -628,7 +634,7 @@ bool queue_command(std::string_view action, std::string_view argument, std::stri
+@@ -640,7 +646,7 @@ bool queue_command(std::string_view action, std::string_view argument, std::stri
           action != "world-layer-sync" && action != "noclip-allow" && action != "nobail-allow" && action != "boosts-allow" &&
           action != "tuning-enforce" && action != "tp" &&
           action != "tpall" && action != "tphere" && action != "browse" &&
@@ -10744,7 +11165,7 @@ index a44cd16..724516f 100644
          argument.size() > (action == "host" || action == "host-config" ? 160U : action == "chat" ? 4 * multiplayer_chat_max_bytes
                             : action == "server" ? max_admin_text : 128U) ||
          password.size() > 64)
-@@ -653,7 +659,7 @@ std::vector<NextMapWanted> next_maps() {
+@@ -665,7 +671,7 @@ std::vector<NextMapWanted> next_maps() {
  }
  unsigned next_maps_serial() noexcept { return session_detail::next_maps_serial_value.load(std::memory_order_relaxed); }
  std::string command(std::string_view action, std::string_view argument, std::string_view password) {
@@ -10753,7 +11174,7 @@ index a44cd16..724516f 100644
          return "Multiplayer is unavailable in offline mode. Start Steam and relaunch ReSkate.";
      const bool configured_host = action == "host-config";
      if (configured_host) action = "host";
-@@ -718,6 +724,7 @@ std::string command(std::string_view action, std::string_view argument, std::str
+@@ -735,6 +741,7 @@ std::string command(std::string_view action, std::string_view argument, std::str
              if (!refused.empty() && (s.mode == Mode::host || s.mode == Mode::join)) add_chat(s, 0, "ReSkate", refused);
              return refused.empty() ? "Message sent." : refused;
          }
@@ -10762,10 +11183,10 @@ index a44cd16..724516f 100644
              const auto result = party_command(s, argument);
              if (!result.empty() && (s.mode == Mode::host || s.mode == Mode::join)) add_chat(s, 0, "ReSkate", result);
 diff --git a/Extension/Multiplayer/Session/session_send.cpp b/Extension/Multiplayer/Session/session_send.cpp
-index c030866..575384e 100644
+index 7674e57..29aefe6 100644
 --- a/Extension/Multiplayer/Session/session_send.cpp
 +++ b/Extension/Multiplayer/Session/session_send.cpp
-@@ -554,6 +554,11 @@ void update_physics_tuning(Session &s, const NativeFrame &local, std::uint64_t n
+@@ -576,6 +576,11 @@ void update_physics_tuning(Session &s, const NativeFrame &local, std::uint64_t n
      set_session_tuning_enforced(enforced);
      if (enforced && s.host_extras && !dedicated_host(s)) set_host_physics_extras(*s.host_extras);
      else set_host_physics_extras({});
@@ -10778,7 +11199,7 @@ index c030866..575384e 100644
          physics_tuning::release(s.base);
          if (!s.enforce_tuning) {
 diff --git a/Extension/Multiplayer/Steam/steam_social.cpp b/Extension/Multiplayer/Steam/steam_social.cpp
-index 42a6e54..3652319 100644
+index 04286dd..99d310b 100644
 --- a/Extension/Multiplayer/Steam/steam_social.cpp
 +++ b/Extension/Multiplayer/Steam/steam_social.cpp
 @@ -4,6 +4,7 @@
@@ -10825,7 +11246,7 @@ index 42a6e54..3652319 100644
  struct Api {
      HMODULE module{};
      int (*user_handle)(){};
-@@ -89,7 +119,10 @@ std::shared_ptr<const SteamSocialSnapshot> steam_social_snapshot() {
+@@ -91,7 +121,10 @@ std::shared_ptr<const SteamSocialSnapshot> steam_social_snapshot() {
          next = now + 10000;
          SteamSocialSnapshot result;
          if (launcher::offline_mode()) {
@@ -10838,7 +11259,7 @@ index 42a6e54..3652319 100644
                  result.revision = current->revision + 1;
                  current = std::make_shared<const SteamSocialSnapshot>(std::move(result));
 diff --git a/Extension/Multiplayer/Test/mesh_tests.cpp b/Extension/Multiplayer/Test/mesh_tests.cpp
-index bcd98e7..2c2ef90 100644
+index 46bd061..9793059 100644
 --- a/Extension/Multiplayer/Test/mesh_tests.cpp
 +++ b/Extension/Multiplayer/Test/mesh_tests.cpp
 @@ -11,12 +11,24 @@
@@ -10866,9 +11287,9 @@ index bcd98e7..2c2ef90 100644
  void set_lobby_park_mode(bool, bool) {}
  bool simulated_object_guest{};
  void set_lobby_object_guest(bool guest) { simulated_object_guest = guest; }
-@@ -44,8 +56,10 @@ bool clear_lobby_guest_objects() { ++simulated_guest_wipes; return true; }
- }
- namespace dingosdk {
+@@ -50,8 +62,10 @@ namespace dingosdk {
+ HookBatch::HookBatch() noexcept {}
+ HookBatch::~HookBatch() {}
  bool teleport_local_skater(const std::array<float, 3>&) { return true; }
 +bool teleport_local_skater_transform(const std::array<float,16>&) { return true; }
  ControllerBindingsModel local_profile_controller_bindings() { return {}; }
@@ -10877,7 +11298,7 @@ index bcd98e7..2c2ef90 100644
  void update_developer_hoodie(std::uintptr_t, std::uintptr_t, std::uint64_t, std::uint64_t, DeveloperHoodieState &,
                               const multiplayer::MarkStyles &) noexcept {}
  void update_developer_board(std::uintptr_t, std::uintptr_t, std::uint64_t, std::uint64_t, DeveloperBoardState &,
-@@ -309,6 +323,8 @@ void set_custom_nametags_enabled(bool) noexcept {}
+@@ -316,6 +330,8 @@ void set_custom_nametags_enabled(bool) noexcept {}
  GameUiState sample_game_ui_state(std::uintptr_t) noexcept { return {}; }
  void note_local_skater(const Transform &) noexcept {}
  void initialize_native_throwdowns(std::uintptr_t) noexcept {}
@@ -10886,7 +11307,7 @@ index bcd98e7..2c2ef90 100644
  // The relay itself needs the game; routing is checked through each node's inbox.
  std::vector<std::vector<std::uint8_t>> tick_throwdown_relay(std::uintptr_t, const ThrowdownRelayInput &) { return {}; }
  std::vector<std::string> take_throwdown_relay_notices() { return {}; }
-@@ -316,6 +332,14 @@ void receive_throwdown_relay(std::uint64_t, std::span<const std::uint8_t>) {}
+@@ -323,6 +339,14 @@ void receive_throwdown_relay(std::uint64_t, std::span<const std::uint8_t>) {}
  bool throwdown_relay_hides(std::uint64_t) noexcept { return false; }
  std::optional<std::array<float, 3>> throwdown_relay_celebration_offset(std::uint64_t, const std::array<float, 3> &) noexcept { return std::nullopt; }
  bool throwdown_relay_waits_offboard() noexcept { return false; }
@@ -10901,7 +11322,7 @@ index bcd98e7..2c2ef90 100644
  std::shared_ptr<const SteamSocialSnapshot> steam_social_snapshot() {
      static const auto snapshot = std::make_shared<SteamSocialSnapshot>();
      return snapshot;
-@@ -1912,15 +1936,17 @@ void world_layer_sync_checks() {
+@@ -1998,15 +2022,17 @@ void world_layer_sync_checks() {
      auto bytes = encode(roster());
      check(decode(bytes) && decode(bytes)->force_world_layers &&
                unpack_world_layers(decode(bytes)->layers) == host.layers, "Roster lost world layer settings");
@@ -10926,7 +11347,7 @@ index bcd98e7..2c2ef90 100644
      auto forged = roster();
      forged.source = sim.nodes[2]->transport.status().local_id; forged.epoch = sim.nodes[2]->epoch;
 diff --git a/Extension/Multiplayer/Test/protocol_tests.cpp b/Extension/Multiplayer/Test/protocol_tests.cpp
-index c260ae5..68fe4e3 100644
+index 1908a59..f1216fd 100644
 --- a/Extension/Multiplayer/Test/protocol_tests.cpp
 +++ b/Extension/Multiplayer/Test/protocol_tests.cpp
 @@ -3,6 +3,7 @@
@@ -10937,7 +11358,7 @@ index c260ae5..68fe4e3 100644
  #include "Engine/Game/World/park_randomization.h"
  #include <chrono>
  #include <cmath>
-@@ -737,6 +738,12 @@ void throwdown_codec() {
+@@ -758,6 +759,12 @@ void throwdown_codec() {
      check(decode_throwdown(encode_throwdown(beacon)) == beacon, "Beacon failed to round-trip");
      auto nowhere = beacon; nowhere.location[13] = std::numeric_limits<float>::infinity();
      check(!valid_throwdown(nowhere), "A beacon at infinity was valid");
@@ -10984,7 +11405,7 @@ index e714db8..c870d64 100644
      }
      const std::array<float, 3> origin{};
 diff --git a/Extension/Multiplayer/console_commands.cpp b/Extension/Multiplayer/console_commands.cpp
-index 851daf7..f0165d3 100644
+index 96c7e4f..2a72083 100644
 --- a/Extension/Multiplayer/console_commands.cpp
 +++ b/Extension/Multiplayer/console_commands.cpp
 @@ -5,15 +5,36 @@
@@ -11024,7 +11445,7 @@ index 851daf7..f0165d3 100644
      struct Command {
          const char *name;
          const char *description;
-@@ -219,10 +240,11 @@ void register_multiplayer_commands(Commands &registry) {
+@@ -222,10 +243,11 @@ void register_multiplayer_commands(Commands &registry) {
      auto lab_args = argument("verb_and_arguments", Type::text, true);
      lab_args.rest = true;
      lab_args.complete = [](const Model &, auto) {
@@ -11038,7 +11459,7 @@ index 851daf7..f0165d3 100644
          std::optional<std::array<float, 3>> skater;
          if (model.debug.skater_position_valid) skater = model.debug.skater_position;
 diff --git a/Extension/Objects/ParkEditor/Test/park_editor_transaction_tests.cpp b/Extension/Objects/ParkEditor/Test/park_editor_transaction_tests.cpp
-index 3fd9389..f158c30 100644
+index d09fcb9..f5a87fc 100644
 --- a/Extension/Objects/ParkEditor/Test/park_editor_transaction_tests.cpp
 +++ b/Extension/Objects/ParkEditor/Test/park_editor_transaction_tests.cpp
 @@ -26,6 +26,7 @@ std::map<std::uint64_t, profile::PlacedObject> bodies;
@@ -11049,8 +11470,8 @@ index 3fd9389..f158c30 100644
  std::uint64_t surface_entity{};
  bool surface_self_hit{};
  void *context(void *out) {
-@@ -220,7 +221,7 @@ CosmeticRuntime &cosmetic_runtime() {
-     return state;
+@@ -228,7 +229,7 @@ bool installed_item_owned(const profile::Snapshot &, std::string_view, std::uint
+     return false;
  }
  bool placement_session_ready() {
 -    return true;
@@ -11058,7 +11479,7 @@ index 3fd9389..f158c30 100644
  }
  bool placement_same_pose(const profile::PlacedObject &a, const profile::PlacedObject &b) {
      return a.item == b.item && a.position == b.position && a.rotation == b.rotation && a.scale == b.scale;
-@@ -289,6 +290,7 @@ bool queue_placement_create(const profile::PlacedObject& object, std::uint32_t i
+@@ -306,6 +307,7 @@ bool queue_placement_create(const profile::PlacedObject& object, std::uint32_t i
      return true;
  }
  void update_placement_restore() {
@@ -11066,7 +11487,7 @@ index 3fd9389..f158c30 100644
      update_park_editor();
  }
  } // namespace dingosdk::profile_runtime
-@@ -1009,6 +1011,44 @@ int main() {
+@@ -1131,6 +1133,44 @@ int main() {
              set_lobby_object_guest(false);
              require(r.restore.size() == 1, "Repeated leave duplicated personal restore requests");
          }
@@ -11112,10 +11533,10 @@ index 3fd9389..f158c30 100644
              << "Park editor native-adapter transaction, history, stale-selection and timeout tests passed.\n";
          return 0;
 diff --git a/Extension/Objects/ParkEditor/park_editor_runtime.cpp b/Extension/Objects/ParkEditor/park_editor_runtime.cpp
-index d204cc0..176cdab 100644
+index f76042b..a35986a 100644
 --- a/Extension/Objects/ParkEditor/park_editor_runtime.cpp
 +++ b/Extension/Objects/ParkEditor/park_editor_runtime.cpp
-@@ -252,6 +252,47 @@ void move_existing(std::uint64_t entity, const profile::PlacedObject &object) {
+@@ -256,6 +256,47 @@ void move_existing(std::uint64_t entity, const profile::PlacedObject &object) {
      }
      e.transform_move(query.data(), pose.data(), source);
  }
@@ -11163,7 +11584,7 @@ index d204cc0..176cdab 100644
  } // namespace
  void initialize_park_editor(const std::filesystem::path &directory) {
      auto &e = editor_state();
-@@ -283,6 +324,12 @@ void set_park_mods_root(const std::filesystem::path &data_root) {
+@@ -289,6 +330,12 @@ void set_park_mods_root(const std::filesystem::path &data_root) {
  }
  void reset_park_editor() {
      auto &e = editor_state();
@@ -11176,7 +11597,7 @@ index d204cc0..176cdab 100644
      ++e.generation;
      ++e.revision;
      e.transaction.reset();
-@@ -613,12 +660,46 @@ void update_park_editor() {
+@@ -634,12 +681,46 @@ void update_park_editor() {
  } // namespace dingosdk::profile_runtime
  namespace dingosdk {
  using namespace profile_runtime;
@@ -11224,12 +11645,12 @@ index d204cc0..176cdab 100644
      } catch (...) {
          std::lock_guard lock(local_runtime().native_mutex);
 diff --git a/Extension/Objects/ParkEditor/park_editor_runtime.h b/Extension/Objects/ParkEditor/park_editor_runtime.h
-index 4872918..e268d01 100644
+index 6facc2c..092313e 100644
 --- a/Extension/Objects/ParkEditor/park_editor_runtime.h
 +++ b/Extension/Objects/ParkEditor/park_editor_runtime.h
-@@ -25,6 +25,19 @@ bool queue_local_park_preview(const EditorPreviewRequest &);
- bool queue_local_park_selection(const EditorSelectionRequest &);
- bool queue_local_park_paste(const EditorPasteRequest &);
+@@ -32,6 +32,19 @@ bool queue_local_park_paste(const EditorPasteRequest &);
+ bool queue_local_park_object_set(const EditorObjectSetRequest &);
+ bool queue_local_park_delete(const EditorDeleteRequest &);
  void tick_local_park_editor() noexcept;
 +struct WorldRayHit {
 +    bool cast{}, hit{};
@@ -11248,10 +11669,10 @@ index 4872918..e268d01 100644
  // carries a park mod's name, author, version and description (mod-create:
  // all four; mod-details: the same after the folder in `argument`).
 diff --git a/Extension/Objects/local_placements_runtime.cpp b/Extension/Objects/local_placements_runtime.cpp
-index 9d727bc..23dee9b 100644
+index fcc0c81..ec67b9d 100644
 --- a/Extension/Objects/local_placements_runtime.cpp
 +++ b/Extension/Objects/local_placements_runtime.cpp
-@@ -591,13 +591,18 @@ void update_position_teleport() {
+@@ -630,13 +630,18 @@ void update_position_teleport() {
      if (!r.teleport || !r.transition_ctor || !r.transition_destroy || !placement_client_channel() ||
          !read(local_runtime().base + addr::local_placements::teleport_manager, manager) || !manager ||
          !read(manager, state) || state != 0) return;
@@ -11274,10 +11695,10 @@ index 9d727bc..23dee9b 100644
      dingosdk::logging::event(dingosdk::logging::Channel::objects, dingosdk::Json{{"event", "position_teleport_requested"},
          {"x", at[0]}, {"y", at[1]}, {"z", at[2]}, {"request", request}}.dump().c_str());
 diff --git a/Extension/Objects/local_placements_runtime.h b/Extension/Objects/local_placements_runtime.h
-index 5d57252..156523b 100644
+index 511d3d4..78e327a 100644
 --- a/Extension/Objects/local_placements_runtime.h
 +++ b/Extension/Objects/local_placements_runtime.h
-@@ -66,7 +66,7 @@ struct PlacementsRuntime {
+@@ -76,7 +76,7 @@ struct PlacementsRuntime {
      std::vector<PlacementRow> rows;
      std::uint64_t next_token{1}, teleport_token{}, teleport_queued_at{};
      // A teleport of the local skater to a position (console tp, the host's tpall).
@@ -11287,7 +11708,7 @@ index 5d57252..156523b 100644
      std::optional<profile::PlacedObject> inflight;
      std::uint64_t sent_at{}, next_poll{}, map_since{}, map_generation{}, next_id{1};
 diff --git a/Extension/Profile/local_profile_objects.cpp b/Extension/Profile/local_profile_objects.cpp
-index 99ce344..cf38aaf 100644
+index 64087b2..47d4932 100644
 --- a/Extension/Profile/local_profile_objects.cpp
 +++ b/Extension/Profile/local_profile_objects.cpp
 @@ -1,4 +1,5 @@
@@ -11327,7 +11748,7 @@ index 99ce344..cf38aaf 100644
      std::lock_guard lock(local_runtime().native_mutex);
      auto& r = placements_runtime();
 diff --git a/Extension/Profile/local_profile_runtime.cpp b/Extension/Profile/local_profile_runtime.cpp
-index bb5ea2b..7e2a176 100644
+index 42b8fa5..a3337bf 100644
 --- a/Extension/Profile/local_profile_runtime.cpp
 +++ b/Extension/Profile/local_profile_runtime.cpp
 @@ -6,6 +6,7 @@
@@ -11338,7 +11759,7 @@ index bb5ea2b..7e2a176 100644
  #include "Extension/Customization/item_browser.h"
  #include "Extension/Music/local_music_playback.h"
  #include "Extension/News/local_news_runtime.h"
-@@ -434,7 +435,7 @@ bool initialize_local_profile(std::uintptr_t base, bool authored_offline,
+@@ -449,7 +450,7 @@ bool initialize_local_profile(std::uintptr_t base, bool authored_offline,
              object_subscribe_contract, object_allocate_contract, object_ctor_contract,
              object_register_contract, object_parse_contract, object_release_contract,
              challenge_begin_contract, challenge_end_contract, challenge_available_contract, challenge_select_contract, challenge_lookup_contract, challenge_end_invoke_contract, challenge_error_contract, challenge_counts_contract, challenge_index_insert_contract, challenge_index_append_contract, challenge_insert_contract, challenge_dispatch_contract, challenge_request_create_contract,
@@ -11347,7 +11768,7 @@ index bb5ea2b..7e2a176 100644
              if (!matches(base, f)) return false;
          if (!neighborhood_type_contract(base) || !rip_score_type_contract(base) ||
              !challenge_map_type_contract(base)) return false;
-@@ -530,6 +531,8 @@ bool initialize_local_profile(std::uintptr_t base, bool authored_offline,
+@@ -545,6 +546,8 @@ bool initialize_local_profile(std::uintptr_t base, bool authored_offline,
          hook(news_list_contract, &news_list_hook, news_runtime().functions.list);
          hook(news_subscribe_contract, &news_subscribe_hook, news_runtime().functions.subscribe);
          hook(object_subscribe_contract, &object_categories_hook, object_runtime().functions.subscribe);
@@ -11357,10 +11778,10 @@ index bb5ea2b..7e2a176 100644
              hook(music_ui_initialize_contract, &music_ui_initialize_hook, music_ui_runtime().functions.initialize);
              if (music_ui_runtime().functions.favorite_apply)
 diff --git a/Extension/Profile/local_profile_runtime.h b/Extension/Profile/local_profile_runtime.h
-index cd24411..6ce9580 100644
+index 8811020..daa0bd2 100644
 --- a/Extension/Profile/local_profile_runtime.h
 +++ b/Extension/Profile/local_profile_runtime.h
-@@ -80,6 +80,9 @@ bool teleport_to_local_placed_object(std::string_view map, std::uint64_t token);
+@@ -85,6 +85,9 @@ bool teleport_to_local_placed_object(std::string_view map, std::uint64_t token);
  // Teleports the local skater to a world position (sent within 5 s, when the skater can be
  // moved). False when the game's teleport is unavailable.
  bool teleport_local_skater(const std::array<float, 3>& position);
@@ -11413,10 +11834,10 @@ index 8e189f4..4e63ee4 100644
      multiplayer::complete_native_throwdown_parameters(vm);
  }
 diff --git a/Extension/Settings/named_settings.cpp b/Extension/Settings/named_settings.cpp
-index 7d08c6d..256c195 100644
+index d6ed79e..81df728 100644
 --- a/Extension/Settings/named_settings.cpp
 +++ b/Extension/Settings/named_settings.cpp
-@@ -716,6 +716,7 @@ std::optional<std::string> named_setting_value(std::string_view name) {
+@@ -728,6 +728,7 @@ std::optional<std::string> named_setting_value(std::string_view name) {
      return {};
  }
  std::string player_change_named_setting(std::string_view name, std::string_view value, bool restore) {
@@ -11426,10 +11847,10 @@ index 7d08c6d..256c195 100644
          return "error: Native settings require the game update thread.";
 diff --git a/Extension/Skater/Test/client_camera_activation_tests.cpp b/Extension/Skater/Test/client_camera_activation_tests.cpp
 new file mode 100644
-index 0000000..cf40024
+index 0000000..b6349ce
 --- /dev/null
 +++ b/Extension/Skater/Test/client_camera_activation_tests.cpp
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,87 @@
 +// Run the production activation/recovery path against native-call fixtures.
 +// A flag-picker reset retains the objects but restores mode zero; the old
 +// lease-only check incorrectly treated that state as a working free camera.
@@ -11499,6 +11920,9 @@ index 0000000..cf40024
 +        camera=fixture_camera;t.debug.first_person=true;
 +        check(!verified_free_camera_view(t.debug,camera),"First person authorized freecam placement rays");
 +
++        t.debug.first_person=false;t.debug.drone_follow=true;
++        check(!verified_free_camera_view(t.debug,fixture_camera),"Drone follow authorized editor placement rays");
++        t.debug.drone_follow=false;
 +        reset();t=trial();camera=fixture_camera;fail_mode=true;
 +        rejected([&]{activate_free_camera(t,1,camera,0);},"Native mode exception escaped the ownership guard");
 +        check(t.debug.camera_ambiguous && !verified_free_camera_view(t.debug,camera),"Uncertain native call left the placement camera verified");
@@ -11516,7 +11940,7 @@ index 0000000..cf40024
 +}
 diff --git a/Extension/Skater/client_camera_activation.h b/Extension/Skater/client_camera_activation.h
 new file mode 100644
-index 0000000..ce4cf18
+index 0000000..f8be42b
 --- /dev/null
 +++ b/Extension/Skater/client_camera_activation.h
 @@ -0,0 +1,52 @@
@@ -11529,7 +11953,7 @@ index 0000000..ce4cf18
 +// view still selects it. A late flag-picker camera reset can preserve every
 +// object identity while handing the local view back to mode zero.
 +inline bool verified_free_camera_view(const InteractiveDebug& debug, const SourceCameraSnapshot& camera) {
-+    return debug.camera_owned && !debug.camera_ambiguous && !debug.first_person &&
++    return debug.camera_owned && !debug.camera_ambiguous && !debug.first_person && !debug.drone_follow &&
 +        camera.identity == debug.camera_identity && camera.mode == 1 &&
 +        camera.active == camera.identity.camera && camera.input_active && camera.view_enabled;
 +}
@@ -11573,7 +11997,7 @@ index 0000000..ce4cf18
 +}
 +}
 diff --git a/Extension/Skater/client_debug.cpp b/Extension/Skater/client_debug.cpp
-index c89f5b3..1af37f8 100644
+index 5148b50..dc6702e 100644
 --- a/Extension/Skater/client_debug.cpp
 +++ b/Extension/Skater/client_debug.cpp
 @@ -7,6 +7,7 @@
@@ -11582,9 +12006,9 @@ index c89f5b3..1af37f8 100644
  #include "free_flight.h"
 +#include "client_camera_activation.h"
  #include "Engine/Game/Skater/first_person_cycle.h"
- #include "Engine/Game/Skater/velocity_boost.h"
- #include "Extension/Multiplayer/Remote/native_skater.h"
-@@ -18,6 +19,9 @@
+ #include "drone_flight.h"
+ #include "drone_audio.h"
+@@ -22,6 +23,9 @@
  #include <utility>
  
  namespace dingosdk::client_source::detail {
@@ -11594,36 +12018,29 @@ index c89f5b3..1af37f8 100644
  double source_flight_now() {
      // GetTickCount64 advances by roughly 15.6 ms even at high frame rates.
      // Keep those coarse ticks for deadlines, never for integrating motion.
-@@ -715,36 +719,22 @@ void debug_action(SourceTrial& trial, std::uintptr_t client, bool can_control, b
+@@ -866,43 +870,28 @@ void debug_action(SourceTrial& trial, std::uintptr_t client, bool can_control, b
              debug.status = "Original camera restored.";
              return;
          }
 -        if (debug.camera_owned) {
 -            source_require(camera.identity == debug.camera_identity && camera.mode == 1,
 -                "The owned free camera changed.");
--            if (debug.first_person) {
--                // Keep the owned camera and fly on from the last head pose.
--                first_person_disarm();
--                first_person_restore_fov(debug);
--                debug.first_person = false;
--                debug.status = "Freecam enabled from the first-person view.";
--            }
--            return;
-+        if (debug.camera_owned && debug.first_person) {
++        if (debug.camera_owned && (debug.first_person || debug.drone_follow)) {
 +            source_require(camera.identity == debug.camera_identity && camera.mode == 1 &&
-+                camera.active == camera.identity.camera,
-+                "The owned first-person camera changed.");
-+            // Keep the owned camera and fly on from the last head pose.
-+            first_person_disarm();
-+            first_person_restore_fov(debug);
-+            debug.first_person = false;
-+            debug.status = "Freecam enabled from the first-person view.";
-+        }
-+        const bool recovering = debug.camera_owned;
-+        if (activate_free_camera(trial, client, camera, error)) {
-+            debug.flight_time = source_flight_now();
-+            debug.status = recovering ? "Freecam restored after native placement changed the view."
-+                : "Freecam enabled. WASD / Q E move; hold RMB to look; Shift boosts.";
++                camera.active == camera.identity.camera, "The owned free camera changed.");
+             if (debug.first_person) {
+-                // Keep the owned camera and fly on from the last head pose.
+                 first_person_disarm();
+                 first_person_restore_fov(debug);
+                 debug.first_person = false;
+                 debug.status = "Freecam enabled from the first-person view.";
+             }
+             if (debug.drone_follow) {
+-                // Keep the owned camera and fly on from where the drone was.
+                 debug.drone_follow = false;
+                 debug.status = "Freecam enabled from drone follow.";
+             }
+-            return;
          }
 -        source_require(camera.mode == 0 && camera.view_enabled && !camera.input_active,
 -            "An active local view with no other camera override is required.");
@@ -11642,28 +12059,38 @@ index c89f5b3..1af37f8 100644
 -        debug.flight_matrix = pose;
 -        debug.flight_time = source_flight_now();
 -        debug.flight_ready = true;
--        debug.status = "Freecam enabled. WASD / Q E move; hold RMB to look; Shift boosts.";
+-        debug.drone_state.valid = false; // a fresh Freecam starts the drone at rest
+-        debug.status = drone::is_enabled() ? "Freecam enabled in drone mode. WASD pitch/roll, Q E throttle, hold RMB + mouse to yaw."
+-            : "Freecam enabled. WASD / Q E move; hold RMB to look; Shift boosts.";
++        const bool recovering = debug.camera_owned;
++        if (activate_free_camera(trial, client, camera, error)) {
++            debug.flight_time = source_flight_now();
++            debug.drone_state.valid = false;
++            debug.status = recovering ? "Freecam restored after native placement changed the view."
++                : drone::is_enabled() ? "Freecam enabled in drone mode. WASD pitch/roll, Q E throttle, hold RMB + mouse to yaw."
++                : "Freecam enabled. WASD / Q E move; hold RMB to look; Shift boosts.";
++        }
          return;
      }
      source_require(false, "Unknown debug request.");
-@@ -898,6 +888,7 @@ overlay::DebugModel on_client_debug_tick(std::uintptr_t base, std::uintptr_t cli
-     // Input capture must follow the lease, not those transient model failures.
-     state.free_camera_active.store(debug.camera_owned && !debug.first_person, std::memory_order_release);
-     model.free_camera = debug.camera_owned && !debug.first_person;
+@@ -1058,6 +1047,7 @@ overlay::DebugModel on_client_debug_tick(std::uintptr_t base, std::uintptr_t cli
+     state.free_camera_active.store(debug.camera_owned && !debug.first_person && !debug.drone_follow, std::memory_order_release);
+     model.free_camera = debug.camera_owned && !debug.first_person && !debug.drone_follow;
+     model.drone_follow = debug.camera_owned && debug.drone_follow;
 +    verified_free_camera.store(0, std::memory_order_release);
      std::optional<SourceCameraSnapshot> flight_camera;
      try { debug_flight_tick(trial, client, can_control, camera_phase_observed, flight_input, error.value, flight_camera); }
      catch (const SourceGuard& guard) { debug_stop_noclip(debug); debug.status = guard.message; }
-@@ -914,6 +905,8 @@ overlay::DebugModel on_client_debug_tick(std::uintptr_t base, std::uintptr_t cli
+@@ -1074,6 +1064,8 @@ overlay::DebugModel on_client_debug_tick(std::uintptr_t base, std::uintptr_t cli
      } catch (...) {}
      try {
          const auto camera = flight_camera ? *flight_camera : source_camera_snapshot(trial, client);
 +        if (verified_free_camera_view(debug, camera))
 +            verified_free_camera.store(camera.identity.camera, std::memory_order_release);
          const bool owned_view = camera.mode == 1 && camera.active == camera.identity.camera;
-         model.free_camera = owned_view && !debug.first_person;
-         // Handed back on foot still reads as on, so the toggle can switch it off.
-@@ -1071,6 +1064,9 @@ overlay::DebugModel on_client_debug_tick(std::uintptr_t base, std::uintptr_t cli
+         model.free_camera = owned_view && !debug.first_person && !debug.drone_follow;
+         model.drone_follow = owned_view && debug.drone_follow;
+@@ -1232,6 +1224,9 @@ overlay::DebugModel on_client_debug_tick(std::uintptr_t base, std::uintptr_t cli
  bool client_free_camera_active() noexcept {
      return source_state().free_camera_active.load(std::memory_order_acquire);
  }
@@ -11812,7 +12239,7 @@ index 186323b..fc3aabc 100644
  // camera acquired by this function; it never changes another debug camera. A positive
  // `fov` is applied to the spectate camera while it is held; its own comes back after.
 diff --git a/Extension/Skater/no_bail.cpp b/Extension/Skater/no_bail.cpp
-index 1aeb968..e5638bd 100644
+index 8d2c3eb..b9f9722 100644
 --- a/Extension/Skater/no_bail.cpp
 +++ b/Extension/Skater/no_bail.cpp
 @@ -7,6 +7,7 @@
@@ -11820,10 +12247,10 @@ index 1aeb968..e5638bd 100644
  #include "Engine/Game/Build/20260929/engine.h"
  #include "Engine/Game/Build/20260929/no_bail.h"
 +#include "Engine/Game/Build/20260929/skater_state.h"
+ #include <array>
  #include <atomic>
  #include <intrin.h>
- 
-@@ -65,7 +66,10 @@ struct Protection {
+@@ -70,7 +71,10 @@ struct Protection {
  Protection& protection() { static auto* value = new Protection; return *value; }
  struct StateWatch {
      std::atomic<std::uintptr_t> selector{}, causes{}; // the watched skater's selector and cause collector
@@ -11834,7 +12261,7 @@ index 1aeb968..e5638bd 100644
      std::atomic<std::uint32_t> state{}, previous{};
      std::atomic<std::int64_t> since{}, previous_ticks{}; // performance-counter ticks
  };
-@@ -274,6 +278,20 @@ void publish_animation(std::uintptr_t core) {
+@@ -312,6 +316,20 @@ void publish_animation(std::uintptr_t core) {
      (void)filter_requests(core, &Owner::core);
      protection().publish_original(core);
      filter_contact_animation(core);
@@ -11855,7 +12282,7 @@ index 1aeb968..e5638bd 100644
  }
  bool compatible(std::uintptr_t base) noexcept {
      if (base < 0x10000 || base > highest - supported_build::game_image_size) return false;
-@@ -384,6 +402,17 @@ bool set_teleport_on_board(std::uintptr_t component) noexcept {
+@@ -422,6 +440,17 @@ bool set_teleport_on_board(std::uintptr_t component) noexcept {
          return true;
      } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
  }
@@ -11873,7 +12300,7 @@ index 1aeb968..e5638bd 100644
  void update_board_lock(std::uintptr_t client, std::uintptr_t entity, bool locked) noexcept {
      LastError error;
      auto& p = protection();
-@@ -424,9 +453,12 @@ void watch_physics_state(std::uintptr_t client, std::uintptr_t entity) noexcept
+@@ -485,9 +514,12 @@ void watch_physics_state(std::uintptr_t client, std::uintptr_t entity) noexcept
      auto& w = state_watch();
      Owner owner;
      if (!protection().ready.load(std::memory_order_acquire) || !resolve(client, entity, owner)) return;
@@ -11887,7 +12314,7 @@ index 1aeb968..e5638bd 100644
      w.until.store(GetTickCount64() + 500, std::memory_order_release);
  }
  PhysicsStateWatch watched_physics_state() noexcept {
-@@ -440,6 +472,26 @@ PhysicsStateWatch watched_physics_state() noexcept {
+@@ -501,6 +533,26 @@ PhysicsStateWatch watched_physics_state() noexcept {
      result.previous_seconds = static_cast<float>(static_cast<double>(w.previous_ticks.load(std::memory_order_relaxed)) / frequency);
      result.changes = w.changes.load(std::memory_order_relaxed);
      result.wipeouts = w.wipeouts.load(std::memory_order_relaxed);
@@ -11915,10 +12342,10 @@ index 1aeb968..e5638bd 100644
  }
  void clear_no_bail_flight() noexcept {
 diff --git a/Extension/Skater/no_bail.h b/Extension/Skater/no_bail.h
-index 7dd6042..9f24b99 100644
+index 377a8bb..c201c77 100644
 --- a/Extension/Skater/no_bail.h
 +++ b/Extension/Skater/no_bail.h
-@@ -14,14 +14,18 @@ void clear_no_bail() noexcept;
+@@ -15,14 +15,18 @@ void clear_no_bail() noexcept;
  // Releasing it also leaves the skater's teleport option on the board again, since a turn's
  // teleport may have set it off (skater component +0xc0) and the SDK's own teleports keep it.
  void update_board_lock(std::uintptr_t client, std::uintptr_t entity, bool locked) noexcept;
@@ -13238,18 +13665,18 @@ index 0000000..8dc729e
 +    } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 +}
 diff --git a/Extension/Throwdowns/Test/throwdown_relay_tests.cpp b/Extension/Throwdowns/Test/throwdown_relay_tests.cpp
-index da28c45..63f9b02 100644
+index 95fe1ac..bcd5419 100644
 --- a/Extension/Throwdowns/Test/throwdown_relay_tests.cpp
 +++ b/Extension/Throwdowns/Test/throwdown_relay_tests.cpp
-@@ -6,6 +6,7 @@
- #include "Extension/Throwdowns/native_throwdowns.h"
+@@ -7,6 +7,7 @@
+ #include "Extension/Throwdowns/grouped_number.h"
  #include "Extension/Multiplayer/Hud/native_party.h"
  #include "Extension/Settings/named_settings.h"
 +#include "Extension/Modes/game_modes.h"
  #include <Windows.h>
  #include <chrono>
  #include <cmath>
-@@ -26,6 +27,15 @@ std::map<std::string, std::string> settings_changed;
+@@ -27,6 +28,15 @@ std::map<std::string, std::string> settings_changed;
  bool leaderboard_live = true;
  bool types_ready = true; // stands in for the event types of the level being found
  std::uint64_t last_token{};
@@ -13265,7 +13692,7 @@ index da28c45..63f9b02 100644
  }
  
  namespace dingosdk {
-@@ -45,6 +55,10 @@ bool queue_throwdown_spawn(std::uint64_t token, std::uint32_t host, const std::s
+@@ -46,6 +56,10 @@ bool queue_throwdown_spawn(std::uint64_t token, std::uint32_t host, const std::s
      calls.push_back({"spawn", series, host, 0, 0, token});
      return true;
  }
@@ -13276,7 +13703,7 @@ index da28c45..63f9b02 100644
  bool queue_throwdown_add(std::uint32_t player, const std::string &series, std::uint32_t mmid) noexcept {
      calls.push_back({"add", series, player, mmid});
      return true;
-@@ -778,6 +792,45 @@ void level_change_flow() {
+@@ -779,6 +793,45 @@ void level_change_flow() {
      check(count("spawn") == 1, "The drop was not shown once the event types were found again");
      end_session();
  }
@@ -13321,8 +13748,8 @@ index da28c45..63f9b02 100644
 +}
  } // namespace
  
- int main() {
-@@ -791,6 +844,7 @@ int main() {
+ // A score read from text: what atoi reads, and digit groups read whole.
+@@ -813,6 +866,7 @@ int main() {
          challenge_flow();
          beacon_flow();
          level_change_flow();
@@ -13784,7 +14211,7 @@ index 0000000..4398f08
 +};
 +}
 diff --git a/Extension/Throwdowns/native_throwdowns.cpp b/Extension/Throwdowns/native_throwdowns.cpp
-index 68a8335..24a6e62 100644
+index fd87c43..e8fb441 100644
 --- a/Extension/Throwdowns/native_throwdowns.cpp
 +++ b/Extension/Throwdowns/native_throwdowns.cpp
 @@ -1,4 +1,12 @@
@@ -13797,10 +14224,10 @@ index 68a8335..24a6e62 100644
 +#include "Extension/UI/NativeMenu/native_menu_data.h"
 +#include "Extension/UI/NativeMenu/one_up_menu.h"
 +#include "Extension/UI/NativeMenu/native_hud_selection.h"
+ #include "grouped_number.h"
  #include "throwdown_lab.h"
  #include "throwdown_relay.h"
- #include "virtual_player_names.h"
-@@ -8,6 +16,7 @@
+@@ -9,6 +17,7 @@
  #include "Extension/Profile/runtime_internal.h"
  #include "Extension/Progression/local_entitlement_trigger_runtime.h"
  #include "Engine/Game/Build/addresses.h"
@@ -13808,7 +14235,7 @@ index 68a8335..24a6e62 100644
  #include "Engine/Game/Build/20260929/engine.h"
  #include "Engine/Game/Build/20260929/native_party.h"
  #include "Engine/Game/Build/20260929/native_throwdowns.h"
-@@ -36,10 +45,21 @@ struct State {
+@@ -37,10 +46,21 @@ struct State {
      bool (*others_allowed)(){};
      std::uint64_t (*player_info)(std::uint32_t){};
      std::uint64_t (*service_player_info)(Address, std::uint32_t){};
@@ -13832,7 +14259,7 @@ index 68a8335..24a6e62 100644
  };
  State& state() { static auto* value = new State; return *value; }
  struct PendingParameters { Address vm{}, callback{}; };
-@@ -59,26 +79,208 @@ std::uint32_t realm() {
+@@ -60,26 +80,208 @@ std::uint32_t realm() {
      const auto offset = read<std::uint32_t>(state().base + engine::context_type_offset);
      return context && offset < 0x1000000 ? read<std::uint32_t>(context + offset) : 0;
  }
@@ -14049,7 +14476,7 @@ index 68a8335..24a6e62 100644
  }
  
  // The throwdowner flow leaves its mode-select state in the same frame unless
-@@ -179,15 +381,19 @@ void send_event_hook(Address signature, Address output, const Address* arguments
+@@ -180,15 +382,19 @@ void send_event_hook(Address signature, Address output, const Address* arguments
                  }
                  const auto name = throwdown_event(hash);
                  const auto current_realm = realm();
@@ -14072,7 +14499,7 @@ index 68a8335..24a6e62 100644
                  loopback = !name.empty() && empty_target && current_realm == server_realm && sole_offline_player_id();
                  static std::atomic<unsigned> logged{};
                  if (loopback && logged.fetch_add(1) < 16)
-@@ -262,7 +468,7 @@ void debug_variable(const char* const* name, const std::uint32_t* fallback, std:
+@@ -263,7 +469,7 @@ void debug_variable(const char* const* name, const std::uint32_t* fallback, std:
          std::array<char, wanted.size() + 1> value{};
          if (!memory::peek(text, value) || value[wanted.size()] != 0 ||
              std::string_view(value.data(), wanted.size()) != wanted) return;
@@ -14081,7 +14508,7 @@ index 68a8335..24a6e62 100644
          static std::atomic<bool> logged{};
          if (!logged.exchange(true))
              logging::write(logging::Level::info, logging::Channel::progression,
-@@ -354,15 +560,15 @@ namespace {
+@@ -355,15 +561,15 @@ namespace {
  struct ModeParameter { const char* mode; const char* parameter; float minimum, maximum, fallback; };
  constexpr std::array mode_parameters{
      ModeParameter{"JamSession", "AllowOffBoard", 0, 1, 1},      ModeParameter{"JamSession", "AllowSessionMarkers", 0, 1, 1},
@@ -14100,7 +14527,7 @@ index 68a8335..24a6e62 100644
      ModeParameter{"ThrowdownSkate", "Privacy", 0, 1, 0}};
  
  // Builds the array exactly as the native response flattener
-@@ -403,14 +609,232 @@ std::uint32_t local_native_player_id() noexcept {
+@@ -404,14 +610,232 @@ std::uint32_t local_native_player_id() noexcept {
      profile_runtime::PreserveError preserve;
      try { return active() ? sole_offline_player_id() : 0; } catch (...) { return 0; }
  }
@@ -14335,7 +14762,7 @@ index 68a8335..24a6e62 100644
      // The throwdown is over once a client throwdown enters its end state or
      // leaves in progress. (Starting the round destroys the registration point
      // through MPThrowdownCoordinator.OnRequestThrowdownDestroy, so neither that
-@@ -421,8 +845,7 @@ void complete_native_throwdown_parameters(Address vm) noexcept {
+@@ -422,8 +846,7 @@ void complete_native_throwdown_parameters(Address vm) noexcept {
              const auto resource = vm ? read<Address>(vm + 0x38) : 0;
              switch (resource ? read<std::uint32_t>(resource + 0x10) : 0) {
              case 0x224de9ab: case 0xd373badf: case 0x2ea80cac: case 0x1d82a056: // Client*Throwdown.EnterEnd
@@ -14345,8 +14772,8 @@ index 68a8335..24a6e62 100644
                      logging::log(logging::Level::info, logging::Channel::progression,
                          "Throwdown: ended (graph {:#x}).", read<std::uint32_t>(resource + 0x10));
                  break;
-@@ -572,6 +995,7 @@ void initialize_native_throwdowns(Address base) noexcept {
-     s.attempted = true; s.base = base;
+@@ -599,6 +1022,7 @@ void initialize_native_throwdowns(Address base) noexcept {
+     install_parse_int(base);
      struct Hook { Address rva; std::array<unsigned char, 19> prefix; void* replacement; void** original; };
      const std::array hooks{
 +        Hook{throwdowns::player_in_activity,throwdowns::player_in_activity_prefix,reinterpret_cast<void*>(&player_in_activity_hook),reinterpret_cast<void**>(&s.player_in_activity)},
@@ -16217,7 +16644,7 @@ index 0000000..51f7fe9
 +bool apply_snapshot(State& current, const Message&, PlayerId authenticated_sender, std::uint64_t world);
 +} // namespace dingosdk::multiplayer::one_up
 diff --git a/Extension/Throwdowns/throwdown_lab.cpp b/Extension/Throwdowns/throwdown_lab.cpp
-index 1aef52b..8ecb7a4 100644
+index 1003d6c..565fca5 100644
 --- a/Extension/Throwdowns/throwdown_lab.cpp
 +++ b/Extension/Throwdowns/throwdown_lab.cpp
 @@ -1,4 +1,7 @@
@@ -16359,7 +16786,7 @@ index 1aef52b..8ecb7a4 100644
          return std::format("RequestThrowdownDestroyGlobal sent for MMID {:#x}", mmid);
      }
      }
-@@ -1430,6 +1450,7 @@ void initialize_throwdown_lab(Address base) noexcept {
+@@ -1433,6 +1453,7 @@ void initialize_throwdown_lab(Address base) noexcept {
              throw std::runtime_error("Throwdown lab: cannot enable hooks");
          l.installed.store(true, std::memory_order_release);
      } catch (const std::exception& e) { logging::write(logging::Level::warning, logging::Channel::progression, e.what()); }
@@ -16367,7 +16794,7 @@ index 1aef52b..8ecb7a4 100644
      // The condition probe replaces the game's AND / OR / NOT, which every authored
      // condition runs through; opt in with RESKATE_THROWDOWN_PROBE=1.
      if (!GetEnvironmentVariableW(L"RESKATE_THROWDOWN_PROBE", nullptr, 0)) return;
-@@ -1445,9 +1466,27 @@ void initialize_throwdown_lab(Address base) noexcept {
+@@ -1448,9 +1469,27 @@ void initialize_throwdown_lab(Address base) noexcept {
                  hook_enable(reinterpret_cast<void*>(base + op.rva)) == HookOk) ++count;
          logging::log(logging::Level::info, logging::Channel::progression, "Throwdown lab: condition probe on {} of 3 boolean ops.", count);
      } catch (...) {}
@@ -16395,7 +16822,7 @@ index 1aef52b..8ecb7a4 100644
      auto& l = lab();
      if (!l.installed.load(std::memory_order_acquire) || injecting || !type || !payload) return;
      if (handled(hash)) { try { note_sent(hash, 0); } catch (...) {} }
-@@ -1552,6 +1591,7 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
+@@ -1555,6 +1594,7 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
              ThrowdownLocalAction action{ThrowdownLocalAction::Kind::exited};
              if (const auto f = find_field(type, field_is_cancelling); f && f->size == 1)
                  action.cancelling = read<std::uint8_t>(payload + f->offset) != 0;
@@ -16403,7 +16830,7 @@ index 1aef52b..8ecb7a4 100644
              {
                  std::lock_guard lock(l.mutex);
                  action.series = l.series; action.mmid = l.hosted_mmid;
-@@ -1633,15 +1673,31 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
+@@ -1636,15 +1676,31 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
          std::string series; std::uint32_t mmid{};
          std::vector<std::uint8_t> params; std::string note;
          bool placed{};
@@ -16436,7 +16863,7 @@ index 1aef52b..8ecb7a4 100644
              placed = spawn[0] != 0 || spawn[1] != 0 || spawn[2] != 0;
          }
          {
-@@ -1662,6 +1718,19 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
+@@ -1665,6 +1721,19 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
                  "Throwdown lab: local client sent {:#x}; series {} MMID {:#x}{}{}.", hash, l.series, l.mmid,
                  note.empty() ? "" : "; ", note);
          }
@@ -16456,7 +16883,7 @@ index 1aef52b..8ecb7a4 100644
          using Kind = ThrowdownLocalAction::Kind;
          const auto kind = hash == event_create ? Kind::created : hash == event_add_participant ? Kind::joined
                          : hash == event_force_start ? Kind::force_started : hash == event_destroy ? Kind::destroy_requested
-@@ -1675,12 +1744,128 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
+@@ -1678,12 +1747,128 @@ void observe_throwdown_send(std::uint32_t hash, Address type, Address payload) n
      } catch (...) {}
  }
  
@@ -16585,7 +17012,7 @@ index 1aef52b..8ecb7a4 100644
      auto& l = lab();
      const auto now = now_ms();
      if (now >= l.trace_end_ms) {
-@@ -1714,6 +1899,7 @@ void trace_expression(Address vm) {
+@@ -1717,6 +1902,7 @@ void trace_expression(Address vm) {
      auto& seen = l.trace[key];
      if (!seen.count++) seen.first_ms = now;
      seen.last_ms = now;
@@ -16593,7 +17020,7 @@ index 1aef52b..8ecb7a4 100644
  }
  
  // The pump runs after every expression the game executes, thousands a frame, and almost all
-@@ -1726,6 +1912,7 @@ bool lab_graph(Address vm) noexcept {
+@@ -1729,6 +1915,7 @@ bool lab_graph(Address vm) noexcept {
          std::vector<std::uint32_t> v{graph_celebration, graph_criteria_attempt, graph_queue_filled, graph_round_end_update,
                                       graph_turn_start, graph_skate_timer, graph_turn_end_begin,
                                       0xc33322b2, 0xc4a37359, 0xcc6467cf, 0xf073dd02};
@@ -16601,7 +17028,7 @@ index 1aef52b..8ecb7a4 100644
          for (const auto& h : handled_events) v.insert(v.end(), h.graphs.begin(), h.graphs.end());
          std::ranges::sort(v);
          v.erase(std::unique(v.begin(), v.end()), v.end());
-@@ -1737,6 +1924,143 @@ bool lab_graph(Address vm) noexcept {
+@@ -1740,6 +1927,143 @@ bool lab_graph(Address vm) noexcept {
  }
  } // namespace
  
@@ -16745,7 +17172,7 @@ index 1aef52b..8ecb7a4 100644
  void pump_throwdown_lab(Address vm) noexcept {
      auto& l = lab();
      if (vm && l.installed.load(std::memory_order_acquire) && lab_graph(vm)) {
-@@ -1744,6 +2068,61 @@ void pump_throwdown_lab(Address vm) noexcept {
+@@ -1747,6 +2071,61 @@ void pump_throwdown_lab(Address vm) noexcept {
          try {
              const auto resource = *reinterpret_cast<const Address*>(vm + 0x38);
              const auto graph = resource ? *reinterpret_cast<const std::uint32_t*>(resource + 0x10) : 0U;
@@ -16807,7 +17234,7 @@ index 1aef52b..8ecb7a4 100644
              if (graph == graph_celebration && realm() == client_realm) {
                  // CoopChallengeCelebrationLocation as the graph built it in its locals (page 2).
                  const auto frame = read<std::uint32_t>(resource + 0x20);
-@@ -1783,6 +2162,9 @@ void pump_throwdown_lab(Address vm) noexcept {
+@@ -1786,6 +2165,9 @@ void pump_throwdown_lab(Address vm) noexcept {
                  const auto frame = read<std::uint32_t>(resource + 0x20);
                  const auto locals = read<Address>(read<Address>(vm + 0x30) + ((frame + 15U) & ~15U) + 16);
                  if (locals && graph == graph_queue_filled && l.local_entered.exchange(false, std::memory_order_acq_rel)) {
@@ -16817,7 +17244,7 @@ index 1aef52b..8ecb7a4 100644
                      const auto handle = read<std::uint32_t>(locals + queue_filled_handle_local);
                      const auto seed = read<std::uint32_t>(locals + queue_filled_seed_local);
                      { std::lock_guard lock(l.mutex); l.event_handle = handle; }
-@@ -1927,17 +2309,26 @@ void pump_throwdown_lab(Address vm) noexcept {
+@@ -1930,17 +2312,26 @@ void pump_throwdown_lab(Address vm) noexcept {
  }
  
  void throwdown_lab_before_level_transition(unsigned next) noexcept {
@@ -16844,7 +17271,7 @@ index 1aef52b..8ecb7a4 100644
  bool throwdown_lab_player(std::uint32_t player_id) noexcept {
      if (!player_id) return false;
      for (const auto& slot : lab().players) if (slot.load(std::memory_order_relaxed) == player_id) return true;
-@@ -2015,6 +2406,17 @@ bool queue_throwdown_spawn(std::uint64_t token, std::uint32_t host, const std::s
+@@ -2018,6 +2409,17 @@ bool queue_throwdown_spawn(std::uint64_t token, std::uint32_t host, const std::s
          return queue_relay_job(std::move(job), event_debug_spawn);
      } catch (...) { return false; }
  }
@@ -16862,7 +17289,7 @@ index 1aef52b..8ecb7a4 100644
  bool queue_throwdown_add(std::uint32_t player, const std::string& series, std::uint32_t mmid) noexcept {
      if (!player || !mmid) return false;
      try {
-@@ -2132,6 +2534,10 @@ std::string throwdown_lab_command(std::string_view arguments, std::optional<std:
+@@ -2135,6 +2537,10 @@ std::string throwdown_lab_command(std::string_view arguments, std::optional<std:
          at = end == std::string_view::npos ? arguments.size() : end;
      }
      const auto verb = words.empty() ? std::string_view("status") : words[0];
@@ -16873,7 +17300,7 @@ index 1aef52b..8ecb7a4 100644
      if (verb == "relay") return throwdown_relay_status();
      const auto number = [&](std::size_t i) { return i < words.size() ? parse_u32(words[i]) : std::nullopt; };
      const auto current = [&] {
-@@ -2147,6 +2553,7 @@ std::string throwdown_lab_command(std::string_view arguments, std::optional<std:
+@@ -2150,6 +2556,7 @@ std::string throwdown_lab_command(std::string_view arguments, std::optional<std:
                 "  throwdown mirror <host id>          replace your placed drop by the same drop hosted by <host id>\n"
                 "  throwdown join                      join the current queue as the local player (the Join button)\n"
                 "  throwdown start | destroy           force start / destroy the current queue (MMID above)\n"
@@ -17225,7 +17652,7 @@ index 9e8f184..f49c334 100644
      check(first_ray(12.0f).top == ray_ceiling && first_ray(12.0f).bottom == ray_floor, "a low hint starts at the usual ceiling");
      check(first_ray(1800.0f).top == 2300.0f, "a high hint starts 500 above it");
 diff --git a/Extension/Trainer/trainer.cpp b/Extension/Trainer/trainer.cpp
-index 511285e..ea9adf0 100644
+index 91f1857..c1b5613 100644
 --- a/Extension/Trainer/trainer.cpp
 +++ b/Extension/Trainer/trainer.cpp
 @@ -1,9 +1,11 @@
@@ -17247,9 +17674,9 @@ index 511285e..ea9adf0 100644
 +#include "Extension/Throwdowns/one_up_runtime.h"
 +#include "Extension/Modes/game_modes.h"
  #include "Extension/UI/Overlay/overlay.h"
- #include <windows.h>
- #include <shlobj.h>
-@@ -139,7 +143,7 @@ struct State {
+ #include <mutex>
+ #include <thread>
+@@ -141,7 +145,7 @@ struct State {
      std::vector<std::size_t> class_entries; // the entries that are fields of those classes
      // A session whose host sets everyone's physics (session_physics.h): what the host shares
      // beyond its tuning, and what each class field holds for it. The player's own stand down.
@@ -17258,7 +17685,7 @@ index 511285e..ea9adf0 100644
      std::uint64_t host_revision{};
      SessionExtras host;
      std::array<float, class_field_count> host_classes{};
-@@ -648,11 +652,14 @@ void publish_extras() {
+@@ -668,11 +672,14 @@ void publish_extras() {
  void sync_session() {
      auto &s = state();
      const bool enforced = session_tuning_enforced();
@@ -17275,7 +17702,7 @@ index 511285e..ea9adf0 100644
      if (fresh) {
          auto decoded = decode_session_extras(bytes);
          if (!decoded) say(logging::Level::warning, "Trainer: what the host shares beyond its tuning could not be read; the game's own is used for it.");
-@@ -663,6 +670,7 @@ void sync_session() {
+@@ -683,6 +690,7 @@ void sync_session() {
              say(logging::Level::info, std::format("Trainer: skating with the host's trick multipliers and {} of its class values.", s.host.classes.size()));
      }
      s.enforced = enforced;
@@ -17283,7 +17710,7 @@ index 511285e..ea9adf0 100644
      for (const auto index : s.class_entries) want_class(s.entries[index]);
      changed(false);
  }
-@@ -960,7 +968,11 @@ void enter_map(const std::string &level) {
+@@ -1022,7 +1030,11 @@ void enter_map(const std::string &level) {
  }
  MapData &current_map() { return state().maps[state().map]; }
  bool teleport_allowed(std::string &why) {
@@ -17296,7 +17723,7 @@ index 511285e..ea9adf0 100644
          why = "The host has turned off teleporting in this session.";
          return false;
      }
-@@ -1148,14 +1160,14 @@ void observe(std::uintptr_t base, std::uintptr_t client, std::uint64_t now) {
+@@ -1210,14 +1222,14 @@ void observe(std::uintptr_t base, std::uintptr_t client, std::uint64_t now) {
      }
      const auto seconds = m.valid ? clock_seconds(stamp - m.stamp) : 0.0;
      const Vec3 step{position[0] - m.position[0], position[1] - m.position[1], position[2] - m.position[2]};
@@ -17314,7 +17741,7 @@ index 511285e..ea9adf0 100644
          t.air_time = t.height = 0;
          return;
      }
-@@ -1239,7 +1251,7 @@ void observe(std::uintptr_t base, std::uintptr_t client, std::uint64_t now) {
+@@ -1301,7 +1313,7 @@ void observe(std::uintptr_t base, std::uintptr_t client, std::uint64_t now) {
      }
      // A bail: back to the selected marker once the skater has had time to fall.
      if (watch.valid && (!s.wipeouts_known || watch.wipeouts != s.seen_wipeouts)) {
@@ -17323,7 +17750,7 @@ index 511285e..ea9adf0 100644
              const bool marked = current_map().markers[static_cast<std::size_t>(s.slot)].set;
              if (marked) s.return_at = now + static_cast<std::uint64_t>(s.return_delay * 1000.0f);
              say(logging::Level::info, marked ? std::format("Trainer: bail seen; back to marker {} in {:.1f} s.", s.slot + 1, s.return_delay)
-@@ -1253,6 +1265,9 @@ void set_logging(bool on) {
+@@ -1315,6 +1327,9 @@ void set_logging(bool on) {
      auto &s = state();
      if (s.log.is_open()) s.log.close();
      s.logging = false;
@@ -17333,7 +17760,7 @@ index 511285e..ea9adf0 100644
      if (!on) return;
      const auto directory = data_directory() / L"telemetry";
      std::error_code error;
-@@ -1269,6 +1284,7 @@ void set_logging(bool on) {
+@@ -1331,6 +1346,7 @@ void set_logging(bool on) {
      s.log << "seconds,x,y,z,speed_mps,vertical_mps,heading_deg,airborne,physics_state,board_turn_dps\n";
      s.log_start = clock_now();
      s.logging = true;
@@ -17341,7 +17768,7 @@ index 511285e..ea9adf0 100644
  }
  void shortcuts() {
      auto &s = state();
-@@ -1490,6 +1506,7 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool playing, const std::s
+@@ -1553,6 +1569,7 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool playing, const std::s
              refresh_waypoint();
          }
          if (playing) {
@@ -17349,7 +17776,7 @@ index 511285e..ea9adf0 100644
              observe(base, client, now);
              shortcuts();
              update_landing(now);
-@@ -1528,6 +1545,8 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool playing, const std::s
+@@ -1591,6 +1608,8 @@ void tick(std::uintptr_t base, std::uintptr_t client, bool playing, const std::s
          // The speeds pushes aim for are the push class's (value_links ties them to the tuning's top
          // pushing speed, which only gates whether a push may start).
          const auto *top_speed = find_entry("physicspush.maxpushablespeed");
@@ -17358,7 +17785,7 @@ index 511285e..ea9adf0 100644
          set_push_speed(client, s.entity, 1.0f, top_speed ? static_cast<float>(top_speed->stock) : 0.0f, s.boosts.cruise);
          for (TrickLaunch launch; take_trick_launch(launch);)
              if (launch.factor != 1.0f)
-@@ -1673,6 +1692,8 @@ std::string run(std::string_view verb, const std::vector<std::string> &a) {
+@@ -1734,6 +1753,8 @@ std::string run(std::string_view verb, const std::vector<std::string> &a) {
      }
      if (v == "marker") {
          const auto action = lower(arg(0));
@@ -25337,7 +25764,7 @@ index d6289a6..3d4045e 100644
  void queue_ui_sound(std::uint32_t sound) noexcept;
  // Client thread, each tick while a world is up.
 diff --git a/Extension/UI/Overlay/input_capture.cpp b/Extension/UI/Overlay/input_capture.cpp
-index a3e4896..0dfdba2 100644
+index 6a19a26..47a71ce 100644
 --- a/Extension/UI/Overlay/input_capture.cpp
 +++ b/Extension/UI/Overlay/input_capture.cpp
 @@ -2,7 +2,10 @@
@@ -25385,8 +25812,8 @@ index a3e4896..0dfdba2 100644
      SetLastError(error);
      return capture;
  }
-@@ -78,7 +99,9 @@ BOOLEAN __stdcall captured_hid_attributes(HANDLE file, PHIDD_ATTRIBUTES attribut
-     return result;
+@@ -96,7 +117,9 @@ void refresh_bluetooth_crc(std::uint8_t* bytes, DWORD size) noexcept {
+     std::memcpy(bytes + size - 4, &crc, sizeof(crc));
  }
  void neutral_hid(const InputCaptureHooks::HidRead& read, DWORD size) {
 -    if (!block_polled_input() || !read.buffer || size > read.capacity) return;
@@ -25396,7 +25823,7 @@ index a3e4896..0dfdba2 100644
      auto* bytes = static_cast<std::uint8_t*>(read.buffer);
      // USB or Bluetooth decides where the buttons are in a report with id 1. It is the device's
      // report length that tells them apart, and Windows pads every read to that length, so it
-@@ -92,11 +115,16 @@ void neutral_hid(const InputCaptureHooks::HidRead& read, DWORD size) {
+@@ -110,17 +133,22 @@ void neutral_hid(const InputCaptureHooks::HidRead& read, DWORD size) {
          (bytes[0] == 0x31 || (bytes[0] == 1 && !bluetooth));
      const unsigned offset = bytes[0] == 0x31 ? 2 : bytes[0] == 0x11 ? 3 : 1;
      auto* data = bytes + offset;
@@ -25415,34 +25842,36 @@ index a3e4896..0dfdba2 100644
          data[4] = 8; data[5] = 0; data[6] &= 0xfc; // retain DS4 sequence bits
          data[7] = data[8] = 0;
      }
-@@ -114,7 +142,7 @@ void neutral_hid(const InputCaptureHooks::HidRead& read, DWORD size) {
-         std::memcpy(bytes + size - 4, &crc, sizeof(crc));
-     }
+     refresh_bluetooth_crc(bytes, size);
      static std::atomic<bool> reported{};
 -    if (!reported.exchange(true)) logging::printf(logging::Level::info, logging::Channel::input,
 +    if (capture && !reported.exchange(true)) logging::printf(logging::Level::info, logging::Channel::input,
          "Native PlayStation HID report neutralized; overlay retains its independent input stream. (%s over %s, report 0x%02x of %lu bytes, "
          "the game's buffer %lu.)", read.kind == PlayStationPad::dualsense ? "DualSense" : "DualShock 4",
          bluetooth ? "Bluetooth" : "USB", bytes[0], size, read.capacity);
-@@ -274,6 +302,7 @@ std::string xinput_entry_owners() {
+@@ -346,6 +374,7 @@ void filter_pad(bool outer, DWORD user, XINPUT_STATE* output) noexcept {
  template<std::size_t I>
  DWORD WINAPI captured_front(DWORD user, XINPUT_STATE* output) {
      const bool capture = block_polled_input();
 +    const bool menu=suppress_challenge_menu();
+     const bool outer = overlay_input_access == 0;
      note_prompt_read(prompt_xinput);
      DWORD result;
-     { // It may go on to XInput's own entry point, which is hooked as well.
-@@ -283,6 +312,9 @@ DWORD WINAPI captured_front(DWORD user, XINPUT_STATE* output) {
+@@ -356,8 +385,12 @@ DWORD WINAPI captured_front(DWORD user, XINPUT_STATE* output) {
      if (result == ERROR_SUCCESS && output && capture) {
          output->Gamepad = {};
          output->dwPacketNumber ^= 0x80000000u;
-+    } else if(result==ERROR_SUCCESS && output && menu) {
-+        output->Gamepad.wButtons=game::owned_menu_buttons(output->Gamepad.wButtons,true);
-+        output->dwPacketNumber ^= 0x40000000u;
+-    } else if (result == ERROR_SUCCESS) {
++    } else if (result == ERROR_SUCCESS && output) {
+         filter_pad(outer, user, output);
++        if (menu) {
++            output->Gamepad.wButtons=game::owned_menu_buttons(output->Gamepad.wButtons,true);
++            output->dwPacketNumber ^= 0x40000000u;
++        }
      }
      return result;
  }
-@@ -313,15 +345,16 @@ void keep_xinput_capture_first() {
+@@ -388,15 +421,16 @@ void keep_xinput_capture_first() {
  }
  SHORT WINAPI captured_async_key(int key) {
      const auto value = original<SHORT(WINAPI*)(int)>(input_hooks().async_key)(key);
@@ -25461,7 +25890,7 @@ index a3e4896..0dfdba2 100644
      return result;
  }
  UINT WINAPI captured_raw_data(HRAWINPUT input, UINT command, LPVOID data, PUINT size, UINT header_size) {
-@@ -339,7 +372,10 @@ UINT WINAPI captured_raw_data(HRAWINPUT input, UINT command, LPVOID data, PUINT
+@@ -414,7 +448,10 @@ UINT WINAPI captured_raw_data(HRAWINPUT input, UINT command, LPVOID data, PUINT
          const bool mouse = raw->header.dwType == RIM_TYPEMOUSE && result >= offsetof(RAWINPUT, data) + sizeof(RAWMOUSE);
          const bool keyboard =
              raw->header.dwType == RIM_TYPEKEYBOARD && result >= offsetof(RAWINPUT, data) + sizeof(RAWKEYBOARD);
@@ -25473,7 +25902,7 @@ index a3e4896..0dfdba2 100644
              if ((mouse || keyboard) && !overlay_input_access) held_input().seen(*raw);
          } else if ((mouse || keyboard) && held_input().release_only(*raw)) {
              // A key or button the game holds still comes up; presses stay blocked.
-@@ -382,6 +418,9 @@ void note_input_record(const RAWINPUT& record) noexcept {
+@@ -457,6 +494,9 @@ void note_input_record(const RAWINPUT& record) noexcept {
          last.mouse_buttons.store(record.data.mouse.usButtonFlags, std::memory_order_relaxed);
          last.mouse_device.store(record.header.hDevice, std::memory_order_relaxed);
          last.mouse_at.store(GetTickCount64(), std::memory_order_relaxed);
@@ -25483,7 +25912,7 @@ index a3e4896..0dfdba2 100644
      }
  }
  std::string input_device_name(HANDLE device) {
-@@ -444,6 +483,10 @@ UINT WINAPI captured_raw_buffer(PRAWINPUT data, PUINT size, UINT header_size) {
+@@ -519,6 +559,10 @@ UINT WINAPI captured_raw_buffer(PRAWINPUT data, PUINT size, UINT header_size) {
              const bool mouse = record->header.dwType == RIM_TYPEMOUSE && bytes >= offsetof(RAWINPUT, data) + sizeof(RAWMOUSE);
              const bool keyboard =
                  record->header.dwType == RIM_TYPEKEYBOARD && bytes >= offsetof(RAWINPUT, data) + sizeof(RAWKEYBOARD);
@@ -25494,9 +25923,9 @@ index a3e4896..0dfdba2 100644
              if (!capture) {
                  if ((mouse || keyboard) && !overlay_input_access) held_input().seen(*record);
              } else if ((mouse || keyboard) && held_input().release_only(*record)) {
-@@ -574,6 +617,9 @@ DWORD WINAPI captured_xinput(DWORD user, XINPUT_STATE* output) {
-     const auto& hook = Extended ? input_hooks().xinput_extended[I] : input_hooks().xinput_state[I];
+@@ -650,6 +694,9 @@ DWORD WINAPI captured_xinput(DWORD user, XINPUT_STATE* output) {
      const bool capture = block_polled_input();
+     const bool outer = overlay_input_access == 0;
      note_prompt_read(prompt_xinput);
 +    const auto hidden = overlay_input_access ? std::uint16_t{} : static_cast<std::uint16_t>(
 +        mode_hidden_buttons.load(std::memory_order_relaxed) |
@@ -25504,17 +25933,21 @@ index a3e4896..0dfdba2 100644
      DWORD result;
      { // XInput exports can forward through another hooked XInput export.
          OverlayInputAccess access;
-@@ -584,6 +630,9 @@ DWORD WINAPI captured_xinput(DWORD user, XINPUT_STATE* output) {
+@@ -660,8 +707,12 @@ DWORD WINAPI captured_xinput(DWORD user, XINPUT_STATE* output) {
          // The game must notice a neutral state even if the physical packet did
          // not change between opening the menu and its next controller poll.
          output->dwPacketNumber ^= 0x80000000u;
-+    } else if (result == ERROR_SUCCESS && output && hidden) {
-+        output->Gamepad.wButtons &= static_cast<WORD>(~hidden);
-+        output->dwPacketNumber ^= 0x40000000u;
+-    } else if (result == ERROR_SUCCESS) {
++    } else if (result == ERROR_SUCCESS && output) {
+         filter_pad(outer, user, output);
++        if (hidden) {
++            output->Gamepad.wButtons &= static_cast<WORD>(~hidden);
++            output->dwPacketNumber ^= 0x40000000u;
++        }
      }
      return result;
  }
-@@ -592,6 +641,9 @@ DWORD WINAPI captured_keystroke(DWORD user, DWORD reserved, PXINPUT_KEYSTROKE ou
+@@ -670,6 +721,9 @@ DWORD WINAPI captured_keystroke(DWORD user, DWORD reserved, PXINPUT_KEYSTROKE ou
      const auto result = original<DWORD(WINAPI*)(DWORD, DWORD, PXINPUT_KEYSTROKE)>(
          input_hooks().xinput_keystroke[I])(user, reserved, output);
      if (result == ERROR_SUCCESS && output && block_polled_input()) { *output = {}; return ERROR_EMPTY; }
@@ -25524,7 +25957,7 @@ index a3e4896..0dfdba2 100644
      return result;
  }
  
-@@ -647,6 +699,8 @@ HRESULT STDMETHODCALLTYPE captured_device_state(void* device, DWORD size, LPVOID
+@@ -725,6 +779,8 @@ HRESULT STDMETHODCALLTYPE captured_device_state(void* device, DWORD size, LPVOID
              for (std::size_t offset = 8 * sizeof(DWORD); offset < 12 * sizeof(DWORD); offset += sizeof(DWORD))
                  std::memcpy(bytes + offset, &released_pov, sizeof(released_pov));
          }
@@ -25533,7 +25966,7 @@ index a3e4896..0dfdba2 100644
      }
      return result;
  }
-@@ -656,6 +710,15 @@ HRESULT STDMETHODCALLTYPE captured_device_data(void* device, DWORD size, LPDIDEV
+@@ -734,6 +790,15 @@ HRESULT STDMETHODCALLTYPE captured_device_data(void* device, DWORD size, LPDIDEV
      const auto result = original<HRESULT(STDMETHODCALLTYPE*)(void*, DWORD, LPDIDEVICEOBJECTDATA, LPDWORD, DWORD)>(
          input_hooks().device_data[I])(device, size, data, count, capture ? flags & ~DIGDD_PEEK : flags);
      if (SUCCEEDED(result) && capture && count) *count = 0;
@@ -25549,11 +25982,10 @@ index a3e4896..0dfdba2 100644
      return result;
  }
  bool install_device_capture(void* device) {
-@@ -876,3 +939,20 @@ bool install_input_capture() {
- }
+@@ -955,6 +1020,23 @@ bool install_input_capture() {
  
  }
-+
+ 
 +namespace dingosdk::overlay {
 +bool interface_open() noexcept { return detail::interactive_visible(detail::state()); }
 +void hide_game_buttons(std::uint16_t buttons) noexcept { detail::mode_hidden_buttons.store(buttons, std::memory_order_relaxed); }
@@ -25570,6 +26002,10 @@ index a3e4896..0dfdba2 100644
 +bool key_down(int virtual_key) noexcept { detail::OverlayInputAccess access; return (GetAsyncKeyState(virtual_key) & 0x8000) != 0; }
 +int take_mouse_wheel() noexcept { return detail::mode_mouse_wheel.exchange(0, std::memory_order_relaxed); }
 +}
++
+ extern "C" void DingoSDKOverlaySetGamepadFilter(dingosdk::overlay::GamepadFilter filter) {
+     dingosdk::overlay::detail::gamepad_filter().store(filter, std::memory_order_release);
+ }
 diff --git a/Extension/UI/Overlay/input_capture.h b/Extension/UI/Overlay/input_capture.h
 index ce927d2..106496d 100644
 --- a/Extension/UI/Overlay/input_capture.h
@@ -25584,7 +26020,7 @@ index ce927d2..106496d 100644
  // log when the hold ends: which of the ways the overlay can keep input from it the game used.
  struct PromptReads {
 diff --git a/Extension/UI/Overlay/multiplayer_session.cpp b/Extension/UI/Overlay/multiplayer_session.cpp
-index a4f8e3a..d1a3641 100644
+index fed71f1..4655c87 100644
 --- a/Extension/UI/Overlay/multiplayer_session.cpp
 +++ b/Extension/UI/Overlay/multiplayer_session.cpp
 @@ -10,6 +10,7 @@
@@ -25723,10 +26159,10 @@ index 0000000..ad91922
 +} // namespace menu::multiplayer_detail
 +} // namespace dingosdk::overlay
 diff --git a/Extension/UI/Overlay/overlay.h b/Extension/UI/Overlay/overlay.h
-index 5e3e83c..89c6704 100644
+index 5bab90c..db4ca55 100644
 --- a/Extension/UI/Overlay/overlay.h
 +++ b/Extension/UI/Overlay/overlay.h
-@@ -500,6 +500,11 @@ extern "C" void DingoSDKOverlaySetFreecamInputCapture(bool active);
+@@ -611,6 +611,11 @@ extern "C" void DingoSDKOverlaySetFreecamInputCapture(bool active);
  // The same hold on the game's input while a card asks something of the player and a
  // controller answers it (the map download's): the buttons that answer must not also skate.
  extern "C" void DingoSDKOverlaySetPromptInputCapture(bool active);
@@ -25739,7 +26175,7 @@ index 5e3e83c..89c6704 100644
  // 3 Esc. Nothing while the game is not in front or the menu, console or chat has the keys.
  extern "C" unsigned DingoSDKOverlayReadPromptKeys();
 diff --git a/Extension/UI/Overlay/overlay_input.cpp b/Extension/UI/Overlay/overlay_input.cpp
-index ff84664..77798a1 100644
+index ffb01b2..85d1719 100644
 --- a/Extension/UI/Overlay/overlay_input.cpp
 +++ b/Extension/UI/Overlay/overlay_input.cpp
 @@ -5,6 +5,9 @@
@@ -25776,10 +26212,10 @@ index ff84664..77798a1 100644
              // Foreground raw-input packets still need DefWindowProc cleanup.
              return message == WM_INPUT ? DefWindowProcW(window, message, wp, lp) : 0;
 diff --git a/Extension/UI/Overlay/overlay_internal.h b/Extension/UI/Overlay/overlay_internal.h
-index 097e60a..59152fd 100644
+index 35f5d46..dbadde2 100644
 --- a/Extension/UI/Overlay/overlay_internal.h
 +++ b/Extension/UI/Overlay/overlay_internal.h
-@@ -307,6 +307,9 @@ void draw_game_text();
+@@ -327,6 +327,9 @@ void draw_drone_hud();
  // ReSkate's S.K.A.T.E. throwdown HUD (skate_hud_overlay.cpp): polled every presented frame.
  bool skate_hud_pending();
  void draw_skate_hud();
@@ -25790,29 +26226,29 @@ index 097e60a..59152fd 100644
  bool nametags_pending();
  void draw_nametags();
 diff --git a/Extension/UI/Overlay/overlay_render.cpp b/Extension/UI/Overlay/overlay_render.cpp
-index 7169615..f13d6e3 100644
+index a1b78f9..ca17379 100644
 --- a/Extension/UI/Overlay/overlay_render.cpp
 +++ b/Extension/UI/Overlay/overlay_render.cpp
-@@ -633,6 +633,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
-     const bool map_download_frame = map_download_pending();
+@@ -738,6 +738,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
      const bool game_text_frame = game_text_pending();
+     const bool drone_hud_frame = drone_hud_pending();
      const bool skate_hud_frame = skate_hud_pending();
 +    const bool one_up_frame = one_up_pending();
      const bool nametag_frame = nametags_pending();
      const bool meat_frame = hall_of_meat_pending();
      const bool item_browser_frame = item_browser_pending();
-@@ -654,7 +655,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
+@@ -761,7 +762,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
              sync_menu_cursor();
          }
          // Hidden, the overlay still draws while a notice or chat line is on screen.
--        if (s.loaded_notice_posted && !notices_pending() && !chat_frame && !game_text_frame && !skate_hud_frame &&
-+        if (s.loaded_notice_posted && !notices_pending() && !chat_frame && !game_text_frame && !skate_hud_frame && !one_up_frame &&
+-        if (s.loaded_notice_posted && !notices_pending() && !chat_frame && !game_text_frame && !drone_hud_frame && !skate_hud_frame &&
++        if (s.loaded_notice_posted && !notices_pending() && !chat_frame && !game_text_frame && !drone_hud_frame && !skate_hud_frame && !one_up_frame &&
              !nametag_frame && !meat_frame && !item_browser_frame && !perf_frame && !hub_frame && !map_download_frame) return;
      } else if (!s.ui_was_interactive) {
          s.ui_was_interactive = true;
-@@ -709,6 +710,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
-     draw_nametags();
+@@ -818,6 +819,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
      draw_game_text();
+     draw_drone_hud();
      draw_skate_hud();
 +    draw_one_up();
      draw_perf_hud();
@@ -26027,30 +26463,30 @@ index baa7326..4739004 100644
 +}
  } // namespace dingosdk::overlay::detail
 diff --git a/Extension/UI/Overlay/skate_menu.cpp b/Extension/UI/Overlay/skate_menu.cpp
-index ff84a60..5d20e4a 100644
+index 3d1af5d..900c3c3 100644
 --- a/Extension/UI/Overlay/skate_menu.cpp
 +++ b/Extension/UI/Overlay/skate_menu.cpp
-@@ -310,6 +310,8 @@ void load_skate_fonts(SkateMenu& menu) {
+@@ -859,6 +859,8 @@ void load_skate_fonts(SkateMenu& menu) {
      menu.bold = font(L"FONT_HEADING", "arialbd.ttf", 17);
      menu.heading = font(L"FONT_HEADING", "arialbd.ttf", 22);
      menu.title = font(L"FONT_BRUSH", "arialbi.ttf", 44);
 +    static const ImWchar digits[]{'0','9',0};
 +    menu.countdown=embedded_font(L"FONT_BRUSH",240.f,digits);
      menu.mono = font(nullptr, "consola.ttf", 15);
- }
- 
+     // Full screen's larger set. The brushed titles are page and section names: plain Latin is enough.
+     static const ImWchar latin[]{0x0020, 0x00FF, 0};
 diff --git a/Extension/UI/Overlay/skate_menu.h b/Extension/UI/Overlay/skate_menu.h
-index 99feff1..4a4b98f 100644
+index 787b52c..0e15ddf 100644
 --- a/Extension/UI/Overlay/skate_menu.h
 +++ b/Extension/UI/Overlay/skate_menu.h
-@@ -103,6 +103,7 @@ struct SkateMenu {
+@@ -109,6 +109,7 @@ struct SkateMenu {
      ImFont* bold = nullptr;
      ImFont* title = nullptr;    // brushed page titles
      ImFont* heading = nullptr;  // tile and section headers
 +    ImFont* countdown = nullptr; // full-resolution fallback countdown digits
      ImFont* mono = nullptr;
- };
- void load_skate_fonts(SkateMenu& menu);
+     // The same faces drawn larger (large_font_ratio times), swapped in while the menu is full
+     // screen, where everything is scaled up: text stays sharp instead of stretched.
 diff --git a/Extension/World/Test/loading_screen_tests.cpp b/Extension/World/Test/loading_screen_tests.cpp
 index 7765b45..09658ab 100644
 --- a/Extension/World/Test/loading_screen_tests.cpp
@@ -26078,26 +26514,29 @@ index 7765b45..09658ab 100644
          Pending p{123, 1000, "grom"};
 diff --git a/Launcher/crash_reporter_disabled.cpp b/Launcher/crash_reporter_disabled.cpp
 new file mode 100644
-index 0000000..3dbc4aa
+index 0000000..19b3251
 --- /dev/null
 +++ b/Launcher/crash_reporter_disabled.cpp
 @@ -0,0 +1,4 @@
 +#include "crash_reporter.h"
-+namespace dingosdk::backtrace {
++namespace dingosdk::crash_report {
 +int run_reporter(int, wchar_t**) noexcept { return 1; }
 +}
 diff --git a/Launcher/gui_home.cpp b/Launcher/gui_home.cpp
-index 6ffd6c6..30bdb6f 100644
+index 63a11b8..2606ed8 100644
 --- a/Launcher/gui_home.cpp
 +++ b/Launcher/gui_home.cpp
-@@ -1,542 +1,542 @@
+@@ -1,578 +1,578 @@
 -#include "gui_internal.h"
+-#include "gui_renderer.h"
 -
 -#include "mod_manager.h"
 -
 -#include "problem.h"
 -
 -#include <cmath>
+-#include <fstream>
+-#include <iterator>
 -#include <format>
 -
 -// The main screen: background, name plate, tiles and the STATUS tile.
@@ -26213,21 +26652,47 @@ index 6ffd6c6..30bdb6f 100644
 -    skate_theme::striped_bar(draw, a, b, fill, time, g_scale);
 -}
 -
+-// Loads the signed-in account's Steam picture for the plate, or drops it when Steam is closed or
+-// signed out. Only re-decoded when the cached file changes.
+-void refresh_steam_avatar(Ui& ui) {
+-    const auto path = launcher_app::steam_avatar_path();
+-    std::error_code error;
+-    const auto time = path.empty() ? fs::file_time_type{} : fs::last_write_time(path, error);
+-    if (path == ui.steam_avatar_path && time == ui.steam_avatar_time) return;
+-    if (ui.steam_avatar && g_renderer) g_renderer->release_texture(ui.steam_avatar);
+-    ui.steam_avatar = {};
+-    ui.steam_avatar_path = path;
+-    ui.steam_avatar_time = time;
+-    if (path.empty() || !g_renderer) return;
+-    std::ifstream input(path, std::ios::binary);
+-    const std::vector<unsigned char> bytes{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+-    std::vector<unsigned char> pixels;
+-    UINT width{}, height{};
+-    if (!bytes.empty() && decode_image(bytes, ImVec2(S(46), S(46)), pixels, width, height))
+-        ui.steam_avatar = g_renderer->upload_texture(pixels, width, height);
+-}
+-
 -// Name plate in the top-left corner, like the HUB's player card.
--void draw_plate(ImDrawList* draw, const Fonts& fonts, ImVec2 position, const std::string& title, const std::string& version) {
+-void draw_plate(ImDrawList* draw, const Fonts& fonts, ImVec2 position, const std::string& title, const std::string& version,
+-                ImTextureID avatar) {
 -    const float h = S(46);
 -    const float text = std::max(fonts.bold->CalcTextSizeA(fonts.bold->FontSize, FLT_MAX, 0, title.c_str()).x,
 -                                fonts.body->CalcTextSizeA(fonts.body->FontSize, FLT_MAX, 0, version.c_str()).x);
 -    const float width = std::max(S(300), h + S(28) + text);
 -    draw->AddRectFilled(ImVec2(position.x + h, position.y + S(3)), ImVec2(position.x + width, position.y + h - S(3)),
 -        rgba(44, 47, 49, 0.94f));
--    draw->AddRectFilled(position, ImVec2(position.x + h, position.y + h), color::avatar);
--    // A small deck on the avatar tile.
--    const ImVec2 c(position.x + h * 0.5f, position.y + h * 0.5f);
--    const int start = draw->VtxBuffer.Size;
--    draw->AddRectFilled(ImVec2(c.x - S(15), c.y - S(5.5f)), ImVec2(c.x + S(15), c.y + S(5.5f)), color::text, S(5.5f));
--    for (const float x : {-9.0f, 9.0f}) draw->AddCircleFilled(ImVec2(c.x + S(x), c.y), S(1.8f), color::avatar);
--    rotate_since(draw, start, -40.0f, c);
+-    if (avatar) {
+-        // The player's Steam picture in the tile.
+-        draw->AddImage(avatar, position, ImVec2(position.x + h, position.y + h));
+-    } else {
+-        draw->AddRectFilled(position, ImVec2(position.x + h, position.y + h), color::avatar);
+-        // A small deck on the avatar tile.
+-        const ImVec2 c(position.x + h * 0.5f, position.y + h * 0.5f);
+-        const int start = draw->VtxBuffer.Size;
+-        draw->AddRectFilled(ImVec2(c.x - S(15), c.y - S(5.5f)), ImVec2(c.x + S(15), c.y + S(5.5f)), color::text, S(5.5f));
+-        for (const float x : {-9.0f, 9.0f}) draw->AddCircleFilled(ImVec2(c.x + S(x), c.y), S(1.8f), color::avatar);
+-        rotate_since(draw, start, -40.0f, c);
+-    }
 -    draw->AddCircleFilled(ImVec2(position.x + S(3), position.y + S(3)), S(5), color::good);
 -    draw->AddText(fonts.bold, fonts.bold->FontSize, ImVec2(position.x + h + S(12), position.y + S(5)), color::text, title.c_str());
 -    draw->AddText(fonts.body, fonts.body->FontSize, ImVec2(position.x + h + S(12), position.y + S(24)), color::muted, version.c_str());
@@ -26486,6 +26951,7 @@ index 6ffd6c6..30bdb6f 100644
 -    // from the first Steam check; steam_offline_seen keeps it to one decision.
 -    if (time - ui.steam_checked > 5) {
 -        ui.steam_name = launcher_app::steam_persona_name();
+-        refresh_steam_avatar(ui);
 -        ui.steam_checked = time;
 -        if (!ui.steam_offline_seen) {
 -            ui.steam_offline_seen = true;
@@ -26510,7 +26976,8 @@ index 6ffd6c6..30bdb6f 100644
 -    if (update::binary_updates_enabled() && state.config && !state.config->launcher.version.empty())
 -        version = "Launcher " + state.config->launcher.version;
 -    const bool greet = !launcher.settings().offline && !ui.steam_name.empty();
--    draw_plate(draw, fonts, ImVec2(S(50), S(40)), greet ? "Welcome, " + ui.steam_name : std::string("ReSkate"), version);
+-    draw_plate(draw, fonts, ImVec2(S(50), S(40)), greet ? "Welcome, " + ui.steam_name : std::string("ReSkate"), version,
+-        launcher.settings().offline ? ImTextureID{} : ui.steam_avatar);
 -    page_title(draw, fonts, ImVec2(S(52), S(88)), "RESKATE");
 -
 -    window_buttons(draw, window, size);
@@ -26620,11 +27087,16 @@ index 6ffd6c6..30bdb6f 100644
 -    g_drag_allowed = !modal && !ImGui::IsAnyItemHovered();
 -    ImGui::End();
 -
+-    // An update choice flipped while a check was already running is checked as soon as it ends.
+-    launcher.check_again_if_update_choices_changed();
 -    if (state.prompt) prompt_window(launcher, fonts, size, *state.prompt, ui);
 -    else if (qr_open) qr_window(launcher, fonts, size, state.qr);
 -    else if (ui.sign_in) sign_in_window(launcher, fonts, size, ui);
 -    else if (ui.settings) settings_window(launcher, fonts, size, ui, window);
--    else if (ui.changelog) changelog_window(fonts, size, ui);
+-    else if (ui.changelog) {
+-        ui.notes.prereleases = launcher.settings().prereleases;
+-        changelog_window(fonts, size, ui);
+-    }
 -    else if (ui.mods) mods_window(launcher, fonts, size, ui, mods_panel, window);
 -    else if (state.phase == Phase::mods_broken)
 -        mods_broken_window(launcher, fonts, size, ui, mods_panel, state.mod_problems);
@@ -26634,12 +27106,15 @@ index 6ffd6c6..30bdb6f 100644
 -
 -} // namespace dingosdk::launcher_gui::detail
 +#include "gui_internal.h"
++#include "gui_renderer.h"
 +
 +#include "mod_manager.h"
 +
 +#include "problem.h"
 +
 +#include <cmath>
++#include <fstream>
++#include <iterator>
 +#include <format>
 +
 +// The main screen: background, name plate, tiles and the STATUS tile.
@@ -26755,21 +27230,47 @@ index 6ffd6c6..30bdb6f 100644
 +    skate_theme::striped_bar(draw, a, b, fill, time, g_scale);
 +}
 +
++// Loads the signed-in account's Steam picture for the plate, or drops it when Steam is closed or
++// signed out. Only re-decoded when the cached file changes.
++void refresh_steam_avatar(Ui& ui) {
++    const auto path = launcher_app::steam_avatar_path();
++    std::error_code error;
++    const auto time = path.empty() ? fs::file_time_type{} : fs::last_write_time(path, error);
++    if (path == ui.steam_avatar_path && time == ui.steam_avatar_time) return;
++    if (ui.steam_avatar && g_renderer) g_renderer->release_texture(ui.steam_avatar);
++    ui.steam_avatar = {};
++    ui.steam_avatar_path = path;
++    ui.steam_avatar_time = time;
++    if (path.empty() || !g_renderer) return;
++    std::ifstream input(path, std::ios::binary);
++    const std::vector<unsigned char> bytes{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
++    std::vector<unsigned char> pixels;
++    UINT width{}, height{};
++    if (!bytes.empty() && decode_image(bytes, ImVec2(S(46), S(46)), pixels, width, height))
++        ui.steam_avatar = g_renderer->upload_texture(pixels, width, height);
++}
++
 +// Name plate in the top-left corner, like the HUB's player card.
-+void draw_plate(ImDrawList* draw, const Fonts& fonts, ImVec2 position, const std::string& title, const std::string& version) {
++void draw_plate(ImDrawList* draw, const Fonts& fonts, ImVec2 position, const std::string& title, const std::string& version,
++                ImTextureID avatar) {
 +    const float h = S(46);
 +    const float text = std::max(fonts.bold->CalcTextSizeA(fonts.bold->FontSize, FLT_MAX, 0, title.c_str()).x,
 +                                fonts.body->CalcTextSizeA(fonts.body->FontSize, FLT_MAX, 0, version.c_str()).x);
 +    const float width = std::max(S(300), h + S(28) + text);
 +    draw->AddRectFilled(ImVec2(position.x + h, position.y + S(3)), ImVec2(position.x + width, position.y + h - S(3)),
 +        rgba(44, 47, 49, 0.94f));
-+    draw->AddRectFilled(position, ImVec2(position.x + h, position.y + h), color::avatar);
-+    // A small deck on the avatar tile.
-+    const ImVec2 c(position.x + h * 0.5f, position.y + h * 0.5f);
-+    const int start = draw->VtxBuffer.Size;
-+    draw->AddRectFilled(ImVec2(c.x - S(15), c.y - S(5.5f)), ImVec2(c.x + S(15), c.y + S(5.5f)), color::text, S(5.5f));
-+    for (const float x : {-9.0f, 9.0f}) draw->AddCircleFilled(ImVec2(c.x + S(x), c.y), S(1.8f), color::avatar);
-+    rotate_since(draw, start, -40.0f, c);
++    if (avatar) {
++        // The player's Steam picture in the tile.
++        draw->AddImage(avatar, position, ImVec2(position.x + h, position.y + h));
++    } else {
++        draw->AddRectFilled(position, ImVec2(position.x + h, position.y + h), color::avatar);
++        // A small deck on the avatar tile.
++        const ImVec2 c(position.x + h * 0.5f, position.y + h * 0.5f);
++        const int start = draw->VtxBuffer.Size;
++        draw->AddRectFilled(ImVec2(c.x - S(15), c.y - S(5.5f)), ImVec2(c.x + S(15), c.y + S(5.5f)), color::text, S(5.5f));
++        for (const float x : {-9.0f, 9.0f}) draw->AddCircleFilled(ImVec2(c.x + S(x), c.y), S(1.8f), color::avatar);
++        rotate_since(draw, start, -40.0f, c);
++    }
 +    draw->AddCircleFilled(ImVec2(position.x + S(3), position.y + S(3)), S(5), color::good);
 +    draw->AddText(fonts.bold, fonts.bold->FontSize, ImVec2(position.x + h + S(12), position.y + S(5)), color::text, title.c_str());
 +    draw->AddText(fonts.body, fonts.body->FontSize, ImVec2(position.x + h + S(12), position.y + S(24)), color::muted, version.c_str());
@@ -27028,6 +27529,7 @@ index 6ffd6c6..30bdb6f 100644
 +    // from the first Steam check; steam_offline_seen keeps it to one decision.
 +    if (time - ui.steam_checked > 5) {
 +        ui.steam_name = launcher_app::steam_persona_name();
++        refresh_steam_avatar(ui);
 +        ui.steam_checked = time;
 +        if (!ui.steam_offline_seen) {
 +            ui.steam_offline_seen = true;
@@ -27052,7 +27554,8 @@ index 6ffd6c6..30bdb6f 100644
 +    if (update::binary_updates_enabled() && state.config && !state.config->launcher.version.empty())
 +        version = "Launcher " + state.config->launcher.version;
 +    const bool greet = !launcher.settings().offline && !ui.steam_name.empty();
-+    draw_plate(draw, fonts, ImVec2(S(50), S(40)), greet ? "Welcome, " + ui.steam_name : std::string("ReSkate"), version);
++    draw_plate(draw, fonts, ImVec2(S(50), S(40)), greet ? "Welcome, " + ui.steam_name : std::string("ReSkate"), version,
++        launcher.settings().offline ? ImTextureID{} : ui.steam_avatar);
 +    page_title(draw, fonts, ImVec2(S(52), S(88)), "RESKATE");
 +
 +    window_buttons(draw, window, size);
@@ -27162,11 +27665,16 @@ index 6ffd6c6..30bdb6f 100644
 +    g_drag_allowed = !modal && !ImGui::IsAnyItemHovered();
 +    ImGui::End();
 +
++    // An update choice flipped while a check was already running is checked as soon as it ends.
++    launcher.check_again_if_update_choices_changed();
 +    if (state.prompt) prompt_window(launcher, fonts, size, *state.prompt, ui);
 +    else if (qr_open) qr_window(launcher, fonts, size, state.qr);
 +    else if (ui.sign_in) sign_in_window(launcher, fonts, size, ui);
 +    else if (ui.settings) settings_window(launcher, fonts, size, ui, window);
-+    else if (ui.changelog) changelog_window(fonts, size, ui);
++    else if (ui.changelog) {
++        ui.notes.prereleases = launcher.settings().prereleases;
++        changelog_window(fonts, size, ui);
++    }
 +    else if (ui.mods) mods_window(launcher, fonts, size, ui, mods_panel, window);
 +    else if (state.phase == Phase::mods_broken)
 +        mods_broken_window(launcher, fonts, size, ui, mods_panel, state.mod_problems);
@@ -28119,10 +28627,10 @@ index 0000000..a3d30ff
 +observations. Automated simulations do not prove a live two-PC match.
 +No point values or additional score multiplier are implemented by 1-Up.
 diff --git a/Runtime/client_tick.cpp b/Runtime/client_tick.cpp
-index 7ab7b5d..65ecaff 100644
+index 0e123ba..628c273 100644
 --- a/Runtime/client_tick.cpp
 +++ b/Runtime/client_tick.cpp
-@@ -10,6 +10,7 @@
+@@ -15,6 +15,7 @@
  #include "Extension/Settings/job_spin.h"
  #include "Extension/Settings/replay_drafts.h"
  #include "Engine/Game/World/client_state.h"
@@ -28130,9 +28638,9 @@ index 7ab7b5d..65ecaff 100644
  #include "Extension/HallOfMeat/hall_of_meat.h"
  #include "Extension/RoadRash/road_rash.h"
  #include "Extension/BoardBreak/board_break.h"
-@@ -35,6 +36,10 @@
- #include "Extension/Skater/client_source_spawn.h"
- #include "Extension/Skater/skater_slot_override.h"
+@@ -47,6 +48,10 @@
+ #include "Extension/Skater/drone_flight.h"
+ #include "Extension/Skater/drone_outfit.h"
  #include "Extension/Throwdowns/native_throwdowns.h"
 +#include "Extension/Modes/bone_cam.h"
 +#include "Extension/Modes/race_world.h"
@@ -28141,9 +28649,9 @@ index 7ab7b5d..65ecaff 100644
  #include "Extension/Trainer/trainer.h"
  #include "Extension/World/level_loading.h"
  #include "Extension/World/loading_screen.h"
-@@ -428,7 +433,8 @@ void update_model(std::uintptr_t client, TickState& frame) {
+@@ -577,7 +582,8 @@ void update_model(std::uintptr_t client, TickState& frame) {
      }
-     DingoSDKOverlaySetPromptInputCapture(map_prompt || map_vote || prompt_held);
+     DingoSDKOverlaySetPromptInputCapture(map_prompt || map_vote || message_up || prompt_held);
      const unsigned poll_answers = dingosdk::multiplayer::server_poll_answers();
 -    bool freecam_controller = dingosdk::local_freecam_controller();
 +    const bool placement_flight = dingosdk::modes::placement_camera_requested();
@@ -28151,24 +28659,24 @@ index 7ab7b5d..65ecaff 100644
      {
          std::lock_guard lock(r.mutex);
          debug_busy = r.requests.loading();
-@@ -449,6 +455,7 @@ void update_model(std::uintptr_t client, TickState& frame) {
+@@ -598,6 +604,7 @@ void update_model(std::uintptr_t client, TickState& frame) {
              dingosdk::map_download::set_binds(r.model.bindings.vote_yes_combo, r.model.bindings.vote_no_combo);
          debug_request = r.requests.take<dingosdk::overlay::DebugRequest>(GetCurrentThreadId());
      }
 +    controller_busy = controller_busy || placement_flight;
      // Capture belongs to the freecam state itself. Keep it active across brief
      // request/loading phases instead of opening a path back to player input.
-     DingoSDKOverlaySetFreecamInputCapture(dingosdk::client_free_camera_active() && freecam_controller);
-@@ -459,7 +466,7 @@ void update_model(std::uintptr_t client, TickState& frame) {
+     DingoSDKOverlaySetFreecamInputCapture(dingosdk::client_free_camera_active() && (freecam_controller || dingosdk::drone::controller_capture()));
+@@ -608,7 +615,7 @@ void update_model(std::uintptr_t client, TickState& frame) {
          // (The card that asks has the pointer, as a menu does: it is still read for.)
-         DingoSDKOverlayReadControllerInput(&controller, map_prompt || map_vote);
+         DingoSDKOverlayReadControllerInput(&controller, map_prompt || map_vote || message_up);
      for (std::size_t i = 0; i < action_combos.size(); ++i)
 -        if (r.action_bind_latches[i].update(action_combos[i], controller, r.observer_failed)) {
 +        if (r.action_bind_latches[i].update(action_combos[i], controller, r.observer_failed || placement_flight)) {
              std::array<char, 256> result{};
              const std::string command(dingosdk::action_binds[i].command);
              if (queue_console_command(nullptr, command.c_str(), result.data(), result.size()))
-@@ -620,6 +627,16 @@ void update_model(std::uintptr_t client, TickState& frame) {
+@@ -774,6 +781,16 @@ void update_model(std::uintptr_t client, TickState& frame) {
          dingosdk::overlay::FlightInput flight_input;
          DingoSDKOverlayReadFlightInput(&flight_input, (r.debug_model.free_camera || r.debug_model.noclip) && debug_ready,
              r.debug_model.noclip || (r.debug_model.free_camera && freecam_controller));
@@ -28185,7 +28693,7 @@ index 7ab7b5d..65ecaff 100644
          const auto phase_issue = camera_phase_issue();
          auto debug = dingosdk::on_client_debug_tick(r.base, client, debug_ready,
              phase_issue == nullptr,
-@@ -1039,8 +1056,13 @@ void update_model(std::uintptr_t client, TickState& frame) {
+@@ -1219,8 +1236,13 @@ void update_model(std::uintptr_t client, TickState& frame) {
              const bool manifest_description_active = manifest_sublevel && description.available &&
                  equals(description.level, r.last_request) &&
                  equals(description.lm_level, r.last_lm_level);
@@ -28201,7 +28709,7 @@ index 7ab7b5d..65ecaff 100644
              const bool settled = r.transition_seen && (state == 13 || state == 21) && content_confirmed;
              const bool timed_out = now - r.request_started >= 90000 && (state == 13 || state == 21) && local;
              const bool cancelled = state == 2 || state == 24 || state == 25;
-@@ -1064,6 +1086,7 @@ void update_model(std::uintptr_t client, TickState& frame) {
+@@ -1244,6 +1266,7 @@ void update_model(std::uintptr_t client, TickState& frame) {
                         ",\"timed_out\":" + (timed_out ? "true" : "false") +
                         ",\"manifest_sublevel\":" + (manifest_sublevel ? "true" : "false") +
                         ",\"manifest_description_active\":" + (manifest_description_active ? "true" : "false") +
@@ -28209,7 +28717,7 @@ index 7ab7b5d..65ecaff 100644
                         ",\"start_points_matched\":" + (start_points_matched ? "true" : "false") +
                         ",\"server_sublevel_active\":" + (sublevel_active ? "true" : "false") +
                         ",\"client_sublevel_present\":" + (client_sublevel_present ? "true" : "false") +
-@@ -1305,11 +1328,13 @@ void tick(std::uintptr_t client, std::uintptr_t update) {
+@@ -1554,11 +1577,13 @@ void tick(std::uintptr_t client, std::uintptr_t update) {
          {
              DINGO_PROFILE_ZONE("tick/AI skaters");
              dingosdk::ai_skaters::tick(r.base,client,multiplayer_ready);
@@ -28224,7 +28732,7 @@ index 7ab7b5d..65ecaff 100644
          {
              DINGO_PROFILE_ZONE("tick/Steam friend join");
 diff --git a/Runtime/runtime_init.cpp b/Runtime/runtime_init.cpp
-index 727dc44..15cdef6 100644
+index 9b2e836..2bb0027 100644
 --- a/Runtime/runtime_init.cpp
 +++ b/Runtime/runtime_init.cpp
 @@ -1,4 +1,5 @@
@@ -28233,7 +28741,7 @@ index 727dc44..15cdef6 100644
  #include "Extension/Customization/item_browser.h"
  #include "bootstrap.h"
  #include "Engine/Core/Hooks/hooks.h"
-@@ -41,6 +42,7 @@
+@@ -53,6 +54,7 @@
  #include "Extension/Settings/named_settings.h"
  #include "Extension/Skater/client_source_spawn.h"
  #include "Extension/Skater/no_bail.h"
@@ -28241,18 +28749,18 @@ index 727dc44..15cdef6 100644
  #include "Extension/Skater/skater_slot_override.h"
  #include "Extension/UI/Startup/startup_window.h"
  #include "Extension/World/level_loading.h"
-@@ -322,8 +324,10 @@ extern "C" __declspec(dllexport) BOOL WINAPI DingoSDKDebugInitialize() {
-         (void)dingosdk::mesh_unload_guard::install(r.base);
+@@ -341,7 +343,10 @@ extern "C" __declspec(dllexport) BOOL WINAPI DingoSDKDebugInitialize() {
+         (void)dingosdk::light_table_guard::install(r.base);
          (void)dingosdk::load_error_guard::install(r.base);
          (void)dingosdk::texture_handle_limit::install(r.base);
 +#if !defined(DINGOSDK_LEAN_PLAYTEST)
          (void)dingosdk::stack_check_report::install(r.base);
-         dingosdk::console::start_memory_trace_from_environment();
++        dingosdk::console::start_memory_trace_from_environment();
 +#endif
-         const bool fixed_stop_provider = (global_offline_hook && progression_guard_armed) &&
-             dingosdk::prepare_fixed_stop_entitlement_provider(r.base);
-         record("{\"event\":\"fixed_stop_entitlement_provider_initialized\",\"prepared\":" +
-@@ -471,6 +475,7 @@ extern "C" __declspec(dllexport) BOOL WINAPI DingoSDKDebugInitialize() {
+         (void)dingosdk::music_inject::install(r.base);
+         (void)dingosdk::spotify_rows::install(r.base);
+         dingosdk::spotify_device::start(); // (the game as a device in the player's Spotify app)
+@@ -500,6 +505,7 @@ extern "C" __declspec(dllexport) BOOL WINAPI DingoSDKDebugInitialize() {
          r.native_loading_logging = dingosdk::start_level_loading_logging(r.base,
              [](std::uintptr_t base, unsigned next) noexcept {
                  dingosdk::local_profile_before_level_transition(next);
@@ -28378,10 +28886,32 @@ index 65c3c40..a56efe6 100644
      log.throwdown(zee, wire(Kind::offer, "SpotBattle"), &at, 1'000'000);
      log.throwdown(zee, wire(Kind::offer, "SpotBattle"), &at, 11'000'000); // repeated offer: no new line
 diff --git a/Server/Test/server_config_tests.cpp b/Server/Test/server_config_tests.cpp
-index 35a6ccf..0294d64 100644
+index fd878ea..e4c4f99 100644
 --- a/Server/Test/server_config_tests.cpp
 +++ b/Server/Test/server_config_tests.cpp
-@@ -364,29 +364,29 @@ int run() {
+@@ -176,9 +176,9 @@ int run() {
+     save_config(locks);
+     {
+         std::ifstream in(file, std::ios::binary);
+-        const std::string written((std::istreambuf_iterator<char>(in)), {});
+-        check(written.find(R"("throwdown_locks": [)") != std::string::npos && written.find(R"("nobail")") != std::string::npos,
+-              "Throwdown locks not written as names");
++        const std::string lock_names_written((std::istreambuf_iterator<char>(in)), {});
++        check(lock_names_written.find(R"("throwdown_locks": [)") != std::string::npos && lock_names_written.find(R"("nobail")") != std::string::npos,
++              "Throwdown locks not lock_names_written as names");
+     }
+     check(load_config(file).throwdown_locks == (lock_nobail | lock_tuning), "Throwdown locks lost");
+     std::ofstream(file, std::ios::binary) << R"({"players": {"throwdown_locks": ["boosts", "jetpack", 3, "teleport"]}})";
+@@ -186,7 +186,7 @@ int run() {
+     check(parse_lock_tools("all") == lock_all && parse_lock_tools(" NoBail , tuning") == (lock_nobail | lock_tuning) &&
+               !parse_lock_tools("") && !parse_lock_tools("nobail,") && !parse_lock_tools("fly"),
+           "Lock tool names not read");
+-    check(lock_tools_text(lock_all) == "noclip, nobail, boosts, tuning" && lock_tools_text(0) == "none", "Lock tool names not written");
++    check(lock_tools_text(lock_all) == "noclip, nobail, boosts, tuning" && lock_tools_text(0) == "none", "Lock tool names not lock_names_written");
+ 
+     // A config from before the sections: every setting is read from where it was, under the name
+     // it had, and the file is written back in sections, in reading order, with nothing called new
+@@ -401,29 +401,29 @@ int run() {
                    back.commands[0].commands.empty() && !back.commands[0].admin &&
                    back.commands[1].commands == voting.commands[1].commands && back.commands[2].admin,
                "Custom commands lost on save");
@@ -28431,7 +28961,7 @@ index 35a6ccf..0294d64 100644
          std::ofstream(file, std::ios::binary) << R"({"votes": {"polls": "sometimes", "poll_seconds": 5000,
              "custom": [{"name": "restart", "command": "map {map}", "percent": 500}]},
 diff --git a/Server/server_activity.cpp b/Server/server_activity.cpp
-index b90e17a..efe47ae 100644
+index 1297da8..f95a9f1 100644
 --- a/Server/server_activity.cpp
 +++ b/Server/server_activity.cpp
 @@ -53,6 +53,8 @@ void ActivityLog::throwdown(std::uint64_t sender, std::span<const std::uint8_t>
@@ -104619,28 +105149,8 @@ M|2Le!h8KGO3xiM8FaQ7m
 literal 0
 HcmV?d00001
 
-diff --git a/cmake/Backtrace.cmake b/cmake/Backtrace.cmake
-index bc50fd6..695032d 100644
---- a/cmake/Backtrace.cmake
-+++ b/cmake/Backtrace.cmake
-@@ -22,6 +22,15 @@ if(GIT_FOUND)
- endif()
- configure_file(cmake/templates/backtrace_config.h.in generated/backtrace_config.h @ONLY)
- 
-+if(DINGOSDK_LEAN_PLAYTEST)
-+    target_sources(dingosdk_launcher PRIVATE Launcher/crash_reporter_disabled.cpp)
-+    add_dependencies(dingosdk_runtime dingosdk_launcher)
-+    foreach(target dingosdk_runtime dingosdk_launcher dingosdk_server)
-+        target_link_options(${target} PRIVATE /DEBUG:NONE /INCREMENTAL:NO /OPT:REF /OPT:ICF)
-+    endforeach()
-+    return()
-+endif()
-+
- add_library(dingosdk_backtrace_client STATIC Engine/Core/Debug/client.cpp)
- add_library(dingosdk_backtrace_upload STATIC Engine/Core/Debug/upload.cpp
-     Engine/Core/Debug/native_dump.cpp Engine/Core/Debug/multipart.cpp)
 diff --git a/cmake/Core.cmake b/cmake/Core.cmake
-index 5b1df29..a465e4b 100644
+index 2a878bd..b789b5b 100644
 --- a/cmake/Core.cmake
 +++ b/cmake/Core.cmake
 @@ -37,21 +37,29 @@ target_include_directories(dingosdk_json SYSTEM PRIVATE External)
@@ -104675,8 +105185,8 @@ index 5b1df29..a465e4b 100644
      target_link_libraries(dingosdk_profiler PUBLIC dingosdk_logging PRIVATE dbghelp)
  
      add_library(dingosdk_storage STATIC Engine/Core/Storage/save_database.cpp)
-@@ -65,6 +73,8 @@ add_library(dingosdk_frostbite STATIC
-     Engine/Resource/ebx_document.cpp
+@@ -66,13 +74,14 @@ add_library(dingosdk_frostbite STATIC
+     Engine/Resource/ebx_fixup_repair.cpp
      Engine/Resource/ebx_merge.cpp
      Engine/Resource/material_grid.cpp
 +    Engine/Resource/mesh_set.cpp
@@ -104684,7 +105194,16 @@ index 5b1df29..a465e4b 100644
      Engine/Resource/shader_lookup.cpp
      Engine/Resource/bundle_ref_table.cpp
      Engine/Resource/ebx_writer.cpp
-@@ -95,6 +105,8 @@ target_link_libraries(dingosdk_game_archives PUBLIC dingosdk_native_db dingosdk_
+     Engine/Resource/toc.cpp
+-    Engine/Resource/texture.cpp
+-    Engine/Resource/mesh_set.cpp
+-    Engine/Resource/skeleton_asset.cpp)
++    Engine/Resource/texture.cpp)
++
+ target_include_directories(dingosdk_frostbite SYSTEM PRIVATE External/bcdec)
+ target_link_libraries(dingosdk_frostbite PRIVATE dingosdk_lz4 dingosdk_zstd dingosdk_miniz)
+ 
+@@ -96,6 +105,8 @@ target_link_libraries(dingosdk_game_archives PUBLIC dingosdk_native_db dingosdk_
  if(WIN32)
      add_library(dingosdk_mods STATIC
          Engine/Vfs/mod_catalog.cpp
@@ -104693,15 +105212,39 @@ index 5b1df29..a465e4b 100644
          Engine/Vfs/mod_merge.cpp
          Engine/Vfs/mod_merge_files.cpp
          Engine/Vfs/mod_merge_stamp.cpp
-@@ -106,7 +118,7 @@ if(WIN32)
-         Engine/Vfs/mod_music.cpp
-         Engine/Vfs/mod_scoring.cpp
-         Engine/Vfs/mod_store_copies.cpp)
--    target_link_libraries(dingosdk_mods PUBLIC dingosdk_json dingosdk_mod_list PRIVATE dingosdk_game_archives dingosdk_native_db dingosdk_frostbite dingosdk_content_cache shell32 bcrypt)
-+    target_link_libraries(dingosdk_mods PUBLIC dingosdk_json dingosdk_mod_list PRIVATE dingosdk_launcher_support dingosdk_game_archives dingosdk_native_db dingosdk_frostbite dingosdk_content_cache shell32 bcrypt)
+@@ -109,7 +120,7 @@ if(WIN32)
+         Engine/Vfs/mod_store_copies.cpp
+         Engine/Vfs/mod_item_sources.cpp
+         Engine/Vfs/builtin_packs.cpp)
+-    target_link_libraries(dingosdk_mods PUBLIC dingosdk_json dingosdk_mod_list PRIVATE dingosdk_game_archives dingosdk_native_db dingosdk_frostbite dingosdk_content_cache dingosdk_miniz dingosdk_zstd shell32 bcrypt)
++    target_link_libraries(dingosdk_mods PUBLIC dingosdk_json dingosdk_mod_list PRIVATE dingosdk_launcher_support dingosdk_game_archives dingosdk_native_db dingosdk_frostbite dingosdk_content_cache dingosdk_miniz dingosdk_zstd shell32 bcrypt)
  
      add_library(dingosdk_custom_scripts STATIC Engine/Scripting/custom_scripts.cpp)
      target_link_libraries(dingosdk_custom_scripts PUBLIC dingosdk_json PRIVATE dingosdk_initfs)
+diff --git a/cmake/CrashReport.cmake b/cmake/CrashReport.cmake
+index 284fb8e..64d5a28 100644
+--- a/cmake/CrashReport.cmake
++++ b/cmake/CrashReport.cmake
+@@ -22,6 +22,19 @@ if(GIT_FOUND)
+ endif()
+ configure_file(cmake/templates/crash_report_config.h.in generated/crash_report_config.h @ONLY)
+ 
++if(DINGOSDK_LEAN_PLAYTEST)
++    add_library(dingosdk_crash_report_client STATIC Engine/Core/Debug/disabled.cpp)
++    target_link_libraries(dingosdk_logging PRIVATE dingosdk_crash_report_client)
++    target_link_libraries(dingosdk_runtime PRIVATE dingosdk_crash_report_client)
++    target_link_libraries(dingosdk_launcher PRIVATE dingosdk_crash_report_client)
++    target_sources(dingosdk_launcher PRIVATE Launcher/crash_reporter_disabled.cpp)
++    add_dependencies(dingosdk_runtime dingosdk_launcher)
++    foreach(target dingosdk_runtime dingosdk_launcher dingosdk_server)
++        target_link_options(${target} PRIVATE /DEBUG:NONE /INCREMENTAL:NO /OPT:REF /OPT:ICF)
++    endforeach()
++    return()
++endif()
++
+ add_library(dingosdk_crash_report_client STATIC Engine/Core/Debug/client.cpp Engine/Core/Debug/trace.cpp)
+ target_link_libraries(dingosdk_crash_report_client PRIVATE dingosdk_json winhttp bcrypt)
+ add_library(dingosdk_crash_report_upload STATIC Engine/Core/Debug/upload.cpp
 diff --git a/cmake/ProjectOptions.cmake b/cmake/ProjectOptions.cmake
 index bb2523c..df54f55 100644
 --- a/cmake/ProjectOptions.cmake
@@ -104718,7 +105261,7 @@ index bb2523c..df54f55 100644
      set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
  endif()
 diff --git a/cmake/Runtime.cmake b/cmake/Runtime.cmake
-index 14660fb..a8d3c5d 100644
+index e6256e6..ba5dca6 100644
 --- a/cmake/Runtime.cmake
 +++ b/cmake/Runtime.cmake
 @@ -10,7 +10,7 @@ add_library(dingosdk_runtime SHARED
@@ -104727,10 +105270,10 @@ index 14660fb..a8d3c5d 100644
      Extension/Console/commands.cpp
 -    Extension/Console/perf_commands.cpp
 +    $<IF:$<BOOL:${DINGOSDK_LEAN_PLAYTEST}>,Extension/Console/perf_commands_disabled.cpp,Extension/Console/perf_commands.cpp>
+     Extension/Console/memory_ledger.cpp
      Extension/Skater/console_commands.cpp
-     Extension/Multiplayer/console_commands.cpp
-     Extension/Customization/console_commands.cpp
-@@ -22,10 +22,11 @@ add_library(dingosdk_runtime SHARED
+     Extension/Skater/drone_outfit.cpp
+@@ -24,10 +24,11 @@ add_library(dingosdk_runtime SHARED
      Extension/Multiplayer/Session/session_party.cpp
      Extension/Multiplayer/Session/party_book.cpp
      Extension/UI/NativeMenu/native_menu.cpp
@@ -104743,7 +105286,7 @@ index 14660fb..a8d3c5d 100644
      Extension/UI/NativeMenu/native_hub.cpp
      Extension/UI/NativeMenu/native_menu_data.cpp
      Extension/Multiplayer/Remote/native_skater.cpp
-@@ -51,6 +52,26 @@ add_library(dingosdk_runtime SHARED
+@@ -55,6 +56,26 @@ add_library(dingosdk_runtime SHARED
      Extension/Throwdowns/skate_trick_rule.cpp
      Extension/Throwdowns/graph_throttle.cpp
      Extension/Throwdowns/throwdown_wire.cpp
@@ -104770,7 +105313,7 @@ index 14660fb..a8d3c5d 100644
      Extension/Multiplayer/Hud/native_indicators.cpp
      Extension/Multiplayer/Steam/steam_transport.cpp
      Extension/Multiplayer/Steam/steam_social.cpp
-@@ -126,15 +147,7 @@ add_library(dingosdk_runtime SHARED
+@@ -156,15 +177,7 @@ add_library(dingosdk_runtime SHARED
      Extension/Skater/physics_tuning.cpp
      Extension/Multiplayer/Remote/remote_collision.cpp
      Extension/Skater/physics_tuning_model.cpp
@@ -104786,7 +105329,20 @@ index 14660fb..a8d3c5d 100644
      Extension/RoadRash/road_rash.cpp
      Extension/RoadRash/road_rash_commands.cpp
      Extension/BoardBreak/board_break.cpp
-@@ -230,6 +243,23 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc"
+@@ -264,9 +277,10 @@ set(dingosdk_spotify_dir "${PROJECT_SOURCE_DIR}/SpotifyHelper")
+ if(WIN32 AND DINGOSDK_CARGO AND EXISTS "${dingosdk_spotify_dir}/Cargo.toml")
+     set(dingosdk_spotify_lib "${dingosdk_spotify_dir}/target/release/reskate_spotify.lib")
+     add_custom_command(OUTPUT "${dingosdk_spotify_lib}"
+-        COMMAND "${DINGOSDK_CARGO}" build --release --lib
++        COMMAND "${CMAKE_COMMAND}" -E env "CARGO_TARGET_DIR=${dingosdk_spotify_dir}/target"
++            "${DINGOSDK_CARGO}" build --release --locked --lib
+         WORKING_DIRECTORY "${dingosdk_spotify_dir}"
+-        DEPENDS "${dingosdk_spotify_dir}/src/lib.rs" "${dingosdk_spotify_dir}/Cargo.toml" "${dingosdk_spotify_dir}/Cargo.lock"
++        DEPENDS "${dingosdk_spotify_dir}/src/lib.rs" "${dingosdk_spotify_dir}/Cargo.toml" "${dingosdk_spotify_dir}/Cargo.lock" "${dingosdk_spotify_dir}/src/stream.rs" "${dingosdk_spotify_dir}/.cargo/config.toml"
+         COMMENT "Building the Spotify device (cargo)"
+         VERBATIM)
+     add_custom_target(dingosdk_spotify_device DEPENDS "${dingosdk_spotify_lib}")
+@@ -299,6 +313,23 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc"
      "FONT_BODY RCDATA \"${dingosdk_menu_fonts}/Montserrat-SemiBold.ttf\"\n"
      "FONT_BRUSH RCDATA \"${dingosdk_menu_fonts}/PermanentMarker-Regular.ttf\"\n")
  target_sources(dingosdk_runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc")
@@ -104811,11 +105367,11 @@ index 14660fb..a8d3c5d 100644
  # The startup window's picture (PNG or JPEG), built into ReSkate.dll when the
  # repository has one. ReSkate.Splash.png/.jpg beside the DLL still takes
 diff --git a/cmake/UI.cmake b/cmake/UI.cmake
-index 34634f2..1adfd30 100644
+index 778adce..fd94a6c 100644
 --- a/cmake/UI.cmake
 +++ b/cmake/UI.cmake
-@@ -16,6 +16,7 @@ add_library(dingosdk_overlay STATIC
-     Extension/UI/Overlay/game_text_overlay.cpp
+@@ -19,6 +19,7 @@ add_library(dingosdk_overlay STATIC
+     Extension/UI/Overlay/drone_page.cpp
      Extension/UI/Overlay/perf_overlay.cpp
      Extension/UI/Overlay/skate_hud_overlay.cpp
 +    Extension/UI/Overlay/one_up_overlay.cpp

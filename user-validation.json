@@ -1,0 +1,20 @@
+{
+  "validation": "HUMAN_CONFIRMED",
+  "scope": "Repeated map transitions on the installed custom ReSkate 2.1.0 build",
+  "question": "Your custom ReSkate 2.1.0 build is installed, and the approved crash recorder is waiting. Please launch it yourself, load Skate3Improved, switch to Skate2Improved and back, then repeat that loop. Does your skater appear and move after every load? If it freezes, leave it open.",
+  "answer": "Every load works",
+  "evidence": "User gameplay report; no independent native trace is claimed.",
+  "recorded_at_utc": "2026-10-18T02:36:52.483579+00:00",
+  "runtime_files": {
+    "ReSkate.dll": {
+      "bytes": 30261248,
+      "sha256": "84ed58c2d76ba8cddea915927dd042cec25f48e8c9a891bee582b05fe9b3d056"
+    },
+    "ReSkateLauncher.exe": {
+      "bytes": 5293056,
+      "sha256": "8eb3ece0d8b164ee0d1df9c5c0a5fdfc18bbad4122cc414fb0f43e2320b32afc"
+    }
+  },
+  "source_merge_commit": "9f86aadfdaeab5d31093a5df40a0ce5b71121b76",
+  "wider_multiplayer": "PENDING"
+}

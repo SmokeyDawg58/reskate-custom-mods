@@ -1,3 +1,5 @@
+> Historical 2.0.7 release notes. Use [current 2.1.0 notes](RELEASE_NOTES_20261017.md) and the [current download](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.1.0-custom-20261017).
+
 # ReSkate 2.0.7 custom — Deathrace editor, recovery and HUD
 
 This release gathers the local playtest work since the previous public R.E.S.K.A.T.E. artwork release. Use the matching DLL, launcher and **complete Throwdown Assets 1.0.6** on every PC. The asset pack is updated from the previous public 1.0.2 package.

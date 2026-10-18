@@ -1,4 +1,5 @@
 #include "native_skater_internal.h"
+#include "native_prop.h"
 #include "native_pose_layout.h"
 #include "puppet_cost.h"
 #include "Extension/Modes/race_world.h"
@@ -387,6 +388,7 @@ void destroy_hook(std::uintptr_t entity, std::uintptr_t owner) {
     modes::race_world::entity_destroyed(entity);
     // Other SDK-created actors share this hook; they must forget the entity
     // before the engine frees it.
+    prop_entity_destroyed(entity);
     if (const auto listener = shared().destroyed_listener.load(std::memory_order_acquire))
         listener(entity);
     // The first slot watching it as either skater or board.

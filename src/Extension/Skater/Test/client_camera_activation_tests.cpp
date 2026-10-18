@@ -67,6 +67,9 @@ int main() {
         camera=fixture_camera;t.debug.first_person=true;
         check(!verified_free_camera_view(t.debug,camera),"First person authorized freecam placement rays");
 
+        t.debug.first_person=false;t.debug.drone_follow=true;
+        check(!verified_free_camera_view(t.debug,fixture_camera),"Drone follow authorized editor placement rays");
+        t.debug.drone_follow=false;
         reset();t=trial();camera=fixture_camera;fail_mode=true;
         rejected([&]{activate_free_camera(t,1,camera,0);},"Native mode exception escaped the ownership guard");
         check(t.debug.camera_ambiguous && !verified_free_camera_view(t.debug,camera),"Uncertain native call left the placement camera verified");

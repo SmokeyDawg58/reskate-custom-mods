@@ -1,9 +1,17 @@
-# Validation scope
+# Diagnostics and validation
 
-All 79 automated Release checks pass. They cover rules/wire formats, asset corruption/missing-file handling, menu/HUD lifetimes, disabled diagnostics, recovery, geometry and the final title alignment regression. The source overlay is independently reconstructed and applied against the pinned upstream commit. Packages and GitHub downloads are hash-verified before publication.
+## Passed on this release
 
-The owner confirmed new Chevron ground clearance and all three snap directions, and the larger compass gate's size/position/camera-relative motion on the preceding installed build. These behaviors are unchanged in the final title-only correction. Earlier reported confirmations cover repeated fall recovery with retained speed and quiet C cue, deliberate-dismount exclusion, gates after map changes and native guest flag/controls/guest-only Quit behavior in their tested builds.
+- All 90 configured optimized Release checks; no failed or skipped cases.
+- Exact source reconstruction from official 2.1.0, matching runtime/asset hashes, archive integrity and disabled diagnostics.
+- Both actual Improved maps in an isolated merge fixture: 1,162 chunk-bearing bundles and 646 texture records; exact Chevron geometry retained; three native shader-guard fingerprints match.
+- Backup-installer fixtures: preservation, running-program protection, missing-assets rejection, rollback on injected copy failure and Mods/ModData routing.
+- Human gameplay confirmation on the exact published runtime: repeated Skate3Improved → Skate2Improved → Skate3Improved loops; skater visible and moving after each load. The owner reported “Every load works.” See user-validation.json. No independent native trace is claimed for that run.
 
-The owner confirmed the final title/logo alignment on the matching installed build. Wider multiplayer scenarios and grace-period finish combinations are pending. No new multi-PC load simulation or live disconnect test was run for this release. The native Spot Battle join wording and dedicated R.E.S.K.A.T.E. rules playtest remain deferred. Automated checks are not a blanket multiplayer certification.
+## Remaining checks
 
-Assets 1.0.6 contain 17 native payload files plus two quiet WAVs, pinned by the runtime. The complete source project has 2,147 resources. No native payload changed in the final title correction. The fixed HUD presenter catalogue, visibility ownership, working recovery and other covered source were preserved. No enabled logging, profiling, crash capture or shipped PDB/CodeView/COFF symbols are included. The large native archive remains outside the lean DLL.
+Wider multi-PC host/guest, disconnect/rejoin, longer sessions, finish crossings during bail/board-loss grace periods, and complete audio coverage remain playtest work. Historical narrow confirmations of custom features were made on earlier builds and do not certify every 2.1.0 combination. One native join confirmation may still say Spot Battle; live wording inspection and the dedicated R.E.S.K.A.T.E. rules playtest were deferred.
+
+Original map inputs contain six lighting declared-size warnings. The focused geometry/metadata check does not certify every third-party map payload.
+
+Runtime logging, profiling, tracing, crash uploads and shipped debug symbols are disabled. No private captures, local paths, personal settings or game binaries are included in the release.
