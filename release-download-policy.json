@@ -1,0 +1,19 @@
+{
+  "effective": "2026-10-18",
+  "requested_by": "repository owner",
+  "release_assets": [
+    "ReSkate.dll",
+    "ReSkateLauncher.exe",
+    "complete current Throwdown Assets ZIP"
+  ],
+  "exclude": [
+    "Full ZIP",
+    "Runtime Update ZIP",
+    "Source ZIP",
+    "separate native archive",
+    "diagnostic attachments"
+  ],
+  "source": "Keep corresponding source, reconstruction patch, build instructions and detailed notes in the repository.",
+  "assets": "Ship the complete matching updated asset pack; use the same version on every PC.",
+  "previous_releases": "Retain historical releases; no deletion requested."
+}

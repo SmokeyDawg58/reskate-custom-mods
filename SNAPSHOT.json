@@ -2,8 +2,8 @@
   "upstream": "https://github.com/Dingo-Shenanigans/ReSkate",
   "upstream_commit": "ba1245a5af51892e90f2be8637dd69a7e20f5b77",
   "version": "2.1.0",
-  "variant": "reskate-mode-210-local-main-merge",
-  "release_tag": null,
+  "variant": "reskate-mode-210-deathrace-update",
+  "release_tag": "v2.1.0-custom-20261018-reskate-deathrace",
   "tests_passed": 91,
   "multiplayer_protocol_version": 52,
   "mode_wire_version": 16,
@@ -1201,14 +1201,14 @@
   "prerelease": true,
   "source_commit": "82e0c34c2fe167dffe387ec10501f772a48530e2",
   "source_tree": "4f7e279ad82c5f7a07c388bf46b8fdad2308eae3",
-  "live_validation": "KNOWN_ISSUES_REPORTED",
+  "live_validation": "PENDING",
   "known_issues": [
     "The challenge HUD can still disappear on custom maps after map travel.",
     "Nearby flag banners and map details can still show Spot Battle for a Deathrace."
   ],
   "asset_version": "1.0.7",
-  "publication": "LOCAL_ONLY",
-  "published": false,
+  "publication": "GITHUB_RELEASE",
+  "published": true,
   "readiness": "AUTOMATED_PASS_LIVE_PENDING",
   "merge": {
     "branch": "reskate-mode-210",
@@ -1227,5 +1227,11 @@
   ],
   "diagnostic_logging": false,
   "historical_manual_verification": [],
-  "source_overlay_line_endings": "LF; BUILD_SOURCES.json retains the exact raw canonical build inputs"
+  "source_overlay_line_endings": "LF; BUILD_SOURCES.json retains the exact raw canonical build inputs",
+  "release_downloads": [
+    "ReSkate.dll",
+    "ReSkateLauncher.exe",
+    "SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.7.zip"
+  ],
+  "release_notes": "docs/RELEASE_NOTES_20261018_RESKATE_DEATHRACE.md"
 }

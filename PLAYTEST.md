@@ -1,6 +1,6 @@
 # Later playtest
 
-Use matching 2.1.0 runtime and complete Assets 1.0.7 on both PCs. First check R.E.S.K.A.T.E. spectator lock, copied/failed/invalid callouts, one-second stable landing, combinations, spread return positions and Goofy setting diagrams. The Full package is recommended. Close the game/launcher yourself, run the backup installer and preflight, then launch yourself.
+Use matching 2.1.0 runtime and complete Assets 1.0.7 on both PCs. First check R.E.S.K.A.T.E. spectator lock, copied/failed/invalid callouts, one-second stable landing, combinations, spread return positions and Goofy setting diagrams. Download both runtime files and Assets 1.0.7 from the current release. Close the game/launcher yourself, back up and replace the runtime pair and complete asset folder, then launch yourself.
 
 - Switch stock map -> Skate3Improved -> Skate2Improved -> stock and repeat. Start a challenge after each load. Repeat with stock Compass/D-Pad hidden; the custom gameplay HUD should remain available.
 - Build a Deathrace while the other player watches. No join flag/course should be advertised until Save. Cancel an unfinished draft, reopen, Save, enroll, Leave/re-enroll and host Start without any Ready step.
@@ -9,4 +9,4 @@ Use matching 2.1.0 runtime and complete Assets 1.0.7 on both PCs. First check R.
 - Place air gates, floor/wall/air Chevrons, tilt/roll using X plus R3, Undo/Redo after reopening, and inspect Route Info/object labels. Check the taller flag and red Finish compass icon.
 - Check the compact themed intro and exact Deathrace nearby/map/details identity. Recheck 1-UP and R.E.S.K.A.T.E. enrollment, letters, trick zone and solo copy flow.
 
-Automated checks pass; these live checks are pending. No GitHub push was performed.
+Automated checks pass; these live checks are pending. The exact combined runtime has not yet been checked in game. Publishing does not count as gameplay validation.

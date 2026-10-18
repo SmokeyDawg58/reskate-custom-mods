@@ -15,8 +15,14 @@
   "session_protocol": 52,
   "assets_version": "1.0.7",
   "incoming_commit": "00c5fa2b4dedebb8849cdb289d44ef20a25f78ea",
-  "publication": "LOCAL_ONLY",
-  "published": false,
+  "publication": "GITHUB_RELEASE",
+  "published": true,
   "installed": false,
-  "live_validation": "PENDING"
+  "live_validation": "PENDING",
+  "release_tag": "v2.1.0-custom-20261018-reskate-deathrace",
+  "release_downloads": [
+    "ReSkate.dll",
+    "ReSkateLauncher.exe",
+    "SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.7.zip"
+  ]
 }
