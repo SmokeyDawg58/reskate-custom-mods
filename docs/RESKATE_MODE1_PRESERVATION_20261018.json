@@ -1,0 +1,18 @@
+{
+  "result": "PASS",
+  "only_changed_canonical_files": [
+    "Extension/Modes/game_modes.cpp",
+    "Extension/Modes/race_world.cpp"
+  ],
+  "other_build_inputs_preserved": 1183,
+  "deathrace_and_enrollment": "UNCHANGED",
+  "changed_functions": [
+    "skate_trick",
+    "tick_zone"
+  ],
+  "native_audio_assets": "UNCHANGED",
+  "cleanup_cancelled": true,
+  "no_release_or_tag_deleted": true,
+  "published": false,
+  "installed": false
+}

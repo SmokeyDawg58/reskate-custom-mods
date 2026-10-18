@@ -2,1222 +2,1222 @@
   "upstream": "https://github.com/Dingo-Shenanigans/ReSkate",
   "upstream_commit": "ba1245a5af51892e90f2be8637dd69a7e20f5b77",
   "version": "2.1.0",
-  "variant": "reskate-mode-210-deathrace-update",
-  "release_tag": "v2.1.0-custom-20261018-reskate-deathrace",
+  "variant": "reskate-mode1-main-merge",
+  "release_tag": null,
   "tests_passed": 91,
   "multiplayer_protocol_version": 52,
   "mode_wire_version": 16,
   "one_up_wire_version": 5,
   "integration_merge_commit": "9f86aadfdaeab5d31093a5df40a0ce5b71121b76",
-  "integration_source_tree": "2b7cbc8a992147d31f03f9b960b0329ff8154fe8",
-  "release_dll_sha256": "c05a37156b97b80e82a7a207e53423cf856e1ae121ad97ccf40499e5baa1f0e6",
-  "release_launcher_sha256": "7ae6122f8d6e96a3efe532f600b0083dc4d29513effc36953b6f9bc5871c8b64",
+  "integration_source_tree": "37f3c1075346b360c8d9b9ea2f8e7358a03be99f",
+  "release_dll_sha256": "48632e6e8b4dbeb98ca3a8152a83cfbd5651753309617dfca292cee5b8f45d1f",
+  "release_launcher_sha256": "70a0f50f639a612239e62b5813f749519450da8ae88cea6f88d9445e1960f0aa",
   "native_assets_sha256": "328fc5a05cf684b4dcb4630859c8c5d2e65c2736384bf4d8b7010565edc78bf2",
   "native_assets_bytes": 502070658,
   "files": [
     {
       "path": ".gitignore",
-      "sha256": "ac93c522c22cea3deba39c24a9a9c21accd80cec55ed561f78f2ac56058cdf7e",
-      "bytes": 700
+      "bytes": 700,
+      "sha256": "ac93c522c22cea3deba39c24a9a9c21accd80cec55ed561f78f2ac56058cdf7e"
     },
     {
       "path": "CMakeLists.txt",
-      "sha256": "a9236d8e279e8512b453a7c8c9eed8f628535134410adb3ed3b779233360335e",
-      "bytes": 37893
+      "bytes": 37893,
+      "sha256": "a9236d8e279e8512b453a7c8c9eed8f628535134410adb3ed3b779233360335e"
     },
     {
       "path": "CMakePresets.json",
-      "sha256": "a729827bcb89e8bc3b444ba20cf0d9e7330210f7750db41eebdfcb4428c5e72e",
-      "bytes": 1473
+      "bytes": 1473,
+      "sha256": "a729827bcb89e8bc3b444ba20cf0d9e7330210f7750db41eebdfcb4428c5e72e"
     },
     {
       "path": "Engine/Core/Debug/disabled.cpp",
-      "sha256": "79670460f03d6a49658f404c6ce2fb1f37951eba31412e17a74d9cf6c60e71ca",
-      "bytes": 906
+      "bytes": 906,
+      "sha256": "79670460f03d6a49658f404c6ce2fb1f37951eba31412e17a74d9cf6c60e71ca"
     },
     {
       "path": "Engine/Core/Log/Test/disabled_diagnostics_tests.cpp",
-      "sha256": "2f947bfb1b9aa1f02261a0d28b1f6bab08aa7384ecde7b4b8c4394b45ef7848c",
-      "bytes": 2937
+      "bytes": 2937,
+      "sha256": "2f947bfb1b9aa1f02261a0d28b1f6bab08aa7384ecde7b4b8c4394b45ef7848c"
     },
     {
       "path": "Engine/Core/Log/disabled.cpp",
-      "sha256": "02738faa81f1443008dcdadef0431addd4354bddaa05e401d38b021c728a7321",
-      "bytes": 1411
+      "bytes": 1411,
+      "sha256": "02738faa81f1443008dcdadef0431addd4354bddaa05e401d38b021c728a7321"
     },
     {
       "path": "Engine/Core/Log/lean_backtrace_disabled.cpp",
-      "sha256": "f4b8a0a65090b4ea6f44ec3d85f998e819a7ebc81990bbde8ec3a5295847a18a",
-      "bytes": 535
+      "bytes": 535,
+      "sha256": "f4b8a0a65090b4ea6f44ec3d85f998e819a7ebc81990bbde8ec3a5295847a18a"
     },
     {
       "path": "Engine/Core/Log/logger.cpp",
-      "sha256": "94ce3ef99f3bf0cd0edd0dba605f516e7d7c52f98f494b94c1097bfb6619d9b6",
-      "bytes": 15991
+      "bytes": 15991,
+      "sha256": "94ce3ef99f3bf0cd0edd0dba605f516e7d7c52f98f494b94c1097bfb6619d9b6"
     },
     {
       "path": "Engine/Core/Log/logging.h",
-      "sha256": "c101a167d004bed94d568aa8984d116f91f510011926cf6e1c9990eb7685a882",
-      "bytes": 3300
+      "bytes": 3300,
+      "sha256": "c101a167d004bed94d568aa8984d116f91f510011926cf6e1c9990eb7685a882"
     },
     {
       "path": "Engine/Core/Profiling/disabled.cpp",
-      "sha256": "a1517504821f87525cb756a542c96b47790748ff265ef6db5239d618a7da14fb",
-      "bytes": 1202
+      "bytes": 1202,
+      "sha256": "a1517504821f87525cb756a542c96b47790748ff265ef6db5239d618a7da14fb"
     },
     {
       "path": "Engine/Core/Profiling/profiler.h",
-      "sha256": "ed419d0eb8b9631f430cc931bbad94239a01470b984b2e4062ee24639b34afcd",
-      "bytes": 8595
+      "bytes": 8595,
+      "sha256": "ed419d0eb8b9631f430cc931bbad94239a01470b984b2e4062ee24639b34afcd"
     },
     {
       "path": "Engine/Game/Build/20260929/guid_table_lookup.h",
-      "sha256": "d21ccb5e448ed8dbe5da32c9eca64697400367d4e0ee85c0847124bfe4f75bb3",
-      "bytes": 1470
+      "bytes": 1470,
+      "sha256": "d21ccb5e448ed8dbe5da32c9eca64697400367d4e0ee85c0847124bfe4f75bb3"
     },
     {
       "path": "Engine/Game/Build/20260929/native_throwdowns.h",
-      "sha256": "1ae708facec97160257ca0efe82083952c2c7d7b92097c7c4946271a232e4f77",
-      "bytes": 14364
+      "bytes": 14364,
+      "sha256": "1ae708facec97160257ca0efe82083952c2c7d7b92097c7c4946271a232e4f77"
     },
     {
       "path": "Engine/Game/Build/20260929/no_bail.h",
-      "sha256": "4a210bc79c73b0b5f8fe2c4de39f50303e6c8712a879995c160923a3231a6494",
-      "bytes": 8777
+      "bytes": 8777,
+      "sha256": "4a210bc79c73b0b5f8fe2c4de39f50303e6c8712a879995c160923a3231a6494"
     },
     {
       "path": "Engine/Game/Build/20260929/one_up_scoring.h",
-      "sha256": "13dd0f64e8da5cff22185adb84fd814d8234c59199e2eb1be2ccc470b1a37761",
-      "bytes": 2108
+      "bytes": 2108,
+      "sha256": "13dd0f64e8da5cff22185adb84fd814d8234c59199e2eb1be2ccc470b1a37761"
     },
     {
       "path": "Engine/Game/Build/20260929/race_objects.h",
-      "sha256": "fd136f81a86f54e758c77d32aeee6cf7e0630ccd1a5e944ad66c8aad97576ad8",
-      "bytes": 398
+      "bytes": 398,
+      "sha256": "fd136f81a86f54e758c77d32aeee6cf7e0630ccd1a5e944ad66c8aad97576ad8"
     },
     {
       "path": "Engine/Game/Build/20260929/skater_entities.h",
-      "sha256": "382de724d0314e715ea83bcb5f68e40c55bcff3a3979467c67c115939a017a7e",
-      "bytes": 4264
+      "bytes": 4264,
+      "sha256": "382de724d0314e715ea83bcb5f68e40c55bcff3a3979467c67c115939a017a7e"
     },
     {
       "path": "Engine/Game/Input/owned_menu_input.h",
-      "sha256": "451dee4999e5fa85cd137087034ccfdc220261cac3f19368f141c8b5d047cda1",
-      "bytes": 653
+      "bytes": 653,
+      "sha256": "451dee4999e5fa85cd137087034ccfdc220261cac3f19368f141c8b5d047cda1"
     },
     {
       "path": "Engine/Game/Multiplayer/session_competition.h",
-      "sha256": "e9078dbf2b20af1d7becbbf1237075abe3abb9533d731308d38c4a81993d3bc7",
-      "bytes": 535
+      "bytes": 535,
+      "sha256": "e9078dbf2b20af1d7becbbf1237075abe3abb9533d731308d38c4a81993d3bc7"
     },
     {
       "path": "Engine/Game/Multiplayer/session_physics.h",
-      "sha256": "c40b43ff02244cec4523fb63527419d2963d2a054448648baaf34ed1bbd7a3e0",
-      "bytes": 3360
+      "bytes": 3360,
+      "sha256": "c40b43ff02244cec4523fb63527419d2963d2a054448648baaf34ed1bbd7a3e0"
     },
     {
       "path": "Engine/Game/Multiplayer/session_tools.h",
-      "sha256": "f27ee30cf3e5d3e386a6ff4420f59f6035afae8274e2d1f5ddb101d6c252976d",
-      "bytes": 1606
+      "bytes": 1606,
+      "sha256": "f27ee30cf3e5d3e386a6ff4420f59f6035afae8274e2d1f5ddb101d6c252976d"
     },
     {
       "path": "Engine/Game/World/load_completion.h",
-      "sha256": "2a143dbb2e42a88d3c9b0293b5f486c0536d0e9fd6adb8ce0c9db7c49420553f",
-      "bytes": 731
+      "bytes": 731,
+      "sha256": "2a143dbb2e42a88d3c9b0293b5f486c0536d0e9fd6adb8ce0c9db7c49420553f"
     },
     {
       "path": "Engine/Vfs/Test/mod_merge_added_assets_tests.cpp",
-      "sha256": "e23ebb4ed3de8c6be8e5b981a51fdf00dfe064e794c651d8d1b6dd7b6e19ed9d",
-      "bytes": 54438
+      "bytes": 54438,
+      "sha256": "e23ebb4ed3de8c6be8e5b981a51fdf00dfe064e794c651d8d1b6dd7b6e19ed9d"
     },
     {
       "path": "Engine/Vfs/Test/mod_merge_audit_tests.cpp",
-      "sha256": "9fff954e3a2f12b9c6b4864124c5d63c2bb8ffe8a7aa3fdffdaba81129249a86",
-      "bytes": 66114
+      "bytes": 66114,
+      "sha256": "9fff954e3a2f12b9c6b4864124c5d63c2bb8ffe8a7aa3fdffdaba81129249a86"
     },
     {
       "path": "Engine/Vfs/Test/native_asset_package_tests.cpp",
-      "sha256": "b9a8b7a1d619f955322c7a975764ee91d9bba98db2dfba865bf4d8627d52347e",
-      "bytes": 5964
+      "bytes": 5964,
+      "sha256": "b9a8b7a1d619f955322c7a975764ee91d9bba98db2dfba865bf4d8627d52347e"
     },
     {
       "path": "Engine/Vfs/mod_catalog.cpp",
-      "sha256": "434b21c9718ee23972f4d10647a5bdd8dd874ba19796db4a2ecdde3513e3383a",
-      "bytes": 34275
+      "bytes": 34275,
+      "sha256": "434b21c9718ee23972f4d10647a5bdd8dd874ba19796db4a2ecdde3513e3383a"
     },
     {
       "path": "Engine/Vfs/mod_merge_combine.cpp",
-      "sha256": "2bf095189e67e5beb3e5d36287d62dd2ccc6b70c1f63a2f2d2861c00e5b45403",
-      "bytes": 77872
+      "bytes": 77872,
+      "sha256": "2bf095189e67e5beb3e5d36287d62dd2ccc6b70c1f63a2f2d2861c00e5b45403"
     },
     {
       "path": "Engine/Vfs/mod_merge_internal.h",
-      "sha256": "744f3616e6bc1a4cb51e604710b0da24ab7debc3c068023c17d4cb7de93f4fe6",
-      "bytes": 19539
+      "bytes": 19539,
+      "sha256": "744f3616e6bc1a4cb51e604710b0da24ab7debc3c068023c17d4cb7de93f4fe6"
     },
     {
       "path": "Engine/Vfs/mod_merge_overrides.cpp",
-      "sha256": "52446d61085f79c473b54cba306cb15f6819a14d4786d7d44f3351bd9638dfc4",
-      "bytes": 32990
+      "bytes": 32990,
+      "sha256": "52446d61085f79c473b54cba306cb15f6819a14d4786d7d44f3351bd9638dfc4"
     },
     {
       "path": "Engine/Vfs/native_asset_mod.cpp",
-      "sha256": "b1ce46db083d429dec8114df016436313ae3a6de915ebedf1ef21171a2de6710",
-      "bytes": 3566
+      "bytes": 3566,
+      "sha256": "b1ce46db083d429dec8114df016436313ae3a6de915ebedf1ef21171a2de6710"
     },
     {
       "path": "Engine/Vfs/native_asset_mod.h",
-      "sha256": "0e580e2ce11cccf288e5874cac722b945dd18deb47074ce553664dbadcd6b4bc",
-      "bytes": 575
+      "bytes": 575,
+      "sha256": "0e580e2ce11cccf288e5874cac722b945dd18deb47074ce553664dbadcd6b4bc"
     },
     {
       "path": "Engine/Vfs/native_asset_mod_manifest.h",
-      "sha256": "427784c191f7b4601854b72e66c36c5608527e66f8ff12c730a263158a7fb193",
-      "bytes": 2762
+      "bytes": 2762,
+      "sha256": "427784c191f7b4601854b72e66c36c5608527e66f8ff12c730a263158a7fb193"
     },
     {
       "path": "Engine/Vfs/one_up_core_assets.cpp",
-      "sha256": "09846ef7ec2426331819d66361e773803e779bda96e6e0cfbafef49ae3141e84",
-      "bytes": 5683
+      "bytes": 5683,
+      "sha256": "09846ef7ec2426331819d66361e773803e779bda96e6e0cfbafef49ae3141e84"
     },
     {
       "path": "Engine/Vfs/one_up_core_assets.h",
-      "sha256": "484858aa600fa48be2c2f1fc45355fc0c8578210cac92f24ed6834070bbb340c",
-      "bytes": 323
+      "bytes": 323,
+      "sha256": "484858aa600fa48be2c2f1fc45355fc0c8578210cac92f24ed6834070bbb340c"
     },
     {
       "path": "Engine/Vfs/race_core_assets.h",
-      "sha256": "2db1179b97c69448b78c76b1afd1ad7045113faa98363f96f5b2cb4360868234",
-      "bytes": 2518
+      "bytes": 2518,
+      "sha256": "2db1179b97c69448b78c76b1afd1ad7045113faa98363f96f5b2cb4360868234"
     },
     {
       "path": "Extension/Console/commands.cpp",
-      "sha256": "da0e542f991d49dec32caa7e80ef5ada6b2e07ca80ae074e17d0ae65da3fe110",
-      "bytes": 11140
+      "bytes": 11140,
+      "sha256": "da0e542f991d49dec32caa7e80ef5ada6b2e07ca80ae074e17d0ae65da3fe110"
     },
     {
       "path": "Extension/Console/commands.h",
-      "sha256": "bdc4a1f037e35cc21771fac923609b0cfce87ce8f292433fd83c7722af5c0589",
-      "bytes": 2275
+      "bytes": 2275,
+      "sha256": "bdc4a1f037e35cc21771fac923609b0cfce87ce8f292433fd83c7722af5c0589"
     },
     {
       "path": "Extension/Console/perf_commands_disabled.cpp",
-      "sha256": "09e50172084d6b3386a6567d2c7298276a228216d7592668029f7a9475917d74",
-      "bytes": 151
+      "bytes": 151,
+      "sha256": "09e50172084d6b3386a6567d2c7298276a228216d7592668029f7a9475917d74"
     },
     {
       "path": "Extension/Customization/local_player_card_runtime.cpp",
-      "sha256": "533ca3a66445cc5ea2a6da18bf3d34dbfde24708c088918ec99d3546d9b49ece",
-      "bytes": 18906
+      "bytes": 18906,
+      "sha256": "533ca3a66445cc5ea2a6da18bf3d34dbfde24708c088918ec99d3546d9b49ece"
     },
     {
       "path": "Extension/HallOfMeat/hall_of_meat.cpp",
-      "sha256": "897984c1d8e7dc372998f3f2f0199b532b49803c444c7f57ac91a5ffa117baad",
-      "bytes": 11987
+      "bytes": 11987,
+      "sha256": "897984c1d8e7dc372998f3f2f0199b532b49803c444c7f57ac91a5ffa117baad"
     },
     {
       "path": "Extension/HallOfMeat/hall_of_meat.h",
-      "sha256": "0272f6b47a169d8a66606e3abbe7796a78ac3b337ecab33ab2d99ec4f4370db1",
-      "bytes": 3784
+      "bytes": 3784,
+      "sha256": "0272f6b47a169d8a66606e3abbe7796a78ac3b337ecab33ab2d99ec4f4370db1"
     },
     {
       "path": "Extension/HallOfMeat/hall_of_meat_hud.cpp",
-      "sha256": "87bb273023dcd9bd4d6bbc44a1c0e61ebea83c44b46b118172f250f23385086f",
-      "bytes": 14896
+      "bytes": 14896,
+      "sha256": "87bb273023dcd9bd4d6bbc44a1c0e61ebea83c44b46b118172f250f23385086f"
     },
     {
       "path": "Extension/HallOfMeat/hall_of_meat_hud.h",
-      "sha256": "23bd7fe52916733863451b138acfdb68a17909206e1d90e913faf21edd7a816b",
-      "bytes": 1791
+      "bytes": 1791,
+      "sha256": "23bd7fe52916733863451b138acfdb68a17909206e1d90e913faf21edd7a816b"
     },
     {
       "path": "Extension/HallOfMeat/hall_of_meat_overlay.cpp",
-      "sha256": "0e7a26a401308c2b576859b3c893400046f3a47e223af48c6fad8333b3cb1e57",
-      "bytes": 25387
+      "bytes": 25387,
+      "sha256": "0e7a26a401308c2b576859b3c893400046f3a47e223af48c6fad8333b3cb1e57"
     },
     {
       "path": "Extension/Modes/Test/mode_rules_tests.cpp",
-      "sha256": "0779a563bea0e33f6543190973c3139e6ffb4f433186368a0ab3f005bc198e4a",
-      "bytes": 107247
+      "bytes": 107247,
+      "sha256": "0779a563bea0e33f6543190973c3139e6ffb4f433186368a0ab3f005bc198e4a"
     },
     {
       "path": "Extension/Modes/Test/race_asset_contract_tests.cpp",
-      "sha256": "09c7ad4ba80f3c92fc5084552dd0c9ba76c23fc5c2111a68b40e9cdaec57d387",
-      "bytes": 10810
+      "bytes": 10810,
+      "sha256": "09c7ad4ba80f3c92fc5084552dd0c9ba76c23fc5c2111a68b40e9cdaec57d387"
     },
     {
       "path": "Extension/Modes/Test/trick_gesture_tests.cpp",
-      "sha256": "9ef17a983d60159fbae838522748c51457e7ec6500369906a455ee959e7925f9",
-      "bytes": 2173
+      "bytes": 2173,
+      "sha256": "9ef17a983d60159fbae838522748c51457e7ec6500369906a455ee959e7925f9"
     },
     {
       "path": "Extension/Modes/Tools/bake_skatepedia_inputs.py",
-      "sha256": "2a888fac22c9d90750b23c6ed92ba9efdcdc06ddb0186c64dae8000350f6075a",
-      "bytes": 3604
+      "bytes": 3604,
+      "sha256": "2a888fac22c9d90750b23c6ed92ba9efdcdc06ddb0186c64dae8000350f6075a"
     },
     {
       "path": "Extension/Modes/bone_cam.cpp",
-      "sha256": "d803a45c274cdf5fafee859580086b299b34170dad55663233c729a3982ff56d",
-      "bytes": 36365
+      "bytes": 36365,
+      "sha256": "d803a45c274cdf5fafee859580086b299b34170dad55663233c729a3982ff56d"
     },
     {
       "path": "Extension/Modes/bone_cam.h",
-      "sha256": "9250d22f09bfbc85175087d8d3cf7db8d610bb998328d5a94d98ae77a75fd7fe",
-      "bytes": 2195
+      "bytes": 2195,
+      "sha256": "9250d22f09bfbc85175087d8d3cf7db8d610bb998328d5a94d98ae77a75fd7fe"
     },
     {
       "path": "Extension/Modes/bone_sprites.h",
-      "sha256": "c2d17bdb84d2467ac2cb23117329edeadea2f3a0a6e0ce0cb675061f70225550",
-      "bytes": 2037
+      "bytes": 2037,
+      "sha256": "c2d17bdb84d2467ac2cb23117329edeadea2f3a0a6e0ce0cb675061f70225550"
     },
     {
       "path": "Extension/Modes/console_commands.cpp",
-      "sha256": "59c68136b4409de73e11c6b38dd7654f4eadc311238be2d19882ef1368555944",
-      "bytes": 3797
+      "bytes": 3797,
+      "sha256": "59c68136b4409de73e11c6b38dd7654f4eadc311238be2d19882ef1368555944"
     },
     {
       "path": "Extension/Modes/game_modes.cpp",
-      "sha256": "67e19662c4c5dc97102a5505694537dbd2d133d2608656e823314389a3aa232d",
-      "bytes": 206918
+      "bytes": 207667,
+      "sha256": "d0e1b601e6e50f4a6358962db5aaf2f1e00f6bc079c3feb17606ffd4ce40f20b"
     },
     {
       "path": "Extension/Modes/game_modes.h",
-      "sha256": "4d1f4e62b43952606af5a40c186915ca575c80cc762db135f935a1cfa74f62f0",
-      "bytes": 5755
+      "bytes": 5755,
+      "sha256": "4d1f4e62b43952606af5a40c186915ca575c80cc762db135f935a1cfa74f62f0"
     },
     {
       "path": "Extension/Modes/mode_announcements.h",
-      "sha256": "f5c245340819e95762967402c7bf501bd57df551490e717d789cf34280b9877c",
-      "bytes": 1555
+      "bytes": 1555,
+      "sha256": "f5c245340819e95762967402c7bf501bd57df551490e717d789cf34280b9877c"
     },
     {
       "path": "Extension/Modes/mode_lobby.h",
-      "sha256": "ec01b364cfa82a826ba7c5d39ec67ca899b9ace2c7983e5e8a6b7ac96c6fd24d",
-      "bytes": 1256
+      "bytes": 1256,
+      "sha256": "ec01b364cfa82a826ba7c5d39ec67ca899b9ace2c7983e5e8a6b7ac96c6fd24d"
     },
     {
       "path": "Extension/Modes/mode_participation.h",
-      "sha256": "bb583aa4231ae46c75c7c5b896f7bcb84c44b001c118eb20e6a07810062553b6",
-      "bytes": 855
+      "bytes": 855,
+      "sha256": "bb583aa4231ae46c75c7c5b896f7bcb84c44b001c118eb20e6a07810062553b6"
     },
     {
       "path": "Extension/Modes/mode_rules.cpp",
-      "sha256": "5a013698aad5cae8c0009a779013da4ec7d914c5e02e7fc301019617db88709c",
-      "bytes": 66213
+      "bytes": 66213,
+      "sha256": "5a013698aad5cae8c0009a779013da4ec7d914c5e02e7fc301019617db88709c"
     },
     {
       "path": "Extension/Modes/mode_rules.h",
-      "sha256": "4d0c7c26dc92e4b48899d82c4a8168c4a5b2c2005fea397d3134ffba9fe2de4d",
-      "bytes": 18686
+      "bytes": 18686,
+      "sha256": "4d0c7c26dc92e4b48899d82c4a8168c4a5b2c2005fea397d3134ffba9fe2de4d"
     },
     {
       "path": "Extension/Modes/mode_transport.h",
-      "sha256": "a14e31e3b6996851ae649f651860ebac5f4d9bd65118ddddac5547e3ca728c6a",
-      "bytes": 4119
+      "bytes": 4119,
+      "sha256": "a14e31e3b6996851ae649f651860ebac5f4d9bd65118ddddac5547e3ca728c6a"
     },
     {
       "path": "Extension/Modes/mode_view.h",
-      "sha256": "3a4b439d34d25d1288df70128bb917fb0a90ca553241f9b62eae97d6b0791a08",
-      "bytes": 11252
+      "bytes": 11252,
+      "sha256": "3a4b439d34d25d1288df70128bb917fb0a90ca553241f9b62eae97d6b0791a08"
     },
     {
       "path": "Extension/Modes/placement_camera.h",
-      "sha256": "d0077f08ff59a78b7f7a9f6a36d51d55300e40fbf02beed36ea6a99736608b58",
-      "bytes": 1174
+      "bytes": 1174,
+      "sha256": "d0077f08ff59a78b7f7a9f6a36d51d55300e40fbf02beed36ea6a99736608b58"
     },
     {
       "path": "Extension/Modes/race_arrow_placement.h",
-      "sha256": "047e5a4730ba023e8a670094ecf5e933cb092dc2d6b4c3b06cfed94583837ddc",
-      "bytes": 6337
+      "bytes": 6337,
+      "sha256": "047e5a4730ba023e8a670094ecf5e933cb092dc2d6b4c3b06cfed94583837ddc"
     },
     {
       "path": "Extension/Modes/race_asset_contract.h",
-      "sha256": "6b4666af3d320c96eadbdeb5c3f83a69cb764764673b2a70f3fb3092600efb9b",
-      "bytes": 1856
+      "bytes": 1856,
+      "sha256": "6b4666af3d320c96eadbdeb5c3f83a69cb764764673b2a70f3fb3092600efb9b"
     },
     {
       "path": "Extension/Modes/race_editor.h",
-      "sha256": "dd0da81ca88946eb162125b68a2e1968573196c38e43b967e023adae005ed039",
-      "bytes": 12214
+      "bytes": 12214,
+      "sha256": "dd0da81ca88946eb162125b68a2e1968573196c38e43b967e023adae005ed039"
     },
     {
       "path": "Extension/Modes/race_group_reconciliation.h",
-      "sha256": "118dad8c9dc2068d1e1b13aeba34805221c535608949a41aa5605107e42cc775",
-      "bytes": 1270
+      "bytes": 1270,
+      "sha256": "118dad8c9dc2068d1e1b13aeba34805221c535608949a41aa5605107e42cc775"
     },
     {
       "path": "Extension/Modes/race_momentum.h",
-      "sha256": "aa9652acc68c31f5c00c6d6d83f262ca335986309731a17b511756e42675cf25",
-      "bytes": 6543
+      "bytes": 6543,
+      "sha256": "aa9652acc68c31f5c00c6d6d83f262ca335986309731a17b511756e42675cf25"
     },
     {
       "path": "Extension/Modes/race_navigation.h",
-      "sha256": "54c8bdfafd7bbda9bd6f5a32b2389388415cdd891d4c1d74dad8dacf6273b1bf",
-      "bytes": 1613
+      "bytes": 1613,
+      "sha256": "54c8bdfafd7bbda9bd6f5a32b2389388415cdd891d4c1d74dad8dacf6273b1bf"
     },
     {
       "path": "Extension/Modes/race_route.h",
-      "sha256": "177d7c4ac733b517165cd2c2eba815a3d3e4a767cc415e2857233438da8dae0d",
-      "bytes": 20446
+      "bytes": 20446,
+      "sha256": "177d7c4ac733b517165cd2c2eba815a3d3e4a767cc415e2857233438da8dae0d"
     },
     {
       "path": "Extension/Modes/race_sound.h",
-      "sha256": "16fba5938ab65688dbd657b554e19a23bc79c22aba37d9d1a69e45eae6e4b465",
-      "bytes": 1764
+      "bytes": 1764,
+      "sha256": "16fba5938ab65688dbd657b554e19a23bc79c22aba37d9d1a69e45eae6e4b465"
     },
     {
       "path": "Extension/Modes/race_source_contract.h",
-      "sha256": "32850c7d8cab9fd6b5be4f7f66a85a8d56345af2e01776858870573ff4ca55df",
-      "bytes": 3258
+      "bytes": 3258,
+      "sha256": "32850c7d8cab9fd6b5be4f7f66a85a8d56345af2e01776858870573ff4ca55df"
     },
     {
       "path": "Extension/Modes/race_world.cpp",
-      "sha256": "d420508cbbd0497289aaaa9958ce31ae83ce4eb979fb4fa7b2df415103f2c9cd",
-      "bytes": 29382
+      "bytes": 29734,
+      "sha256": "6362dc3ea6d0d6e7ee4e029f3aa71bfefa63a50e5d7b207fb0c48517d26823a0"
     },
     {
       "path": "Extension/Modes/race_world.h",
-      "sha256": "54738741028bd3dbb47af0e3dd1ecd2b2d30392e60f15785e824f4ee5529a1b9",
-      "bytes": 360
+      "bytes": 360,
+      "sha256": "54738741028bd3dbb47af0e3dd1ecd2b2d30392e60f15785e824f4ee5529a1b9"
     },
     {
       "path": "Extension/Modes/skatepedia_inputs.h",
-      "sha256": "d2c78b5281cfa97ce54c5dd7ae5fabd27e20cce28b76bd86e3a190603c4bfe77",
-      "bytes": 64641
+      "bytes": 64641,
+      "sha256": "d2c78b5281cfa97ce54c5dd7ae5fabd27e20cce28b76bd86e3a190603c4bfe77"
     },
     {
       "path": "Extension/Modes/skater_skeleton.h",
-      "sha256": "6dc971bd815bd5371d4d0d2c73fb8c3c4e4bf4c4cf8fe67e49e3c4e2ba5bf52d",
-      "bytes": 2896
+      "bytes": 2896,
+      "sha256": "6dc971bd815bd5371d4d0d2c73fb8c3c4e4bf4c4cf8fe67e49e3c4e2ba5bf52d"
     },
     {
       "path": "Extension/Modes/trick_gestures.cpp",
-      "sha256": "d0a99a7c764f93ee06fcc968f8b00ca6448163b855d1b478c4b0ecb073d54665",
-      "bytes": 7895
+      "bytes": 7895,
+      "sha256": "d0a99a7c764f93ee06fcc968f8b00ca6448163b855d1b478c4b0ecb073d54665"
     },
     {
       "path": "Extension/Modes/trick_gestures.h",
-      "sha256": "2cb4cd6b433bcfd75b97067494bc969c771b3940065d9427d60979681c05bf2d",
-      "bytes": 1250
+      "bytes": 1250,
+      "sha256": "2cb4cd6b433bcfd75b97067494bc969c771b3940065d9427d60979681c05bf2d"
     },
     {
       "path": "Extension/Multiplayer/Hud/native_party.cpp",
-      "sha256": "8bf0ca13bfd053537234c32bd651b5092911259c3f24e45db688223c47b22120",
-      "bytes": 32120
+      "bytes": 32120,
+      "sha256": "8bf0ca13bfd053537234c32bd651b5092911259c3f24e45db688223c47b22120"
     },
     {
       "path": "Extension/Multiplayer/Hud/native_party.h",
-      "sha256": "2332a25bbcde987ff2d8f41839200795e74f306ba577dbc6a83aadb2fe4de0f2",
-      "bytes": 4354
+      "bytes": 4354,
+      "sha256": "2332a25bbcde987ff2d8f41839200795e74f306ba577dbc6a83aadb2fe4de0f2"
     },
     {
       "path": "Extension/Multiplayer/Hud/native_party_hooks.cpp",
-      "sha256": "96b268f0dca6e234d16b39426f944a825fb08d945b0ca8864a84261747a946d4",
-      "bytes": 57521
+      "bytes": 57521,
+      "sha256": "96b268f0dca6e234d16b39426f944a825fb08d945b0ca8864a84261747a946d4"
     },
     {
       "path": "Extension/Multiplayer/Remote/native_skater.cpp",
-      "sha256": "4367dca1eb886a31cea30b31b9d22b9471f357dddd045c24f6fb8c8efda5f1d8",
-      "bytes": 31769
+      "bytes": 31769,
+      "sha256": "4367dca1eb886a31cea30b31b9d22b9471f357dddd045c24f6fb8c8efda5f1d8"
     },
     {
       "path": "Extension/Multiplayer/Session/session.cpp",
-      "sha256": "53e7a1568cc77ebdfa86f3b2ef2375832c6ff02f575def52c804ec78be56a3fa",
-      "bytes": 59744
+      "bytes": 59744,
+      "sha256": "53e7a1568cc77ebdfa86f3b2ef2375832c6ff02f575def52c804ec78be56a3fa"
     },
     {
       "path": "Extension/Multiplayer/Session/session_commands.cpp",
-      "sha256": "6fe1d3301166383d66079c87c0aaa0074e4218188f084651d695c09ccbfe1f4f",
-      "bytes": 68082
+      "bytes": 68082,
+      "sha256": "6fe1d3301166383d66079c87c0aaa0074e4218188f084651d695c09ccbfe1f4f"
     },
     {
       "path": "Extension/Multiplayer/Session/session_send.cpp",
-      "sha256": "ec995e300c4bae0275d47c00066199899bd5ff6c729dae008d9bc12a07760d8e",
-      "bytes": 42347
+      "bytes": 42347,
+      "sha256": "ec995e300c4bae0275d47c00066199899bd5ff6c729dae008d9bc12a07760d8e"
     },
     {
       "path": "Extension/Multiplayer/Steam/steam_social.cpp",
-      "sha256": "9fa358c0eec7f0b71f954948f9fe4466c6eec0d39917e27898bf4aee74d85cef",
-      "bytes": 10874
+      "bytes": 10874,
+      "sha256": "9fa358c0eec7f0b71f954948f9fe4466c6eec0d39917e27898bf4aee74d85cef"
     },
     {
       "path": "Extension/Multiplayer/Test/mesh_tests.cpp",
-      "sha256": "5e3740cb8859a4d3662c02a5a980d81138c7a26a18acb599f71426bd26e8a6dd",
-      "bytes": 137352
+      "bytes": 137352,
+      "sha256": "5e3740cb8859a4d3662c02a5a980d81138c7a26a18acb599f71426bd26e8a6dd"
     },
     {
       "path": "Extension/Multiplayer/Test/protocol_tests.cpp",
-      "sha256": "ce11894c9f6ed75e8847fc91cb48309bedaa68d8e00deca395abb653ebd5963b",
-      "bytes": 75730
+      "bytes": 75730,
+      "sha256": "ce11894c9f6ed75e8847fc91cb48309bedaa68d8e00deca395abb653ebd5963b"
     },
     {
       "path": "Extension/Multiplayer/Test/voice_chat_tests.cpp",
-      "sha256": "7d4c9727165740157f6dbc69ddd26018ca1586d48c878682e55adb73883e4fb6",
-      "bytes": 13761
+      "bytes": 13761,
+      "sha256": "7d4c9727165740157f6dbc69ddd26018ca1586d48c878682e55adb73883e4fb6"
     },
     {
       "path": "Extension/Multiplayer/console_commands.cpp",
-      "sha256": "44aea22902725ded2cbd998a766ff7e39cf37b635aa35f6a50a6f56eb526a423",
-      "bytes": 19490
+      "bytes": 19490,
+      "sha256": "44aea22902725ded2cbd998a766ff7e39cf37b635aa35f6a50a6f56eb526a423"
     },
     {
       "path": "Extension/Objects/ParkEditor/Test/park_editor_transaction_tests.cpp",
-      "sha256": "78de25a125cc0b7b32132c311aca6bdb44e8169405639a30cb7e7d6b407c37ab",
-      "bytes": 65061
+      "bytes": 65061,
+      "sha256": "78de25a125cc0b7b32132c311aca6bdb44e8169405639a30cb7e7d6b407c37ab"
     },
     {
       "path": "Extension/Objects/ParkEditor/park_editor_runtime.cpp",
-      "sha256": "8d5244ec7ede278e82a588bed2d52f4fde41a8ec3ed5737e2a91231b8c632687",
-      "bytes": 35942
+      "bytes": 35942,
+      "sha256": "8d5244ec7ede278e82a588bed2d52f4fde41a8ec3ed5737e2a91231b8c632687"
     },
     {
       "path": "Extension/Objects/ParkEditor/park_editor_runtime.h",
-      "sha256": "b2857c0d2ec42fa3649913fa8f4cdb6f2dda9e2d3f5830ddd06a07b7a9e3504d",
-      "bytes": 4046
+      "bytes": 4046,
+      "sha256": "b2857c0d2ec42fa3649913fa8f4cdb6f2dda9e2d3f5830ddd06a07b7a9e3504d"
     },
     {
       "path": "Extension/Objects/local_placements_runtime.cpp",
-      "sha256": "7ca41d9cc71d454efbb83947f282033328ab9e2ef607990aec8e728c4087efb2",
-      "bytes": 38649
+      "bytes": 38649,
+      "sha256": "7ca41d9cc71d454efbb83947f282033328ab9e2ef607990aec8e728c4087efb2"
     },
     {
       "path": "Extension/Objects/local_placements_runtime.h",
-      "sha256": "06d7f175b810279c5ed5341660d4597fb7ca96976ef98e69c8712026ef2b97b4",
-      "bytes": 7991
+      "bytes": 7991,
+      "sha256": "06d7f175b810279c5ed5341660d4597fb7ca96976ef98e69c8712026ef2b97b4"
     },
     {
       "path": "Extension/Profile/local_profile_objects.cpp",
-      "sha256": "7a2e2577ed353e080d18868e29984b0eae04b9f912b2a107fda2d9d5569f2cac",
-      "bytes": 6715
+      "bytes": 6715,
+      "sha256": "7a2e2577ed353e080d18868e29984b0eae04b9f912b2a107fda2d9d5569f2cac"
     },
     {
       "path": "Extension/Profile/local_profile_runtime.cpp",
-      "sha256": "ffe5dfdef68d48ec1e925ee14daebe46c82072e52fd289ed3c67d8afd1bc1f49",
-      "bytes": 39968
+      "bytes": 39968,
+      "sha256": "ffe5dfdef68d48ec1e925ee14daebe46c82072e52fd289ed3c67d8afd1bc1f49"
     },
     {
       "path": "Extension/Profile/local_profile_runtime.h",
-      "sha256": "052ea08b83964cbb1d9dbb8667eec629002a7d8b29d1a1381d60923b822ece4e",
-      "bytes": 8679
+      "bytes": 8679,
+      "sha256": "052ea08b83964cbb1d9dbb8667eec629002a7d8b29d1a1381d60923b822ece4e"
     },
     {
       "path": "Extension/Progression/local_entitlement_trigger_runtime.cpp",
-      "sha256": "07bc0ca193ec2336cffb9e87bd17274cfa3b7c800b06a4d84f4ffca7918fed02",
-      "bytes": 6371
+      "bytes": 6371,
+      "sha256": "07bc0ca193ec2336cffb9e87bd17274cfa3b7c800b06a4d84f4ffca7918fed02"
     },
     {
       "path": "Extension/Settings/local_gameplay_settings.cpp",
-      "sha256": "32f3e757e9708191cf57d2e5d49dc51f1ba290d87b1294f7a128d9c0f781438b",
-      "bytes": 10509
+      "bytes": 10509,
+      "sha256": "32f3e757e9708191cf57d2e5d49dc51f1ba290d87b1294f7a128d9c0f781438b"
     },
     {
       "path": "Extension/Settings/local_gameplay_settings.h",
-      "sha256": "107fd3d40c372bee2e98ccc090ffddd42648a3df94335d75117e69a9228afb77",
-      "bytes": 3236
+      "bytes": 3236,
+      "sha256": "107fd3d40c372bee2e98ccc090ffddd42648a3df94335d75117e69a9228afb77"
     },
     {
       "path": "Extension/Settings/named_settings.cpp",
-      "sha256": "daf15c8dc2edbaca709b1a2cf41e747a78b75422fb4f1d628bbb84dccebef11a",
-      "bytes": 32794
+      "bytes": 32794,
+      "sha256": "daf15c8dc2edbaca709b1a2cf41e747a78b75422fb4f1d628bbb84dccebef11a"
     },
     {
       "path": "Extension/Skater/Test/client_camera_activation_tests.cpp",
-      "sha256": "d963b316a81d1ccca657eb84d87977127fa832f894f85d3544fb42e9b9c844d2",
-      "bytes": 6075
+      "bytes": 6075,
+      "sha256": "d963b316a81d1ccca657eb84d87977127fa832f894f85d3544fb42e9b9c844d2"
     },
     {
       "path": "Extension/Skater/client_camera_activation.h",
-      "sha256": "10891bcdc4d28ea59740c9b2f047d255537a6a7dca160ac210942f3d97df1e05",
-      "bytes": 2839
+      "bytes": 2839,
+      "sha256": "10891bcdc4d28ea59740c9b2f047d255537a6a7dca160ac210942f3d97df1e05"
     },
     {
       "path": "Extension/Skater/client_debug.cpp",
-      "sha256": "8f0a6b0af8b7c1a81824d5418fb4a8938c07adea1ee1f233fc64f5ff2dfd67e7",
-      "bytes": 74891
+      "bytes": 74891,
+      "sha256": "8f0a6b0af8b7c1a81824d5418fb4a8938c07adea1ee1f233fc64f5ff2dfd67e7"
     },
     {
       "path": "Extension/Skater/client_noclip.cpp",
-      "sha256": "cde1e90bd43dcfced42717158918ee86a8e8258bd995a6967eb293ec8a5b870b",
-      "bytes": 34623
+      "bytes": 34623,
+      "sha256": "cde1e90bd43dcfced42717158918ee86a8e8258bd995a6967eb293ec8a5b870b"
     },
     {
       "path": "Extension/Skater/client_source_spawn.h",
-      "sha256": "b415dadbc6ebf1a6faa9c16ca5dd3c0453cfbfe185152c42693343247f35ffaa",
-      "bytes": 3253
+      "bytes": 3253,
+      "sha256": "b415dadbc6ebf1a6faa9c16ca5dd3c0453cfbfe185152c42693343247f35ffaa"
     },
     {
       "path": "Extension/Skater/no_bail.cpp",
-      "sha256": "0e2e6118ae644ddd9d3b7dfc3e3e15d708e81be8cf1a0669219b41adf4897f3b",
-      "bytes": 29064
+      "bytes": 29064,
+      "sha256": "0e2e6118ae644ddd9d3b7dfc3e3e15d708e81be8cf1a0669219b41adf4897f3b"
     },
     {
       "path": "Extension/Skater/no_bail.h",
-      "sha256": "da5c81c946d34058c37fc39567b8bd1d07b279bbca54226214a364b6313024f7",
-      "bytes": 3839
+      "bytes": 3839,
+      "sha256": "da5c81c946d34058c37fc39567b8bd1d07b279bbca54226214a364b6313024f7"
     },
     {
       "path": "Extension/Throwdowns/Test/challenge_registry_tests.cpp",
-      "sha256": "45d617814ddfbe92de7acc9787f543cde687cd25dd2ec6fa369bf37aaf61323a",
-      "bytes": 3768
+      "bytes": 3768,
+      "sha256": "45d617814ddfbe92de7acc9787f543cde687cd25dd2ec6fa369bf37aaf61323a"
     },
     {
       "path": "Extension/Throwdowns/Test/native_throwdown_lifetime_tests.cpp",
-      "sha256": "1481004e196ea0957d803336c5da6b1ab8b20b8f9ee469842a38981b86d236a8",
-      "bytes": 15296
+      "bytes": 15296,
+      "sha256": "1481004e196ea0957d803336c5da6b1ab8b20b8f9ee469842a38981b86d236a8"
     },
     {
       "path": "Extension/Throwdowns/Test/one_up_placement_tests.cpp",
-      "sha256": "2692f97beb72b1e88d50b084cbf1f73cbd4537d6709cd26521267ecbb3e09707",
-      "bytes": 41045
+      "bytes": 41045,
+      "sha256": "2692f97beb72b1e88d50b084cbf1f73cbd4537d6709cd26521267ecbb3e09707"
     },
     {
       "path": "Extension/Throwdowns/Test/one_up_runtime_tests.cpp",
-      "sha256": "f993addbcb1e0f12e54c50b14bb312f797a7d687e9c0fce46a290469fe5c6f48",
-      "bytes": 22170
+      "bytes": 22170,
+      "sha256": "f993addbcb1e0f12e54c50b14bb312f797a7d687e9c0fce46a290469fe5c6f48"
     },
     {
       "path": "Extension/Throwdowns/Test/one_up_tests.cpp",
-      "sha256": "2e260ad70ca925512b02a0df74e1cfc8444e06d702afe1f7aec66e7ca5971b96",
-      "bytes": 12308
+      "bytes": 12308,
+      "sha256": "2e260ad70ca925512b02a0df74e1cfc8444e06d702afe1f7aec66e7ca5971b96"
     },
     {
       "path": "Extension/Throwdowns/Test/throwdown_relay_tests.cpp",
-      "sha256": "04accd32dda0ad32893b54c134fb13ec18d5dcde89cda59f32755957537f06b3",
-      "bytes": 47784
+      "bytes": 47784,
+      "sha256": "04accd32dda0ad32893b54c134fb13ec18d5dcde89cda59f32755957537f06b3"
     },
     {
       "path": "Extension/Throwdowns/challenge_registry.cpp",
-      "sha256": "ccd4592c3d2bc95e7995fb8d7ae086475cd2092f9cd82c1e2df5271263ed04f4",
-      "bytes": 4540
+      "bytes": 4540,
+      "sha256": "ccd4592c3d2bc95e7995fb8d7ae086475cd2092f9cd82c1e2df5271263ed04f4"
     },
     {
       "path": "Extension/Throwdowns/challenge_registry.h",
-      "sha256": "5d3386a4cb0b4bbb08cc31435068054e4d388ea2bf63916582d82e12b23e29e5",
-      "bytes": 1329
+      "bytes": 1329,
+      "sha256": "5d3386a4cb0b4bbb08cc31435068054e4d388ea2bf63916582d82e12b23e29e5"
     },
     {
       "path": "Extension/Throwdowns/native_flag_bubble.h",
-      "sha256": "99ac797c80ffa9a07f735afecc3cd2dbec9e92438fb9f5a14d455022bd2f5c4a",
-      "bytes": 5764
+      "bytes": 5764,
+      "sha256": "99ac797c80ffa9a07f735afecc3cd2dbec9e92438fb9f5a14d455022bd2f5c4a"
     },
     {
       "path": "Extension/Throwdowns/native_flag_preview.h",
-      "sha256": "d9b790a8a373997a198f05d945b07daaee4b0dd26a95b8777d22aa87248593b0",
-      "bytes": 2278
+      "bytes": 2278,
+      "sha256": "d9b790a8a373997a198f05d945b07daaee4b0dd26a95b8777d22aa87248593b0"
     },
     {
       "path": "Extension/Throwdowns/native_throwdown_lifetime.h",
-      "sha256": "e2cd8f5ea12e1ffce2ace42a8fec1321c001b127d9645b803278e697a07d1d1d",
-      "bytes": 6777
+      "bytes": 6777,
+      "sha256": "e2cd8f5ea12e1ffce2ace42a8fec1321c001b127d9645b803278e697a07d1d1d"
     },
     {
       "path": "Extension/Throwdowns/native_throwdowns.cpp",
-      "sha256": "d6388f4ab701f00a34162fe9f18a02af77694222d21f28b3e59cf79ea7cee1f4",
-      "bytes": 65540
+      "bytes": 65540,
+      "sha256": "d6388f4ab701f00a34162fe9f18a02af77694222d21f28b3e59cf79ea7cee1f4"
     },
     {
       "path": "Extension/Throwdowns/native_throwdowns.h",
-      "sha256": "93ca2ef25f4ccaf76e70d425ff8e651f06355f6eeaf44c651b9f39192f286976",
-      "bytes": 3784
+      "bytes": 3784,
+      "sha256": "93ca2ef25f4ccaf76e70d425ff8e651f06355f6eeaf44c651b9f39192f286976"
     },
     {
       "path": "Extension/Throwdowns/one_up_input_contract.h",
-      "sha256": "1885e271a164681a59df69a450a62f8eb6c48c839af5f73604f72a7a180d4b1c",
-      "bytes": 1046
+      "bytes": 1046,
+      "sha256": "1885e271a164681a59df69a450a62f8eb6c48c839af5f73604f72a7a180d4b1c"
     },
     {
       "path": "Extension/Throwdowns/one_up_local_input.h",
-      "sha256": "20cfc7e65005c4a35e58c633c6163c306a06541171f6484b71b12596024a4b22",
-      "bytes": 899
+      "bytes": 899,
+      "sha256": "20cfc7e65005c4a35e58c633c6163c306a06541171f6484b71b12596024a4b22"
     },
     {
       "path": "Extension/Throwdowns/one_up_match.cpp",
-      "sha256": "c535cbda080dfbd77cda56b4baf052c9bc30a8dd8d279a6dae90fec0f8ca6177",
-      "bytes": 9793
+      "bytes": 9793,
+      "sha256": "c535cbda080dfbd77cda56b4baf052c9bc30a8dd8d279a6dae90fec0f8ca6177"
     },
     {
       "path": "Extension/Throwdowns/one_up_match.h",
-      "sha256": "59f987103425a82837786cfafb861fcd38374ef9c3cf4fa31f68487adc44d6c4",
-      "bytes": 3364
+      "bytes": 3364,
+      "sha256": "59f987103425a82837786cfafb861fcd38374ef9c3cf4fa31f68487adc44d6c4"
     },
     {
       "path": "Extension/Throwdowns/one_up_native.cpp",
-      "sha256": "de355f0797e342136567ff045972128426e54a41f4e58bbbca6b885fed89f032",
-      "bytes": 17943
+      "bytes": 17943,
+      "sha256": "de355f0797e342136567ff045972128426e54a41f4e58bbbca6b885fed89f032"
     },
     {
       "path": "Extension/Throwdowns/one_up_native.h",
-      "sha256": "ba8b90425758edb1386196ed08e3d22287a4d1a696ebaab51ddde96fb7f9220b",
-      "bytes": 929
+      "bytes": 929,
+      "sha256": "ba8b90425758edb1386196ed08e3d22287a4d1a696ebaab51ddde96fb7f9220b"
     },
     {
       "path": "Extension/Throwdowns/one_up_placement.cpp",
-      "sha256": "a5482c97b508d2338412e336f0ce0ca631637d1ba1e6725a827ffe5c9da31924",
-      "bytes": 26824
+      "bytes": 26824,
+      "sha256": "a5482c97b508d2338412e336f0ce0ca631637d1ba1e6725a827ffe5c9da31924"
     },
     {
       "path": "Extension/Throwdowns/one_up_placement.h",
-      "sha256": "bf7711e46850a381e182afc57850dbd2cd1f8d1b0c59376d2c6a25e6d9b62d29",
-      "bytes": 4149
+      "bytes": 4149,
+      "sha256": "bf7711e46850a381e182afc57850dbd2cd1f8d1b0c59376d2c6a25e6d9b62d29"
     },
     {
       "path": "Extension/Throwdowns/one_up_runtime.cpp",
-      "sha256": "4c91ca33c773c4d1b8741c5df360205659f068d2ceb1ef5101b519cc8d3ffe3e",
-      "bytes": 22857
+      "bytes": 22857,
+      "sha256": "4c91ca33c773c4d1b8741c5df360205659f068d2ceb1ef5101b519cc8d3ffe3e"
     },
     {
       "path": "Extension/Throwdowns/one_up_runtime.h",
-      "sha256": "6d6fd0792b32bdf7040635520c640ab0a0a3a172e184eee7fb3e9443f740670e",
-      "bytes": 1611
+      "bytes": 1611,
+      "sha256": "6d6fd0792b32bdf7040635520c640ab0a0a3a172e184eee7fb3e9443f740670e"
     },
     {
       "path": "Extension/Throwdowns/one_up_skating_score.h",
-      "sha256": "376cd1298d497c3e1f2e60f9737f2e65af83bddd92e4155a6df4c148b3d11313",
-      "bytes": 574
+      "bytes": 574,
+      "sha256": "376cd1298d497c3e1f2e60f9737f2e65af83bddd92e4155a6df4c148b3d11313"
     },
     {
       "path": "Extension/Throwdowns/one_up_spawn.h",
-      "sha256": "8997c1e3a9e2e0fe4c2e267c42e858766e934485414398a40653319df36e5604",
-      "bytes": 1853
+      "bytes": 1853,
+      "sha256": "8997c1e3a9e2e0fe4c2e267c42e858766e934485414398a40653319df36e5604"
     },
     {
       "path": "Extension/Throwdowns/one_up_wire.cpp",
-      "sha256": "0e2f852a2dd4532ce39ddffc20aeb34805decc7a75c0ec4ee7e64a32e6dfb9e4",
-      "bytes": 6549
+      "bytes": 6549,
+      "sha256": "0e2f852a2dd4532ce39ddffc20aeb34805decc7a75c0ec4ee7e64a32e6dfb9e4"
     },
     {
       "path": "Extension/Throwdowns/one_up_wire.h",
-      "sha256": "2419af547148c831295ab945ecb652d6a185846295a9eb0a0110a83584fc56e5",
-      "bytes": 1359
+      "bytes": 1359,
+      "sha256": "2419af547148c831295ab945ecb652d6a185846295a9eb0a0110a83584fc56e5"
     },
     {
       "path": "Extension/Throwdowns/throwdown_lab.cpp",
-      "sha256": "0e89ca0c4c61fd5e472f45f30a19442d64d78e95f77d97463564ee8802a1f1a2",
-      "bytes": 163018
+      "bytes": 163018,
+      "sha256": "0e89ca0c4c61fd5e472f45f30a19442d64d78e95f77d97463564ee8802a1f1a2"
     },
     {
       "path": "Extension/Throwdowns/throwdown_lab.h",
-      "sha256": "d458a448c5731331f919f1f1eac75273e33ae7d75691f1046f87ee4c6865d43b",
-      "bytes": 7876
+      "bytes": 7876,
+      "sha256": "d458a448c5731331f919f1f1eac75273e33ae7d75691f1046f87ee4c6865d43b"
     },
     {
       "path": "Extension/Throwdowns/throwdown_relay.cpp",
-      "sha256": "3a300bc716b734ce377a09c2f77666d68e6fde7a1ec74b1dd01dfbd3cc8b18d4",
-      "bytes": 86459
+      "bytes": 86459,
+      "sha256": "3a300bc716b734ce377a09c2f77666d68e6fde7a1ec74b1dd01dfbd3cc8b18d4"
     },
     {
       "path": "Extension/Throwdowns/throwdown_relay.h",
-      "sha256": "5abe26bc1b3e9c44dcf796bcf883987acf824b3bebad35d946a7c3d20233fb02",
-      "bytes": 9976
+      "bytes": 9976,
+      "sha256": "5abe26bc1b3e9c44dcf796bcf883987acf824b3bebad35d946a7c3d20233fb02"
     },
     {
       "path": "Extension/Throwdowns/throwdown_wire.cpp",
-      "sha256": "c7dac7a81d2790e55aaf3fcd359ae582f51342c6d36ed8183679879c235eb98f",
-      "bytes": 10519
+      "bytes": 10519,
+      "sha256": "c7dac7a81d2790e55aaf3fcd359ae582f51342c6d36ed8183679879c235eb98f"
     },
     {
       "path": "Extension/Throwdowns/throwdown_wire.h",
-      "sha256": "17f3630166a149ff5d3130fd542e456e70d51ea4580d324767381e430512abd4",
-      "bytes": 4047
+      "bytes": 4047,
+      "sha256": "17f3630166a149ff5d3130fd542e456e70d51ea4580d324767381e430512abd4"
     },
     {
       "path": "Extension/Trainer/Test/landing_tests.cpp",
-      "sha256": "caa07d447e818cc292b468343de0d7842b0674e350470fad84c20956d40ecc5d",
-      "bytes": 6067
+      "bytes": 6067,
+      "sha256": "caa07d447e818cc292b468343de0d7842b0674e350470fad84c20956d40ecc5d"
     },
     {
       "path": "Extension/Trainer/trainer.cpp",
-      "sha256": "44a61e78912e4f301db85508beaad33ffe921aef554a1f40943dd0a749b30b5e",
-      "bytes": 93186
+      "bytes": 93186,
+      "sha256": "44a61e78912e4f301db85508beaad33ffe921aef554a1f40943dd0a749b30b5e"
     },
     {
       "path": "Extension/Trainer/trainer_motion.h",
-      "sha256": "0827c9d226cafec14956b044a1258c695db61f5963925925de63377d944b4140",
-      "bytes": 459
+      "bytes": 459,
+      "sha256": "0827c9d226cafec14956b044a1258c695db61f5963925925de63377d944b4140"
     },
     {
       "path": "Extension/UI/NativeMenu/Test/native_menu_lifetime_tests.cpp",
-      "sha256": "5933138a3135b12e8a81b82e7876073d114b19046afd29913b49ba28e203f6e1",
-      "bytes": 109631
+      "bytes": 109631,
+      "sha256": "5933138a3135b12e8a81b82e7876073d114b19046afd29913b49ba28e203f6e1"
     },
     {
       "path": "Extension/UI/NativeMenu/native_array_publication.h",
-      "sha256": "67f4358b345a91a941651fd8c05318d67b55665dbdca9086e8a04913e645ba75",
-      "bytes": 1234
+      "bytes": 1234,
+      "sha256": "67f4358b345a91a941651fd8c05318d67b55665dbdca9086e8a04913e645ba75"
     },
     {
       "path": "Extension/UI/NativeMenu/native_flag_interaction.h",
-      "sha256": "04c7f9b71a298ca900e8ee4e15385652ac53831be7e23405930dca8cb3a183c0",
-      "bytes": 2857
+      "bytes": 2857,
+      "sha256": "04c7f9b71a298ca900e8ee4e15385652ac53831be7e23405930dca8cb3a183c0"
     },
     {
       "path": "Extension/UI/NativeMenu/native_hub.cpp",
-      "sha256": "e06d67d6c13bf82400452bd316c01d2dc019d96fce27c268f3915401d94fa6d2",
-      "bytes": 12602
+      "bytes": 12602,
+      "sha256": "e06d67d6c13bf82400452bd316c01d2dc019d96fce27c268f3915401d94fa6d2"
     },
     {
       "path": "Extension/UI/NativeMenu/native_hud_selection.h",
-      "sha256": "b960e7a4461978bbf8198298c3d48d6b93719a918b02276385de094cc81f9067",
-      "bytes": 8052
+      "bytes": 8052,
+      "sha256": "b960e7a4461978bbf8198298c3d48d6b93719a918b02276385de094cc81f9067"
     },
     {
       "path": "Extension/UI/NativeMenu/native_hud_values.h",
-      "sha256": "14471c1c4fcc6245dc56fcbc91558baba7d7dde8e80b9ee9183189e96929e62e",
-      "bytes": 6397
+      "bytes": 6397,
+      "sha256": "14471c1c4fcc6245dc56fcbc91558baba7d7dde8e80b9ee9183189e96929e62e"
     },
     {
       "path": "Extension/UI/NativeMenu/native_join_context.h",
-      "sha256": "0a35a11e250b0bf7ab0b3bf7be435ac90d0cf48c61ff77b808cacc7b5cd198da",
-      "bytes": 2015
+      "bytes": 2015,
+      "sha256": "0a35a11e250b0bf7ab0b3bf7be435ac90d0cf48c61ff77b808cacc7b5cd198da"
     },
     {
       "path": "Extension/UI/NativeMenu/native_menu.cpp",
-      "sha256": "a47a0312e9bb8891b3ed99c35afa7e487ac9c352ca9f9885ada5aafef9ba1e80",
-      "bytes": 46695
+      "bytes": 46695,
+      "sha256": "a47a0312e9bb8891b3ed99c35afa7e487ac9c352ca9f9885ada5aafef9ba1e80"
     },
     {
       "path": "Extension/UI/NativeMenu/native_menu_data.cpp",
-      "sha256": "8af6e9c53657544636e9fbdedb24eddd660b0ee4c95112769dc896f907dcbea2",
-      "bytes": 32608
+      "bytes": 32608,
+      "sha256": "8af6e9c53657544636e9fbdedb24eddd660b0ee4c95112769dc896f907dcbea2"
     },
     {
       "path": "Extension/UI/NativeMenu/native_menu_data.h",
-      "sha256": "0b378b5ec1e2a7235d4855655bccb903972d00b9739733b5dd814dcc8a8f0ce9",
-      "bytes": 5473
+      "bytes": 5473,
+      "sha256": "0b378b5ec1e2a7235d4855655bccb903972d00b9739733b5dd814dcc8a8f0ce9"
     },
     {
       "path": "Extension/UI/NativeMenu/native_menu_dump_disabled.cpp",
-      "sha256": "9d8609c5fd9e641f59f5457a7ea4ad8620b15df026a7e4ec24d2868f90b40426",
-      "bytes": 245
+      "bytes": 245,
+      "sha256": "9d8609c5fd9e641f59f5457a7ea4ad8620b15df026a7e4ec24d2868f90b40426"
     },
     {
       "path": "Extension/UI/NativeMenu/native_menu_lifetime.h",
-      "sha256": "6749ebb7ba836cf9052e76069bcb27fe1d0314e7bfc3132143de6dfa0db73c42",
-      "bytes": 8386
+      "bytes": 8386,
+      "sha256": "6749ebb7ba836cf9052e76069bcb27fe1d0314e7bfc3132143de6dfa0db73c42"
     },
     {
       "path": "Extension/UI/NativeMenu/native_menu_ownership.h",
-      "sha256": "2100fc80ad895e3d6405a88e4e7e4befc61d35225926bea0b4c7c12b3074e720",
-      "bytes": 13427
+      "bytes": 13427,
+      "sha256": "2100fc80ad895e3d6405a88e4e7e4befc61d35225926bea0b4c7c12b3074e720"
     },
     {
       "path": "Extension/UI/NativeMenu/native_setup_roles.h",
-      "sha256": "fd95352f1fd5e6e1d753270916f3c50c105943f913ee08f9c8d9acba2ae159ed",
-      "bytes": 1033
+      "bytes": 1033,
+      "sha256": "fd95352f1fd5e6e1d753270916f3c50c105943f913ee08f9c8d9acba2ae159ed"
     },
     {
       "path": "Extension/UI/NativeMenu/one_up_match_panel.inl",
-      "sha256": "1c51b580fa7d5ab2abfb2f44fcbd96eeb6e2cd183a5da94a987deccf413ca64b",
-      "bytes": 67111
+      "bytes": 67111,
+      "sha256": "1c51b580fa7d5ab2abfb2f44fcbd96eeb6e2cd183a5da94a987deccf413ca64b"
     },
     {
       "path": "Extension/UI/NativeMenu/one_up_menu.cpp",
-      "sha256": "8386fc9da737fae05a594c8e35f2d06b0069750eca093497eaaec16d55692c5c",
-      "bytes": 218087
+      "bytes": 218087,
+      "sha256": "8386fc9da737fae05a594c8e35f2d06b0069750eca093497eaaec16d55692c5c"
     },
     {
       "path": "Extension/UI/NativeMenu/one_up_menu.h",
-      "sha256": "e73ea98d7a31c881a6c1c5799c29a176d9445061caa1749f34615a7b0e965145",
-      "bytes": 794
+      "bytes": 794,
+      "sha256": "e73ea98d7a31c881a6c1c5799c29a176d9445061caa1749f34615a7b0e965145"
     },
     {
       "path": "Extension/UI/NativeMenu/throwdown_map_identity.inl",
-      "sha256": "e956cc41f21c832162eb6b255635ac8372a4dc5b9cc2e53ca686edcebb33bb7b",
-      "bytes": 20493
+      "bytes": 20493,
+      "sha256": "e956cc41f21c832162eb6b255635ac8372a4dc5b9cc2e53ca686edcebb33bb7b"
     },
     {
       "path": "Extension/UI/NativeMenu/throwdown_modes_ui.inl",
-      "sha256": "309f69b66ffbda94b230bc9ef39a756f45a0c1352a34bc37c06a0b05cd801570",
-      "bytes": 108919
+      "bytes": 108919,
+      "sha256": "309f69b66ffbda94b230bc9ef39a756f45a0c1352a34bc37c06a0b05cd801570"
     },
     {
       "path": "Extension/UI/NativeMenu/ui_sound.cpp",
-      "sha256": "791ee56dbb2b340929dbb19b5cd0b45783fea8e5c5bc4dac9b0f145164c752c0",
-      "bytes": 7820
+      "bytes": 7820,
+      "sha256": "791ee56dbb2b340929dbb19b5cd0b45783fea8e5c5bc4dac9b0f145164c752c0"
     },
     {
       "path": "Extension/UI/NativeMenu/ui_sound.h",
-      "sha256": "45040d3e776b06b4d58ec3689eae7b3bda9f1ab14d35f074e6b0a71de786a711",
-      "bytes": 1063
+      "bytes": 1063,
+      "sha256": "45040d3e776b06b4d58ec3689eae7b3bda9f1ab14d35f074e6b0a71de786a711"
     },
     {
       "path": "Extension/UI/Overlay/input_capture.cpp",
-      "sha256": "5bb1ed3cd4da036704a14ee92cb391d65eec491458993c1014e9fae92740316a",
-      "bytes": 59276
+      "bytes": 59276,
+      "sha256": "5bb1ed3cd4da036704a14ee92cb391d65eec491458993c1014e9fae92740316a"
     },
     {
       "path": "Extension/UI/Overlay/input_capture.h",
-      "sha256": "3406bf9225a678a9fb9dead828b6900d2b23868ac17ed5b47fb5911312e2edb3",
-      "bytes": 2505
+      "bytes": 2505,
+      "sha256": "3406bf9225a678a9fb9dead828b6900d2b23868ac17ed5b47fb5911312e2edb3"
     },
     {
       "path": "Extension/UI/Overlay/multiplayer_session.cpp",
-      "sha256": "50fc0bb2e4282597d625dc87900d6f44e58eb2ddfcd0e53e54082a914452019c",
-      "bytes": 44654
+      "bytes": 44654,
+      "sha256": "50fc0bb2e4282597d625dc87900d6f44e58eb2ddfcd0e53e54082a914452019c"
     },
     {
       "path": "Extension/UI/Overlay/one_up_overlay.cpp",
-      "sha256": "d9eeee5be5038702718b6c85375cba4272296cca2f4adec58c3d7d9a4bd7391c",
-      "bytes": 5834
+      "bytes": 5834,
+      "sha256": "d9eeee5be5038702718b6c85375cba4272296cca2f4adec58c3d7d9a4bd7391c"
     },
     {
       "path": "Extension/UI/Overlay/overlay.h",
-      "sha256": "0ffb8b0bdab8a6b3bee13aa0063eeeed15f54d01e01960c9ad6e84cd2c72fcbb",
-      "bytes": 29308
+      "bytes": 29308,
+      "sha256": "0ffb8b0bdab8a6b3bee13aa0063eeeed15f54d01e01960c9ad6e84cd2c72fcbb"
     },
     {
       "path": "Extension/UI/Overlay/overlay_input.cpp",
-      "sha256": "69405f895f2dcf5e2dc524a55c04cfbcce05fa4a04376b457c3d2fd5ff1c8ede",
-      "bytes": 33953
+      "bytes": 33953,
+      "sha256": "69405f895f2dcf5e2dc524a55c04cfbcce05fa4a04376b457c3d2fd5ff1c8ede"
     },
     {
       "path": "Extension/UI/Overlay/overlay_internal.h",
-      "sha256": "ffb4eae21cc73c76536072e37c41c4cd16189a5f6a5ed9fe78c6f33e4a22beb4",
-      "bytes": 15096
+      "bytes": 15096,
+      "sha256": "ffb4eae21cc73c76536072e37c41c4cd16189a5f6a5ed9fe78c6f33e4a22beb4"
     },
     {
       "path": "Extension/UI/Overlay/overlay_render.cpp",
-      "sha256": "cfb5e33d1d731e28c5f902bb253ccfb833d4928285a9e8d736387a64aaa117eb",
-      "bytes": 48672
+      "bytes": 48672,
+      "sha256": "cfb5e33d1d731e28c5f902bb253ccfb833d4928285a9e8d736387a64aaa117eb"
     },
     {
       "path": "Extension/UI/Overlay/race_rotation_gizmo.inl",
-      "sha256": "9b0f7e965723bfde8aabba0e984cdcc516e785a93676e348bd6490dfda18a229",
-      "bytes": 3856
+      "bytes": 3856,
+      "sha256": "9b0f7e965723bfde8aabba0e984cdcc516e785a93676e348bd6490dfda18a229"
     },
     {
       "path": "Extension/UI/Overlay/skate_hud_overlay.cpp",
-      "sha256": "fae7c9c045aed3f811d4e10563d0333babc23032e7e9270921773d29d7034872",
-      "bytes": 17111
+      "bytes": 17111,
+      "sha256": "fae7c9c045aed3f811d4e10563d0333babc23032e7e9270921773d29d7034872"
     },
     {
       "path": "Extension/UI/Overlay/skate_menu.cpp",
-      "sha256": "fc38ee59bdecf11810ee02433dd3f3216dbedee6fc9e4249c437034a0c3d91eb",
-      "bytes": 79644
+      "bytes": 79644,
+      "sha256": "fc38ee59bdecf11810ee02433dd3f3216dbedee6fc9e4249c437034a0c3d91eb"
     },
     {
       "path": "Extension/UI/Overlay/skate_menu.h",
-      "sha256": "2a9fc3aaad3a1223d85c5a0c049eb36f47bea92f78d8d29bd3fb8faf7fedf8b0",
-      "bytes": 6284
+      "bytes": 6284,
+      "sha256": "2a9fc3aaad3a1223d85c5a0c049eb36f47bea92f78d8d29bd3fb8faf7fedf8b0"
     },
     {
       "path": "Extension/World/Test/guid_table_probe_tests.cpp",
-      "sha256": "b26deb282454d807a44b099691ef0072882ebd385353ff836af60835134f1ea0",
-      "bytes": 2222
+      "bytes": 2222,
+      "sha256": "b26deb282454d807a44b099691ef0072882ebd385353ff836af60835134f1ea0"
     },
     {
       "path": "Extension/World/Test/loading_screen_tests.cpp",
-      "sha256": "907648b823d91fc1ea1854cd449665508170562c0c876bd66c669d6c4642c098",
-      "bytes": 2853
+      "bytes": 2853,
+      "sha256": "907648b823d91fc1ea1854cd449665508170562c0c876bd66c669d6c4642c098"
     },
     {
       "path": "Extension/World/guid_table_guard.cpp",
-      "sha256": "33f1c0bc2a1ea1c55d7f58cc19c1a114ad99bee917a06c899744e7f27adc39b6",
-      "bytes": 4212
+      "bytes": 4212,
+      "sha256": "33f1c0bc2a1ea1c55d7f58cc19c1a114ad99bee917a06c899744e7f27adc39b6"
     },
     {
       "path": "Extension/World/guid_table_guard.h",
-      "sha256": "e9c8e832ea3e7df2938229edd2db6ba7c2e11b932f93bc37e2ce1c1e363e9301",
-      "bytes": 471
+      "bytes": 471,
+      "sha256": "e9c8e832ea3e7df2938229edd2db6ba7c2e11b932f93bc37e2ce1c1e363e9301"
     },
     {
       "path": "Extension/World/guid_table_probe.h",
-      "sha256": "78823bf347faf0dd3da920697c7cb1c26d5cd7a92efc368965041a57868b62e7",
-      "bytes": 1304
+      "bytes": 1304,
+      "sha256": "78823bf347faf0dd3da920697c7cb1c26d5cd7a92efc368965041a57868b62e7"
     },
     {
       "path": "Launcher/crash_reporter_disabled.cpp",
-      "sha256": "75d8d0d5d943994a23f6aab49ea9d7fbd20568335f026be72ba408faa86517de",
-      "bytes": 121
+      "bytes": 121,
+      "sha256": "75d8d0d5d943994a23f6aab49ea9d7fbd20568335f026be72ba408faa86517de"
     },
     {
       "path": "Launcher/gui_home.cpp",
-      "sha256": "9a480686fdfe474a3c72a39899d9dee40b04f529046e522b600e8de6965e0c85",
-      "bytes": 32520
+      "bytes": 32520,
+      "sha256": "9a480686fdfe474a3c72a39899d9dee40b04f529046e522b600e8de6965e0c85"
     },
     {
       "path": "MODE-PACK-RESEARCH.md",
-      "sha256": "397f1a5fa899e4cfc4a2aba76ba72266eb164760fc06143d6540e4d834fcd4e0",
-      "bytes": 10367
+      "bytes": 10367,
+      "sha256": "397f1a5fa899e4cfc4a2aba76ba72266eb164760fc06143d6540e4d834fcd4e0"
     },
     {
       "path": "ONE-UP-MATCH-CLEANUP-VALIDATION.txt",
-      "sha256": "24fee999ff09e0b72a066746ecb19050cbf92a1193940606cb705ae84b1c5cf1",
-      "bytes": 3720
+      "bytes": 3720,
+      "sha256": "24fee999ff09e0b72a066746ecb19050cbf92a1193940606cb705ae84b1c5cf1"
     },
     {
       "path": "ONE-UP-VALIDATION.txt",
-      "sha256": "598f7f34d58686c6fc894680e989fd7f3d15e6093ad1c74734ac1889c1ec2bca",
-      "bytes": 34916
+      "bytes": 34916,
+      "sha256": "598f7f34d58686c6fc894680e989fd7f3d15e6093ad1c74734ac1889c1ec2bca"
     },
     {
       "path": "ONE-UP.txt",
-      "sha256": "b4f3a3bd05ee8dc86c99dbd13530648b96ee9a9eeb4be7b40090e28b0e7af3dc",
-      "bytes": 13509
+      "bytes": 13509,
+      "sha256": "b4f3a3bd05ee8dc86c99dbd13530648b96ee9a9eeb4be7b40090e28b0e7af3dc"
     },
     {
       "path": "Runtime/client_tick.cpp",
-      "sha256": "5c51f843e8a47ecdf132adf2dd1d8cf24920a2853f057a3d623446162be4f71d",
-      "bytes": 100011
+      "bytes": 100011,
+      "sha256": "5c51f843e8a47ecdf132adf2dd1d8cf24920a2853f057a3d623446162be4f71d"
     },
     {
       "path": "Runtime/runtime_init.cpp",
-      "sha256": "ccfda0c694b348e638e1ddd836d528331c23146be1e4c55ffa42798fc9ddf880",
-      "bytes": 33159
+      "bytes": 33159,
+      "sha256": "ccfda0c694b348e638e1ddd836d528331c23146be1e4c55ffa42798fc9ddf880"
     },
     {
       "path": "SOLO-PENDING-QUEUE-VALIDATION.txt",
-      "sha256": "b4c5e9a9554f063c1bec1520df84b039e889bf700803bffdad74523fb0367e19",
-      "bytes": 2873
+      "bytes": 2873,
+      "sha256": "b4c5e9a9554f063c1bec1520df84b039e889bf700803bffdad74523fb0367e19"
     },
     {
       "path": "Server/GUI/server_gui.h",
-      "sha256": "64bfa00aec7e30c963098a9799eecebcade5befd1ebe7423ed25eb196c59945b",
-      "bytes": 2058
+      "bytes": 2058,
+      "sha256": "64bfa00aec7e30c963098a9799eecebcade5befd1ebe7423ed25eb196c59945b"
     },
     {
       "path": "Server/GUI/server_gui_renderer.cpp",
-      "sha256": "6097c20f111bb2d2497994c9ccaf7a89e6f85bece2d0243e2b1cec469e09c3c3",
-      "bytes": 7753
+      "bytes": 7753,
+      "sha256": "6097c20f111bb2d2497994c9ccaf7a89e6f85bece2d0243e2b1cec469e09c3c3"
     },
     {
       "path": "Server/GUI/server_gui_renderer.h",
-      "sha256": "b444d16c9991d206a280ef99aa50199de2c2d2b68e2d753a8774a60b03f666af",
-      "bytes": 1261
+      "bytes": 1261,
+      "sha256": "b444d16c9991d206a280ef99aa50199de2c2d2b68e2d753a8774a60b03f666af"
     },
     {
       "path": "Server/Test/server_activity_tests.cpp",
-      "sha256": "64f8e23c2b745788f649de118e301d5d6f60a0f42d3915beda528ebdba7f8528",
-      "bytes": 6794
+      "bytes": 6794,
+      "sha256": "64f8e23c2b745788f649de118e301d5d6f60a0f42d3915beda528ebdba7f8528"
     },
     {
       "path": "Server/Test/server_config_tests.cpp",
-      "sha256": "362e267e7a788dcc9485a361a2f6c4752ac1f94ca9cb6a6d1609029890f111c6",
-      "bytes": 43389
+      "bytes": 43389,
+      "sha256": "362e267e7a788dcc9485a361a2f6c4752ac1f94ca9cb6a6d1609029890f111c6"
     },
     {
       "path": "Server/server_activity.cpp",
-      "sha256": "0e02600db43aea3f5d39f2def93369852e049dbba6ee2d933207539b80bfd712",
-      "bytes": 11632
+      "bytes": 11632,
+      "sha256": "0e02600db43aea3f5d39f2def93369852e049dbba6ee2d933207539b80bfd712"
     },
     {
       "path": "THROWDOWN-INTEGRATION.md",
-      "sha256": "c1ab5e3424045c91924c5b6f99b9704e3981cdc66c8e5af4b10709cb938152fa",
-      "bytes": 26554
+      "bytes": 26554,
+      "sha256": "c1ab5e3424045c91924c5b6f99b9704e3981cdc66c8e5af4b10709cb938152fa"
     },
     {
       "path": "UPSTREAM-UPDATE.md",
-      "sha256": "9982cdb647b2a05b0369e7c54dc65687196c638b3d993d7751cbc430193e7ca0",
-      "bytes": 42412
+      "bytes": 42412,
+      "sha256": "9982cdb647b2a05b0369e7c54dc65687196c638b3d993d7751cbc430193e7ca0"
     },
     {
       "path": "assets/one_up/native_assets.sha256",
-      "sha256": "a6e1da764bec1bb8daebd3103cf2a20380723a9615cb15093a9819b81e655e98",
-      "bytes": 65
+      "bytes": 65,
+      "sha256": "a6e1da764bec1bb8daebd3103cf2a20380723a9615cb15093a9819b81e655e98"
     },
     {
       "path": "assets/throwdowns/audio/README.txt",
-      "sha256": "4f407a727f5eaa069b14f1505237cc2069fdb42deda7e67d2ab7456b20ccaad8",
-      "bytes": 312
+      "bytes": 312,
+      "sha256": "4f407a727f5eaa069b14f1505237cc2069fdb42deda7e67d2ab7456b20ccaad8"
     },
     {
       "path": "assets/throwdowns/audio/gate-required.wav",
-      "sha256": "91cd788b631c01ccf343a6835343e9ec71c12f7abbd00a60416e264d10c3bf6d",
-      "bytes": 131568
+      "bytes": 131568,
+      "sha256": "91cd788b631c01ccf343a6835343e9ec71c12f7abbd00a60416e264d10c3bf6d"
     },
     {
       "path": "assets/throwdowns/audio/race-finish.wav",
-      "sha256": "e1625c1fc3d40f706848f9463f8940f92fdc206de7ece55bb890d1f336dae51c",
-      "bytes": 363040
+      "bytes": 363040,
+      "sha256": "e1625c1fc3d40f706848f9463f8940f92fdc206de7ece55bb890d1f336dae51c"
     },
     {
       "path": "assets/throwdowns/compass-finish-gate.png",
-      "sha256": "d473ba9f526a0b8a2190b01e3f2989653b19604c58b14dc907cca8413bdb716c",
-      "bytes": 21199
+      "bytes": 21199,
+      "sha256": "d473ba9f526a0b8a2190b01e3f2989653b19604c58b14dc907cca8413bdb716c"
     },
     {
       "path": "assets/throwdowns/compass-finish-gate.svg",
-      "sha256": "a4dd22f1fbe97f7463b6e1b84d5d4170539f609abda5446c35dbd400e5f798e6",
-      "bytes": 867
+      "bytes": 867,
+      "sha256": "a4dd22f1fbe97f7463b6e1b84d5d4170539f609abda5446c35dbd400e5f798e6"
     },
     {
       "path": "assets/throwdowns/gate-compass.png",
-      "sha256": "e9cec1e7f611776da5ea65d41c5b7c6b63a8de51bc7f557c1ca9c86cf282cd84",
-      "bytes": 31163
+      "bytes": 31163,
+      "sha256": "e9cec1e7f611776da5ea65d41c5b7c6b63a8de51bc7f557c1ca9c86cf282cd84"
     },
     {
       "path": "assets/throwdowns/gate-compass.svg",
-      "sha256": "e0d939ab7c489a5ff6bdd43b9b346c0d9cac9ec1c576badbeef2bd72fc010d47",
-      "bytes": 545
+      "bytes": 545,
+      "sha256": "e0d939ab7c489a5ff6bdd43b9b346c0d9cac9ec1c576badbeef2bd72fc010d47"
     },
     {
       "path": "assets/throwdowns/placeholder-badges.png",
-      "sha256": "86bd526178d30c9b72dbe426fc6e819ae64339affc3d3fb1dac84bd428d63e05",
-      "bytes": 1875671
+      "bytes": 1875671,
+      "sha256": "86bd526178d30c9b72dbe426fc6e819ae64339affc3d3fb1dac84bd428d63e05"
     },
     {
       "path": "assets/throwdowns/reskate-logo-original.png",
-      "sha256": "6a9f12e28525ef65de9f426b45ecf798d64aa8da2c22b56cfad4906b207ddc49",
-      "bytes": 1858341
+      "bytes": 1858341,
+      "sha256": "6a9f12e28525ef65de9f426b45ecf798d64aa8da2c22b56cfad4906b207ddc49"
     },
     {
       "path": "assets/throwdowns/runtime-audio/README.txt",
-      "sha256": "ff22049fb9376a30402ea4391b53475a928b8b10ba7e4fa7287b423528a12d97",
-      "bytes": 354
+      "bytes": 354,
+      "sha256": "ff22049fb9376a30402ea4391b53475a928b8b10ba7e4fa7287b423528a12d97"
     },
     {
       "path": "assets/throwdowns/runtime-audio/race-recovery.wav",
-      "sha256": "0f27a73b224102e211229d6281f1b060f6e1a1ccb8c6e78bf1dd7fa203018d59",
-      "bytes": 53932
+      "bytes": 53932,
+      "sha256": "0f27a73b224102e211229d6281f1b060f6e1a1ccb8c6e78bf1dd7fa203018d59"
     },
     {
       "path": "cmake/Core.cmake",
-      "sha256": "87ea10f54d2449cc4a54e620b5eceea2541aa43b47c97b5dab18ec36394572d1",
-      "bytes": 6494
+      "bytes": 6494,
+      "sha256": "87ea10f54d2449cc4a54e620b5eceea2541aa43b47c97b5dab18ec36394572d1"
     },
     {
       "path": "cmake/CrashReport.cmake",
-      "sha256": "c09ba9384afce39ddc6f5e2c54bd7027947be66d0d5e7c6fb283854c6f66bfd2",
-      "bytes": 4344
+      "bytes": 4344,
+      "sha256": "c09ba9384afce39ddc6f5e2c54bd7027947be66d0d5e7c6fb283854c6f66bfd2"
     },
     {
       "path": "cmake/ProjectOptions.cmake",
-      "sha256": "4be6c419292c061bce2271cd1b89f1308600e7e9f04439b9e0d301b96655c5f6",
-      "bytes": 4318
+      "bytes": 4318,
+      "sha256": "4be6c419292c061bce2271cd1b89f1308600e7e9f04439b9e0d301b96655c5f6"
     },
     {
       "path": "cmake/Runtime.cmake",
-      "sha256": "a4c9c5ff7550d7eee1027c48135286bba9d090e2f98a42d6fac096aa2033e7d3",
-      "bytes": 22986
+      "bytes": 22986,
+      "sha256": "a4c9c5ff7550d7eee1027c48135286bba9d090e2f98a42d6fac096aa2033e7d3"
     },
     {
       "path": "cmake/UI.cmake",
-      "sha256": "0eb8a29444087db6b63ad5874b338f4743b3baf9eabeada31a41428024f79485",
-      "bytes": 2829
+      "bytes": 2829,
+      "sha256": "0eb8a29444087db6b63ad5874b338f4743b3baf9eabeada31a41428024f79485"
     },
     {
       "path": "contrib/throwdown-flags/ASSET_PACK_1_0_6.md",
-      "sha256": "09892849224adfe959d9deb548b5a9bf015109f3c237597084ee7af4eac32750",
-      "bytes": 3891
+      "bytes": 3891,
+      "sha256": "09892849224adfe959d9deb548b5a9bf015109f3c237597084ee7af4eac32750"
     },
     {
       "path": "contrib/throwdown-flags/README-fixed-markers.md",
-      "sha256": "e880481614dd872a155e178bc44a85ca6fee9cff434d999db65f22bebd2402fe",
-      "bytes": 1330
+      "bytes": 1330,
+      "sha256": "e880481614dd872a155e178bc44a85ca6fee9cff434d999db65f22bebd2402fe"
     },
     {
       "path": "contrib/throwdown-flags/README.md",
-      "sha256": "807ea8952d4805e02b01b8b520f66ff32dc87b39cf69317d8d9330bdb4acac78",
-      "bytes": 25640
+      "bytes": 25640,
+      "sha256": "807ea8952d4805e02b01b8b520f66ff32dc87b39cf69317d8d9330bdb4acac78"
     },
     {
       "path": "contrib/throwdown-flags/RESKATE_ASSET_REFRESH.md",
-      "sha256": "bd6b6ff17826ff58b19f9bbf0e3e50189518e9be8592edbd8befe8d1614f0c7d",
-      "bytes": 2904
+      "bytes": 2904,
+      "sha256": "bd6b6ff17826ff58b19f9bbf0e3e50189518e9be8592edbd8befe8d1614f0c7d"
     },
     {
       "path": "contrib/throwdown-flags/build_oneup_native_bundle.py",
-      "sha256": "58adc916eee2ffa81cfc9df30959a09ed1fd8315f61b87dab65553313718edb6",
-      "bytes": 1613
+      "bytes": 1613,
+      "sha256": "58adc916eee2ffa81cfc9df30959a09ed1fd8315f61b87dab65553313718edb6"
     },
     {
       "path": "contrib/throwdown-flags/deathrace_audit_assets.cpp",
-      "sha256": "4e573fd51c758546d849fa6ef4ea2ae566e507d4d95f681f53696f843ef360c6",
-      "bytes": 7423
+      "bytes": 7423,
+      "sha256": "4e573fd51c758546d849fa6ef4ea2ae566e507d4d95f681f53696f843ef360c6"
     },
     {
       "path": "contrib/throwdown-flags/deathrace_builder_assets.cpp",
-      "sha256": "77b1850b776b79908fcda242c33014a58b238166faae5c9eb8065e801dde2991",
-      "bytes": 17644
+      "bytes": 17644,
+      "sha256": "77b1850b776b79908fcda242c33014a58b238166faae5c9eb8065e801dde2991"
     },
     {
       "path": "contrib/throwdown-flags/deathrace_compass_texture.cpp",
-      "sha256": "207b05b61254555f3fa1dbc649b579c83d349369db46bb369c6e3508d243ff1d",
-      "bytes": 4464
+      "bytes": 4464,
+      "sha256": "207b05b61254555f3fa1dbc649b579c83d349369db46bb369c6e3508d243ff1d"
     },
     {
       "path": "contrib/throwdown-flags/deathrace_fixed_markers.cpp",
-      "sha256": "a9e71015af554134b309383709ce4f670bd301d4e6c5f4e31468eff4d72cad60",
-      "bytes": 15972
+      "bytes": 15972,
+      "sha256": "a9e71015af554134b309383709ce4f670bd301d4e6c5f4e31468eff4d72cad60"
     },
     {
       "path": "contrib/throwdown-flags/deathrace_guide_assets.inl",
-      "sha256": "fa0d3d40c07e2602035e37aca9156660625e39463e640f56db843274086d101e",
-      "bytes": 6310
+      "bytes": 6310,
+      "sha256": "fa0d3d40c07e2602035e37aca9156660625e39463e640f56db843274086d101e"
     },
     {
       "path": "contrib/throwdown-flags/deathrace_hud_assets.inl",
-      "sha256": "e99d44051672fee79cda97361855fd3dd0d2d9d3c0b7134a4da6db3f66241db6",
-      "bytes": 36364
+      "bytes": 36364,
+      "sha256": "e99d44051672fee79cda97361855fd3dd0d2d9d3c0b7134a4da6db3f66241db6"
     },
     {
       "path": "contrib/throwdown-flags/deathrace_navigation_assets.cpp",
-      "sha256": "196795ee58dd5bc8eb7c90cce947f6e512798cfeb7c944cd3f246d8217d6ca38",
-      "bytes": 7848
+      "bytes": 7848,
+      "sha256": "196795ee58dd5bc8eb7c90cce947f6e512798cfeb7c944cd3f246d8217d6ca38"
     },
     {
       "path": "contrib/throwdown-flags/deathrace_visual_assets.inl",
-      "sha256": "a005f4c1af91416626a604cee78fde1539f73e69ee671708f95dceb60b9b2ae9",
-      "bytes": 4695
+      "bytes": 4695,
+      "sha256": "a005f4c1af91416626a604cee78fde1539f73e69ee671708f95dceb60b9b2ae9"
     },
     {
       "path": "contrib/throwdown-flags/native_throwdown_flags.inl",
-      "sha256": "1096ce37712086ceb69d1fd58e93a302a247041242202851bdede6bd8e8ae722",
-      "bytes": 35858
+      "bytes": 35858,
+      "sha256": "1096ce37712086ceb69d1fd58e93a302a247041242202851bdede6bd8e8ae722"
     },
     {
       "path": "contrib/throwdown-flags/package_asset_mod.py",
-      "sha256": "74ac08b6f7b48d2ff02556d60ebd89f7c5ab3b871c4184ad8a0dbc8337d892ca",
-      "bytes": 6362
+      "bytes": 6362,
+      "sha256": "74ac08b6f7b48d2ff02556d60ebd89f7c5ab3b871c4184ad8a0dbc8337d892ca"
     },
     {
       "path": "contrib/throwdown-flags/reskate_asset_refresh.cpp",
-      "sha256": "4c4c29bedd43950abe5529bed27d35bc6b9f5f04dd0578658a75526d1844366f",
-      "bytes": 46175
+      "bytes": 46175,
+      "sha256": "4c4c29bedd43950abe5529bed27d35bc6b9f5f04dd0578658a75526d1844366f"
     },
     {
       "path": "contrib/throwdown-flags/reskate_logo_swap.cpp",
-      "sha256": "eaeaeaf991e1f84e2d9b543fd48c85837e9d86aec1fda50a3c91026e5db8a8d9",
-      "bytes": 6408
+      "bytes": 6408,
+      "sha256": "eaeaeaf991e1f84e2d9b543fd48c85837e9d86aec1fda50a3c91026e5db8a8d9"
     },
     {
       "path": "contrib/throwdown-flags/shader_depot.cpp",
-      "sha256": "2b1c07a26842d154f375ed5115a72c109beab234bd0b73c479c548a970d1eeef",
-      "bytes": 32545
+      "bytes": 32545,
+      "sha256": "2b1c07a26842d154f375ed5115a72c109beab234bd0b73c479c548a970d1eeef"
     },
     {
       "path": "contrib/throwdown-flags/shader_depot.h",
-      "sha256": "772ba4a883e2021facfee33fb418245c682de41278c8a5ca9d0bd4fb0cc4a51a",
-      "bytes": 5628
+      "bytes": 5628,
+      "sha256": "772ba4a883e2021facfee33fb418245c682de41278c8a5ca9d0bd4fb0cc4a51a"
     },
     {
       "path": "contrib/throwdown-flags/throwdown_menu_residency.inl",
-      "sha256": "12efc269a1674706ea0827fe7792135591e406b55f45f3344bdb405bbf4558a7",
-      "bytes": 6951
+      "bytes": 6951,
+      "sha256": "12efc269a1674706ea0827fe7792135591e406b55f45f3344bdb405bbf4558a7"
     }
   ],
   "deleted_files": [],
   "wider_multiplayer": "PENDING",
   "prerelease": true,
-  "source_commit": "82e0c34c2fe167dffe387ec10501f772a48530e2",
-  "source_tree": "4f7e279ad82c5f7a07c388bf46b8fdad2308eae3",
+  "source_commit": null,
+  "source_tree": "37f3c1075346b360c8d9b9ea2f8e7358a03be99f",
   "live_validation": "PENDING",
   "known_issues": [
     "The challenge HUD can still disappear on custom maps after map travel.",
     "Nearby flag banners and map details can still show Spot Battle for a Deathrace."
   ],
   "asset_version": "1.0.7",
-  "publication": "GITHUB_RELEASE",
-  "published": true,
+  "publication": "SOURCE_MAIN_ONLY",
+  "published": false,
   "readiness": "AUTOMATED_PASS_LIVE_PENDING",
   "merge": {
-    "branch": "reskate-mode-210",
-    "commit": "00c5fa2b4dedebb8849cdb289d44ef20a25f78ea",
-    "main_before": "f6301ad0f1d4f468442fb7b19ff87be26c52eae3",
+    "branch": "reskate-mode",
+    "commit": "20a816ff84bd34a0769a1fda293f170ad56cca5f",
+    "main_before": "a1fca03223ed8ab1028b09e8511beb93373d0ad2",
     "current_deathrace_preserved": true,
     "enrollment_preserved": true
   },
-  "previous_public_release": "v2.1.0-custom-20261018-enrollment-playtest",
+  "previous_public_release": "v2.1.0-custom-20261018-reskate-deathrace",
   "manual_verification": [],
   "manual_verification_pending": [
     "This exact combined runtime in game",
@@ -1233,5 +1233,23 @@
     "ReSkateLauncher.exe",
     "SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.7.zip"
   ],
-  "release_notes": "docs/RELEASE_NOTES_20261018_RESKATE_DEATHRACE.md"
+  "release_notes": "docs/RELEASE_NOTES_20261018_RESKATE_MODE1_MERGE.md",
+  "previous_runtime_release_tag": "v2.1.0-custom-20261018-reskate-deathrace",
+  "canonical_source_tree": "37f3c1075346b360c8d9b9ea2f8e7358a03be99f",
+  "imported_branch": "reskate-mode",
+  "incoming_commit": "20a816ff84bd34a0769a1fda293f170ad56cca5f",
+  "incoming_release_tag": "v2.1.0-reskate-mode.1",
+  "source_published": true,
+  "runtime_publication": "LOCAL_ONLY",
+  "previous_merges": [
+    {
+      "branch": "reskate-mode-210",
+      "commit": "00c5fa2b4dedebb8849cdb289d44ef20a25f78ea",
+      "main_before": "f6301ad0f1d4f468442fb7b19ff87be26c52eae3",
+      "current_deathrace_preserved": true,
+      "enrollment_preserved": true
+    }
+  ],
+  "source_checkpoint_commit": "3f2094887fd3b2b448daa8f529d4b776969b24d6",
+  "source_working_tree": "VERIFIED_UNCOMMITTED_INTEGRATION"
 }

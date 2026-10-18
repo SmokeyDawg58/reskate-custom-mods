@@ -269,6 +269,13 @@ void tick_zone(std::uintptr_t base,std::uintptr_t context,const NativeView& view
         logging::log(logging::Level::info,logging::Channel::runtime,"R.E.S.K.A.T.E. zone: cones from {}.",cone_names[s.cone_name]);
     }
     const auto points=zone_ring(view);
+    // A cone stands on the ground. The guide bolt (custom maps) is centred on its own pivot, as the
+    // gates lift theirs: one and a half times its size, floating clear of the ground, not half in it.
+    const bool bolt=s.cone_name==cone_names.size()-1;
+    const auto pose=[&](const Vec3& at) {
+        constexpr float size=1.5f,lift=1.2f;
+        return bolt?Matrix{size,0,0,0,0,size,0,0,0,0,size,0,at[0],at[1]+lift,at[2],1}:Matrix{1,0,0,0,0,1,0,0,0,0,1,0,at[0],at[1],at[2],1};
+    };
     std::vector<Entity> live;
     {std::lock_guard lock(s.mutex);for(const auto& entity:s.entities)if(entity.group!=beacon_group)live.push_back(entity);}
     if(points==s.cone_points && live.size()==points.size())return;
@@ -281,8 +288,7 @@ void tick_zone(std::uintptr_t base,std::uintptr_t context,const NativeView& view
     })) {
         for(const auto& entity:live) {
             if(entity.group>=points.size())continue;
-            const auto& at=points[entity.group];
-            const Matrix matrix{1,0,0,0,0,1,0,0,0,0,1,0,at[0],at[1],at[2],1};
+            const auto matrix=pose(points[entity.group]);
             reinterpret_cast<void(*)(std::uintptr_t,const void*,std::uint8_t,std::uint8_t)>(base+e::move_spatial_entity)(entity.entity,matrix.data(),1,1);
         }
         s.cone_points=points;
@@ -292,8 +298,7 @@ void tick_zone(std::uintptr_t base,std::uintptr_t context,const NativeView& view
     std::set<unsigned> groups;for(const auto& entity:live)groups.insert(entity.group);
     for(const auto group:groups)clear_group(base,group); // the cones only: the beacon stays
     for(unsigned i=0;i<points.size();++i) {
-        const auto& at=points[i];
-        (void)create(base,parent,s.cone,Matrix{1,0,0,0,0,1,0,0,0,0,1,0,at[0],at[1],at[2],1},i,0);
+        (void)create(base,parent,s.cone,pose(points[i]),i,0);
     }
     s.cone_points=points;
     if(!points.empty())waiting(s,std::format("{} zone cones placed",points.size()));

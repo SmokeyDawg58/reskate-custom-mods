@@ -1940,8 +1940,8 @@ std::string skate_trick(const State::SkateTurn &t) {
             late.insert(parts[i + 1].first);
             parts.erase(parts.begin() + static_cast<std::ptrdiff_t>(i));
         }
-    // Everything done before the board is back on the ground counts, in order: a flip into a grind
-    // or a grab is both ("Kickflip + BS Noseslide"), and a manual landed into joins it. A pop (Ollie,
+    // A trick and what it goes into count, in order: a flip into a grind or a grab is both
+    // ("Kickflip + BS Noseslide"), and a manual landed into joins it. A pop (Ollie,
     // Boned Ollie) is only the way into the rest, so it counts only when nothing else was done.
     if (parts.size() > 1) {
         const auto pop = [](const std::pair<std::uint64_t, std::string> &part) {
@@ -1952,6 +1952,16 @@ std::string skate_trick(const State::SkateTurn &t) {
         if (std::any_of(parts.begin(), parts.end(), [&](const auto &part) { return !pop(part); }))
             std::erase_if(parts, pop);
         if (parts.size() > 1) parts.erase(std::unique(parts.begin(), parts.end(), [](const auto &a, const auto &b) { return a.second == b.second; }), parts.end());
+        // Two tricks at most: the trick and what it went into (a manual, a grind or a grab). A flip
+        // out of it afterwards adds nothing ("Kickflip + Manual", not "+ Kickflip"; an ollie into
+        // a noseslide and a kickflip out is just "BS Noseslide").
+        const auto into = std::find_if(parts.begin(), parts.end(), [](const auto &part) {
+            std::string name;
+            for (const char c : part.second) name += static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+            return (trick_kinds_of(part.second) & (trick_grinds | trick_manuals | trick_grabs)) != 0 || name.find("manual") != std::string::npos;
+        });
+        if (into != parts.end()) parts.erase(into + 1, parts.end());
+        if (parts.size() > 2) parts.resize(2);
     }
     std::string text;
     for (std::size_t i = 0; i < parts.size(); ++i) {

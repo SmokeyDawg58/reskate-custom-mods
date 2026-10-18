@@ -3,26 +3,31 @@
   "automated_tests": 91,
   "runtime_files": {
     "ReSkate.dll": {
-      "bytes": 30487040,
-      "sha256": "c05a37156b97b80e82a7a207e53423cf856e1ae121ad97ccf40499e5baa1f0e6"
+      "bytes": 30488576,
+      "sha256": "48632e6e8b4dbeb98ca3a8152a83cfbd5651753309617dfca292cee5b8f45d1f"
     },
     "ReSkateLauncher.exe": {
       "bytes": 5293056,
-      "sha256": "7ae6122f8d6e96a3efe532f600b0083dc4d29513effc36953b6f9bc5871c8b64"
+      "sha256": "70a0f50f639a612239e62b5813f749519450da8ae88cea6f88d9445e1960f0aa"
     }
   },
   "base_game": "2.1.0",
   "session_protocol": 52,
   "assets_version": "1.0.7",
-  "incoming_commit": "00c5fa2b4dedebb8849cdb289d44ef20a25f78ea",
-  "publication": "GITHUB_RELEASE",
-  "published": true,
+  "incoming_commit": "20a816ff84bd34a0769a1fda293f170ad56cca5f",
+  "publication": "SOURCE_MAIN_ONLY",
+  "published": false,
   "installed": false,
   "live_validation": "PENDING",
-  "release_tag": "v2.1.0-custom-20261018-reskate-deathrace",
+  "release_tag": null,
   "release_downloads": [
     "ReSkate.dll",
     "ReSkateLauncher.exe",
     "SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.7.zip"
-  ]
+  ],
+  "source_published": true,
+  "runtime_publication": "LOCAL_ONLY",
+  "incoming_release_tag": "v2.1.0-reskate-mode.1",
+  "source_tree": "37f3c1075346b360c8d9b9ea2f8e7358a03be99f",
+  "release_cleanup": "CANCELLED_BY_OWNER"
 }

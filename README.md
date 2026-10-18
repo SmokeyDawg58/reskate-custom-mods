@@ -1,5 +1,7 @@
 # ReSkate 2.1.0 custom Throwdowns
 
+Main now also includes [the latest reskate-mode.1 source merge](docs/RELEASE_NOTES_20261018_RESKATE_MODE1_MERGE.md), with Deathrace preserved and 91 checks passing. Its rebuilt runtime is staged locally; the release downloads below still refer to the preceding published combined build. No releases were removed or changed.
+
 **[Latest update](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.1.0-custom-20261018-reskate-deathrace) · [DLL](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261018-reskate-deathrace/ReSkate.dll) · [Launcher](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261018-reskate-deathrace/ReSkateLauncher.exe) · [Assets 1.0.7](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261018-reskate-deathrace/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.7.zip)**
 
 R.E.S.K.A.T.E. from reskate-mode-210 is merged into main alongside the current Deathrace fixes and enroll-once/host-Start multiplayer flow. The build also includes the imported missing-GUID custom-map freeze protection and external-pack HUD residency fix. **All 91 optimized automated checks pass.** Live testing of this exact combined runtime remains pending; the download is a playtest prerelease.

@@ -1,5 +1,9 @@
 # Changes
 
+## 18 October 2026 — reskate-mode.1 source merge
+
+Merge the latest branch into current main: two-part trick limit and lifted custom-map fallback zone bolts. Deathrace, enrollment and native/audio assets stay unchanged; 91 checks pass. Runtime staged locally, releases untouched. See [merge notes](docs/RELEASE_NOTES_20261018_RESKATE_MODE1_MERGE.md).
+
 ## 18 October 2026 — R.E.S.K.A.T.E., Deathrace and maps
 
 Publish the tested reskate-mode-210 main integration with current Deathrace and enroll/host-Start fixes preserved, custom-map GUID/HUD residency protections and Assets 1.0.7. All 91 checks pass; live validation is pending. Release downloads now contain only the DLL, launcher and complete updated assets. See [detailed notes](docs/RELEASE_NOTES_20261018_RESKATE_DEATHRACE.md).
