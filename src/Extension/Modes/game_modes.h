@@ -1,4 +1,5 @@
 #pragma once
+#include <utility>
 #include "Extension/UI/Overlay/overlay.h"
 #include "mode_view.h"
 #include "mode_rules.h"
@@ -44,6 +45,15 @@ bool hidden_player(std::uint64_t player) noexcept;
 std::string command(std::string_view verb, const std::vector<std::string> &arguments);
 // The HUD's snapshot, with the latest camera (any thread).
 overlay::ModesHud hud();
+// While ReSkate's own native menus and HUD write their labels (on this thread), the trick reader
+// ignores every UI write: those are not skate.'s trick list.
+inline thread_local bool writing_own_ui = false;
+struct OwnUiWrites {
+    bool previous = std::exchange(writing_own_ui, true);
+    ~OwnUiWrites() { writing_own_ui = previous; }
+};
+// `mode flicktest on|off`: R.E.S.K.A.T.E.'s picture slot shows the 1UP badge instead (diagnostics).
+bool flick_test() noexcept;
 // What the ReSkate menu's Game Modes page shows (any thread).
 overlay::ModesMenu menu_view();
 struct NativeView {
@@ -60,6 +70,8 @@ struct NativeView {
     unsigned missed_gate{};
     Vec3 cursor{};
     float cursor_yaw{},cursor_width=6.f,cursor_roll{},cursor_pitch{};
+    bool placing_circle{}; float draft_radius{}; // an area being placed: its size so far
+    bool placing_corners{}, zone_custom{};          // R.E.S.K.A.T.E.: its cones being placed; a custom zone
     Settings settings;
     std::optional<Message> state;
     std::string waiting_status,editor_warning;

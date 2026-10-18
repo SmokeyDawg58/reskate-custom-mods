@@ -114,6 +114,7 @@ add_library(dingosdk_runtime SHARED
     Extension/World/shader_permutation_guard.cpp
     Extension/World/shader_registry_guard.cpp
     Extension/World/light_table_guard.cpp
+    Extension/World/guid_table_guard.cpp
     Extension/World/stack_check_report.cpp
     Extension/World/texture_handle_limit.cpp
     Extension/Settings/replay_drafts.cpp

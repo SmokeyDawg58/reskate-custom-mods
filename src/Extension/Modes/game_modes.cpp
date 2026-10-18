@@ -40,7 +40,9 @@
 #include <charconv>
 #include <deque>
 #include <cmath>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -48,6 +50,9 @@
 #include <tuple>
 #include <utility>
 
+namespace dingosdk::profile_runtime {
+std::optional<bool> game_stance_goofy() noexcept; // Settings/local_gameplay_settings.h
+}
 namespace dingosdk::modes {
 namespace {
 constexpr std::uint32_t wipeout_state = 300, offboard_states_first = 500;
@@ -67,6 +72,11 @@ struct Line {
 };
 // Grinds and slides, from the physics states recorded on 2026-10-08 (402/403 grinds, 404 slides).
 constexpr std::uint32_t grind_states_first = 400, grind_states_end = 500;
+// R.E.S.K.A.T.E.: rolling on the board this long after a named trick lands it; off the board this
+// long misses it.
+constexpr std::uint64_t settle_landed_ms = 300, stepped_off_ms = 1500;
+// R.E.S.K.A.T.E.: names that are not board tricks (lower case parts of skate.'s trick list names).
+constexpr std::array<std::string_view, 10> off_board_words{"jump", "hippy", "vault", "climb", "dive", "dyno", "hang", "dismount", "run", "drop in"};
 std::int32_t grind_score(float seconds, float metres) {
     return static_cast<std::int32_t>(150.0f + std::clamp(seconds, 0.0f, 10.0f) * 250.0f + std::clamp(metres, 0.0f, 60.0f) * 30.0f);
 }
@@ -81,6 +91,7 @@ struct Game {
     unsigned capacity=6;
     bool race_finish_placed{};
     bool native_lobby{}, native_flag_placed{};
+    bool zone_custom{}; // R.E.S.K.A.T.E.: its trick zone is outlined by cones placed after the flag
     float native_flag_yaw{};
     std::uint64_t leader{};
     std::uint32_t id{};
@@ -200,6 +211,12 @@ struct State {
     RaceClearHold clear_hold;
     RaceEditorPresses editor_presses;
     bool editor_exit_confirm{};
+    std::uint64_t skate_return_sent{}; // when the last return teleport was asked for
+    std::vector<Vec3> cone_redo;        // R.E.S.K.A.T.E.'s cone editor: cones undone, newest last
+    struct NameWrites { std::string text; std::uint64_t first{}; unsigned count{}; };
+    std::map<std::uint64_t, NameWrites> name_writes; // R.E.S.K.A.T.E.: each trick list entry's last name
+    std::set<std::string> not_tricks;                // entries that are not tricks (the song title's)
+    std::uint64_t skate_return_at{}; // R.E.S.K.A.T.E.: when to send the player back to the start flag (0: not)
     RaceCourseMemory courses;
     std::string course_map;
     std::mutex recovery_mutex;
@@ -238,10 +255,19 @@ struct State {
         std::uint64_t since{};
         std::vector<std::pair<std::uint64_t, std::string>> parts; // trick list entry, its name
         std::map<std::uint64_t, std::string> sides;               // entry: "FS" or "BS"
+        std::map<std::uint64_t, std::string> body_spins, board_spins, stances; // entry: "180", "360", "Switch"
+        std::map<std::uint64_t, std::set<std::string>> modifiers;              // entry: "Late", "Darkflip", "Dark Catch"
+        std::uint64_t last_name{};     // when the last trick name was listed
+        std::uint64_t settled_since{}; // rolling on the board since (0: not)
+        std::uint64_t landed_at{};     // judged landed at (0: not): counts once it holds without a bail
+        std::uint64_t off_since{};     // off the board since (0: on it)
+        bool touched_down{};           // back on the ground since its first trick: nothing more joins
+        std::uint64_t invalid_at{}, invalid_told{}; // a move that is no trick (Trickless Air, a lone manual), and when that was said
         std::uint64_t spectating{};
     } skate;
-    bool spectate = true; // `mode spectate on|off`: watch whoever is up in R.E.S.K.A.T.E.
-    bool goofy{};         // `mode stance regular|goofy`: R.E.S.K.A.T.E.'s flick diagrams mirrored for goofy
+    bool spectate = true; // `mode spectate on|off`: watch whoever is up in S.K.A.T.E.
+    bool goofy{};         // `mode stance regular|goofy`: R.E.S.K.A.T.E.'s stick pictures for a goofy stance
+    bool stance_loaded{}; // the saved stance read (stance.txt)
     bool was_infected{};  // Infection: the local player was infected at the last tick
     bool was_hiding{};    // Hide & Seek: the hiding time was still running at the last tick
     // The lobby leaderboard: every finished game of two or more players seen in this session (the
@@ -264,6 +290,9 @@ struct State {
     std::map<Mode, int> lobby_played;
     std::uint64_t lobby_leader{};
     std::uint64_t diagram_until{}; // `mode diagram <trick>`: its flick diagram on screen until then
+    // R.E.S.K.A.T.E.: the tricks set this game, as each state names the trick up (newest last).
+    std::vector<std::string> letters_done;
+    std::uint32_t letters_done_game{};
     std::string diagram_trick;
     std::mutex hud_mutex;
     overlay::ModesHud hud;
@@ -326,6 +355,12 @@ const Standing *standing(const Game &g, std::uint64_t id) {
     return nullptr;
 }
 bool playing(const Game &g) { return g.state && g.state->phase == Phase::playing; }
+// R.E.S.K.A.T.E.: whoever is not up (or is out) watches the one who is, and cannot skate meanwhile.
+bool skate_watching(const State &s) {
+    if (!s.game || !playing(*s.game) || s.game->settings.mode != Mode::skate) return false;
+    const auto *me = standing(*s.game, self_id(s));
+    return me && (me->out || (s.game->state->turn && s.game->state->turn != self_id(s)));
+}
 // Hide & Seek: the local player seeks while the others still hide, so sees nothing and cannot move.
 bool seeker_blind(const State &s) {
     if (!s.game || !playing(*s.game) || s.game->settings.mode != Mode::hide || s.game->state->target <= 0) return false;
@@ -497,6 +532,10 @@ struct TrickLog {
     std::map<std::string, std::uint64_t> texts;                          // handle+text seen: no repeats
     std::map<std::uintptr_t, std::uint64_t> types;
     std::size_t logged{};
+    // Trick list entries only: an entry's writes are held until it is named as a trick (member
+    // 0x0002, the UI string type), then logged with everything it writes after.
+    std::map<std::uint64_t, std::vector<std::string>> held; // entry: its writes so far
+    std::set<std::uint64_t> named;
 };
 TrickLog &trick_log() {
     static auto *value = new TrickLog;
@@ -529,6 +568,24 @@ std::string text_at(std::uintptr_t address) noexcept {
 // ("ID_TRICK_LANDING_CLEAN"), written when the line lands. A grab or grind done in the same air as
 // a flip is its own entry before the one landing.
 constexpr std::uint32_t trick_name_member = 0x0002, trick_side_member = 0x009c, trick_landing_member = 0x0034;
+// The rest of a trick's record (found with `mode tricklog` on 2026-10-15): the body's spin ("180"),
+// the board's ("360": a 360 flip is "Flip" with 360; "Double" for a double kickflip) and the stance ("ID_STANCE_SWITCH",
+// "ID_STANCE_NOLLIE"), each written as text on the trick's entry.
+constexpr std::uint32_t trick_body_spin_member = 0x00bc, trick_board_spin_member = 0x00ac, trick_stance_member = 0x004e;
+// Its modifiers, each text: a late flip ("Late"), a darkflip and a dark catch (ID_TRICK_DARKFLIP,
+// ID_TRICK_DARKCATCH).
+constexpr std::uint32_t trick_late_member = 0x007c, trick_darkflip_member = 0x010d, trick_darkcatch_member = 0x00fd;
+// A trick list text that reads as a name: letters with digits, spaces and a little punctuation. A
+// pointer read as text ("P#a=") does not.
+bool readable_name(std::string_view text) noexcept {
+    bool letter = false;
+    for (const char c : text) {
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) letter = true;
+        else if (!(c >= '0' && c <= '9') && c != ' ' && c != '-' && c != '\'' && c != '.' && c != '&' && c != '/' && c != '!' && c != '_')
+            return false;
+    }
+    return letter;
+}
 constexpr std::uintptr_t ui_string_type_rva = 0x765dcc0; // Skate.exe: the UI model's string type
 struct TrickNote {
     std::uint64_t entry{};
@@ -546,9 +603,12 @@ TrickFeed &trick_feed() {
 }
 void feed_tap(std::uint64_t handle, std::uintptr_t type, const void *value) noexcept {
     auto &f = trick_feed();
-    if (!f.on.load(std::memory_order_acquire)) return;
+    if (!f.on.load(std::memory_order_acquire) || writing_own_ui) return;
     const auto member = static_cast<std::uint32_t>(handle & 0xffff);
-    if (member != trick_name_member && member != trick_side_member && member != trick_landing_member) return;
+    if (member != trick_name_member && member != trick_side_member && member != trick_landing_member &&
+        member != trick_body_spin_member && member != trick_board_spin_member && member != trick_stance_member &&
+        member != trick_late_member && member != trick_darkflip_member && member != trick_darkcatch_member)
+        return;
     static const auto string_type = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr)) + ui_string_type_rva;
     if (member == trick_name_member && type != string_type) return;
     try {
@@ -558,6 +618,13 @@ void feed_tap(std::uint64_t handle, std::uintptr_t type, const void *value) noex
         // A name skate. gives as a short code rather than text (one grind wrote 0x42532030): the code
         // itself, the same on every player's game, so it can still be set and copied. A pointer whose
         // text could not be read is not one: it differs from game to game.
+        // Some names sit one pointer further in (dark flips): a value that does not read as a name is
+        // followed once more.
+        if (member == trick_name_member && !text.empty() && !readable_name(text)) {
+            std::uint64_t inner{};
+            text = memory::read(static_cast<std::uintptr_t>(first), inner) ? text_at(static_cast<std::uintptr_t>(inner)) : std::string();
+            if (!readable_name(text)) return;
+        }
         if (text.empty() && member == trick_name_member && first && first < 0x100000000ull) text = std::format("Trick #{:x}", first);
         if (text.empty()) return;
         char kind = 'n';
@@ -567,6 +634,20 @@ void feed_tap(std::uint64_t handle, std::uintptr_t type, const void *value) noex
         } else if (member == trick_landing_member) {
             if (!text.starts_with("ID_TRICK_LANDING")) return;
             kind = 'l';
+        } else if (member == trick_body_spin_member) {
+            if (text.find_first_not_of("0123456789") != std::string::npos) return;
+            kind = 'b';
+        } else if (member == trick_board_spin_member) {
+            // The board's spin ("360") or how many times it flipped ("Double", "Triple").
+            if (text.starts_with("ID_") || text.size() > 16) return;
+            kind = 'r';
+        } else if (member == trick_stance_member) {
+            if (!text.starts_with("ID_STANCE_")) return;
+            kind = 'k';
+        } else if (member == trick_late_member || member == trick_darkflip_member || member == trick_darkcatch_member) {
+            if (member == trick_late_member ? text != "Late" : !text.starts_with("ID_TRICK_DARK")) return;
+            text = member == trick_late_member ? "Late" : member == trick_darkflip_member ? "Darkflip" : "Dark Catch";
+            kind = 'm';
         }
         std::lock_guard lock(f.mutex);
         if (f.notes.size() < 256) f.notes.push_back({handle >> 16, kind, std::move(text)});
@@ -582,6 +663,12 @@ void trick_tap(std::uint64_t handle, std::uintptr_t type, const void *value) noe
     feed_tap(handle, type, value);
     auto &t = trick_log();
     if (!t.on.load(std::memory_order_acquire)) return;
+    // Only the score HUD's trick list (array items: a non-zero item number) - every field each of its
+    // entries writes, so one trick's whole record (name, side, its spin or variation) can be read.
+    if ((handle >> 48) == 0) return;
+    const auto entry = handle >> 16;
+    const auto member = static_cast<std::uint32_t>(handle & 0xffff);
+    static const auto string_type = reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr)) + ui_string_type_rva;
     try {
         std::array<unsigned char, 16> raw{};
         if (!memory::peek_bytes(reinterpret_cast<std::uintptr_t>(value), raw.data(), 8)) return;
@@ -604,15 +691,124 @@ void trick_tap(std::uint64_t handle, std::uintptr_t type, const void *value) noe
         const bool changed = field.first == 0 || field.second != first;
         ++field.first;
         field.second = first;
-        if (t.logged >= 6000) return;
-        if (!text.empty()) {
-            if (!t.texts.emplace(std::format("{:x}|{}", handle, text), 1).second) return;
-            t.lines.push_back(std::format("Trick log: field {:x} (type {:x}) text {} \"{}\"", handle, type, where, text));
-            ++t.logged;
-        } else if (changed && field.first <= 25) {
-            t.lines.push_back(std::format("Trick log: field {:x} (type {:x}) #{} bytes {:016x} {:016x}", handle, type, field.first, first, second));
-            ++t.logged;
+        if (t.logged >= 6000 || (!changed && text.empty())) return;
+        auto line = text.empty() ? std::format("Trick log: entry {:x} member {:04x} (type {:x}) bytes {:016x} {:016x}", entry, member, type, first, second)
+                                 : std::format("Trick log: entry {:x} member {:04x} (type {:x}) text {} \"{}\"", entry, member, type, where, text);
+        if (member == trick_name_member && type == string_type && !text.empty() && t.named.insert(entry).second) {
+            for (auto &earlier : t.held[entry]) t.lines.push_back(std::move(earlier)), ++t.logged;
+            t.held.erase(entry);
         }
+        if (t.named.contains(entry)) {
+            t.lines.push_back(std::move(line));
+            ++t.logged;
+        } else {
+            if (t.held.size() > 4096) t.held.clear(); // other lists' items, never named
+            if (auto &writes = t.held[entry]; writes.size() < 64) writes.push_back(std::move(line));
+        }
+    } catch (...) {}
+}
+// R.E.S.K.A.T.E.'s callout for the referee's latest calls (Skate 3's "Trick set!"): a player out,
+// then a letter ("SMOKEY  R.E.S"), then a set or a copy landed. Empty when none of them is new.
+std::string letters_callout(const std::vector<std::string> &calls) {
+    const auto upper = [](std::string text) {
+        for (auto &c : text) c = static_cast<char>(c >= 'a' && c <= 'z' ? c - 'a' + 'A' : c);
+        return text;
+    };
+    const auto is_letters = [](std::string_view text) {
+        if (text.empty() || text.size() % 2 == 0) return false;
+        for (std::size_t i = 0; i < text.size(); ++i)
+            if (i % 2 ? text[i] != '.' : !(text[i] >= 'A' && text[i] <= 'Z')) return false;
+        return true;
+    };
+    for (const auto &call : calls)
+        if (call.ends_with(" is out")) return upper(call);
+    for (const auto &call : calls)
+        if (const auto colon = call.rfind(": "); colon != std::string::npos && is_letters(std::string_view(call).substr(colon + 2))) {
+            // "Smokey missed: R.E" -> "SMOKEY  R.E"; the name is the call's words before the reason.
+            const auto space = call.find(' ');
+            return upper(call.substr(0, space == std::string::npos || space > colon ? colon : space)) + "  " + call.substr(colon + 2);
+        }
+    for (const auto &call : calls) {
+        if (call.find(" set the ") != std::string::npos) return "TRICK SET!";
+        if (call.ends_with(" landed it")) return "TRICK COPIED!";
+        if (call.ends_with(" missed the set")) return "FAILED TO SET TRICK";
+        if (call.ends_with(": already set")) return "ALREADY BEEN DONE";
+        if (call.ends_with(": not in this game")) return "NOT IN THIS GAME";
+        if (call.ends_with("ran out of time to set")) return "OUT OF TIME";
+    }
+    return {};
+}
+// A trick named only by its text key, readable: "ID_TRICK_BSBONELESSBACKGRAB" -> "Boneless Back
+// Grab". Known words are split off greedily; anything else stays as one word.
+std::string readable_trick_key(std::string_view key) {
+    static constexpr std::array<std::string_view, 34> words{
+        "BONELESS", "BACKSIDE", "FRONTSIDE", "FASTPLANT", "FOOTPLANT", "HANDPLANT", "NOSEBONE", "TAILBONE", "STALEFISH", "SEATBELT",
+        "DOUBLE", "SHIFTY", "WEDDLE", "GROUND", "INVERT", "NOLLIE", "OLLIE", "FRONT", "PLANT", "TWEAK", "STALE", "MELON", "INDY",
+        "BACK", "FOOT", "HAND", "GRAB", "NOSE", "TAIL", "DARK", "ONE", "AIR", "NO", "TO"};
+    auto rest = key.substr(9); // after "ID_TRICK_"
+    std::string text;
+    const auto add = [&](std::string_view word) {
+        if (!text.empty()) text += ' ';
+        if (word == "BS" || word == "FS") { text += word; return; }
+        text += word.front();
+        for (const char c : word.substr(1)) text += static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+    };
+    // Its side is skate.'s own side field ("BS"), added with the rest of the trick: not repeated here.
+    if (rest.starts_with("BS") || rest.starts_with("FS")) rest.remove_prefix(2);
+    std::string pending;
+    while (!rest.empty()) {
+        const auto found = std::find_if(words.begin(), words.end(), [&](std::string_view w) { return rest.starts_with(w); });
+        if (found == words.end()) {
+            if (rest.front() != '_') pending += rest.front();
+            rest.remove_prefix(1);
+            continue;
+        }
+        if (!pending.empty()) add(pending), pending.clear();
+        add(*found);
+        rest.remove_prefix(found->size());
+    }
+    if (!pending.empty()) add(pending);
+    return text.empty() ? std::string(key) : text;
+}
+// R.E.S.K.A.T.E.: the player's stance for the stick pictures, kept between launches in
+// %LOCALAPPDATA%\ReSkate\stance.txt ("goofy" or "regular"; missing: regular).
+std::filesystem::path stance_file() {
+    std::array<wchar_t, 32768> local{};
+    const auto length = GetEnvironmentVariableW(L"LOCALAPPDATA", local.data(), static_cast<DWORD>(local.size()));
+    if (!length || length >= local.size()) return {};
+    return std::filesystem::path(std::wstring(local.data(), length)) / L"ReSkate" / L"stance.txt";
+}
+bool load_stance() noexcept {
+    try {
+        std::ifstream in(stance_file());
+        std::string word;
+        return in >> word && word == "goofy";
+    } catch (...) {
+        return false;
+    }
+}
+void save_stance(bool goofy) noexcept {
+    try {
+        const auto file = stance_file();
+        if (file.empty()) return;
+        std::error_code error;
+        std::filesystem::create_directories(file.parent_path(), error);
+        std::ofstream(file, std::ios::trunc) << (goofy ? "goofy" : "regular") << '\n';
+    } catch (...) {}
+}
+// What `mode tricklog` finds also goes to %LOCALAPPDATA%\ReSkate\tricklog.txt: a build without a
+// log file (the lean playtest) can still show how skate. lists each trick.
+void trick_file(const std::vector<std::string> &lines) {
+    if (lines.empty()) return;
+    try {
+        std::array<wchar_t, 32768> local{};
+        const auto length = GetEnvironmentVariableW(L"LOCALAPPDATA", local.data(), static_cast<DWORD>(local.size()));
+        if (!length || length >= local.size()) return;
+        const auto folder = std::filesystem::path(std::wstring(local.data(), length)) / L"ReSkate";
+        std::error_code error;
+        std::filesystem::create_directories(folder, error);
+        std::ofstream out(folder / L"tricklog.txt", std::ios::app | std::ios::binary);
+        for (const auto &line : lines) out << line << "\r\n";
     } catch (...) {}
 }
 void flush_trick_log() {
@@ -623,6 +819,15 @@ void flush_trick_log() {
         lines.swap(t.lines);
     }
     for (const auto &line : lines) logging::log(logging::Level::info, logging::Channel::runtime, "{}", line);
+    trick_file(lines);
+}
+// R.E.S.K.A.T.E.'s reading of a turn: to the log, and with `mode tricklog on` to its file too.
+void skate_note(std::string line) {
+    logging::log(logging::Level::info, logging::Channel::runtime, "{}", line);
+    auto &t = trick_log();
+    if (!t.on.load(std::memory_order_acquire)) return;
+    std::lock_guard lock(t.mutex);
+    t.lines.push_back(std::move(line));
 }
 std::string trick_log_command(const std::vector<std::string> &arguments) {
     auto &t = trick_log();
@@ -632,6 +837,8 @@ std::string trick_log_command(const std::vector<std::string> &arguments) {
         {
             std::lock_guard lock(t.mutex);
             t.fields.clear();
+            t.held.clear();
+            t.named.clear();
             t.texts.clear();
             t.types.clear();
             t.lines.clear();
@@ -650,9 +857,12 @@ std::string trick_log_command(const std::vector<std::string> &arguments) {
         logging::log(logging::Level::info, logging::Channel::runtime, "Trick log: off; {} fields, {} lines.", t.fields.size(), t.logged);
     }
     std::sort(counts.rbegin(), counts.rend());
+    std::vector<std::string> summary{"Trick log: off."};
     for (std::size_t i = 0; i < counts.size() && i < 30; ++i)
-        logging::log(logging::Level::info, logging::Channel::runtime, "Trick log: type {:x} written {} times.", counts[i].second, counts[i].first);
-    return "Trick log off. Close the game and tell Claude.";
+        summary.push_back(std::format("Trick log: type {:x} written {} times.", counts[i].second, counts[i].first));
+    for (std::size_t i = 1; i < summary.size(); ++i) logging::log(logging::Level::info, logging::Channel::runtime, "{}", summary[i]);
+    trick_file(summary);
+    return "Trick log off. Saved to %LOCALAPPDATA%\\ReSkate\\tricklog.txt.";
 }
 
 // ---- the local skater ----------------------------------------------------------------
@@ -893,6 +1103,12 @@ float gate_heading(const Settings &st, std::size_t i) {
     if (st.points.size() < 2 || i >= st.points.size()) return 0.0f;
     return i > 0 ? heading_towards(st.points[i - 1], st.points[i]) : heading_towards(st.points[0], st.points[1]);
 }
+// R.E.S.K.A.T.E.'s start: its flag, or a custom zone's middle when the flag stands outside its cones
+// (starting outside, no try would count).
+Vec3 skate_start(const Settings &st) {
+    if (st.area_radius <= 0.0f && has_area(st) && (!st.has_spawn || !inside(st, st.spawn))) return area_centre(st.corners);
+    return st.spawn;
+}
 void line_up(State &s) {
     if (!s.game || !s.skater) return;
     auto &g = *s.game;
@@ -912,6 +1128,7 @@ void line_up(State &s) {
     } else {
         Vec3 centre{};
         if (g.settings.area_radius > 0 && !g.settings.corners.empty()) centre = g.settings.corners[0];
+        else if (g.settings.mode == Mode::skate && has_area(g.settings)) centre = skate_start(g.settings);
         else if (g.settings.has_spawn) centre = g.settings.spawn;
         else if (has_area(g.settings)) centre = area_centre(g.settings.corners);
         else return;
@@ -921,7 +1138,7 @@ void line_up(State &s) {
         spot = {centre[0] + std::cos(angle) * ring, centre[1], centre[2] + std::sin(angle) * ring};
         // Round the circle everyone faces its middle; alone, the way the leader set it up.
         g.lined_up=teleport_to(spot, ring > 0 ? heading_towards(spot, centre) :
-            g.native_flag_placed?g.native_flag_yaw:s.heading);
+            g.native_flag_placed && g.settings.mode != Mode::skate ? g.native_flag_yaw : s.heading);
         return;
     }
     g.lined_up=teleport_to(spot, race_start_heading(g.settings));
@@ -1130,7 +1347,8 @@ void track_game(State &s, std::uint64_t now) {
             popup(s, std::format("Go back to required gate {}!",mandatory_gates(g.settings,index)+1));
         }
     }
-    if (!has_area(g.settings)) return;
+    // R.E.S.K.A.T.E.'s area is a trick zone, not a fence: players roll in from outside it.
+    if (!has_area(g.settings) || g.settings.mode == Mode::skate) return;
     if (inside(g.settings, s.position)) {
         s.outside_since = 0;
         if (!trainer::telemetry().airborne) s.last_inside = s.position;
@@ -1296,7 +1514,7 @@ void run_placing(State &s, std::uint64_t now) {
     const bool want_freecam = s.placing != State::Placing::none && s.free_place;
     s.placement_flight.store(want_freecam,std::memory_order_release);
     // The sticks fly the camera, so the skater does not roll off meanwhile.
-    overlay::pause_game_input(want_freecam || seeker_blind(s));
+    overlay::pause_game_input(want_freecam || seeker_blind(s) || skate_watching(s));
     if (const auto request=s.placement_camera.update(want_freecam,client_free_camera_view()!=0,now))
         console::request_debug(overlay::DebugAction::set_free_camera,*request);
     if (want_freecam != s.freecam_requested) {
@@ -1328,11 +1546,14 @@ void run_placing(State &s, std::uint64_t now) {
     const bool focus = !overlay::interface_open() && game_window_focused();
     if (!focus) {s.clear_hold.update(false,false,now);s.editor_presses.suppress();s.rotate_key_previous=held('R');return;}
     const bool close=(pressed&0x2000) || struck[3];
-    if(g.settings.mode==Mode::race && s.editor_exit_confirm) {
+    // R.E.S.K.A.T.E.'s cones use the Deathrace gate editor's controls: A place, D-pad left / right
+    // undo and redo, Start done, B close (confirmed), hold Select clear all.
+    const bool cone_editor=g.settings.mode==Mode::skate && s.placing==State::Placing::corners;
+    if((g.settings.mode==Mode::race || cone_editor) && s.editor_exit_confirm) {
         if(close){s.editor_exit_confirm=false;return;}
         if(!(pressed&pad_a) && !struck[0])return;
         s.editor_exit_confirm=false;
-    } else if(close && g.settings.mode==Mode::race) {
+    } else if(close && (g.settings.mode==Mode::race || cone_editor)) {
         s.editor_exit_confirm=true;s.clear_hold={};return;
     } else if(!close)goto editor_continue;
     { // Confirmed B / Escape: retain the draft and release input.
@@ -1344,14 +1565,18 @@ void run_placing(State &s, std::uint64_t now) {
             g.native_flag_placed=false;s.race_resume_editor=false;
         }
         if(g.settings.mode==Mode::race)end_game(s,{});
-        popup(s,"Placement closed. Your draft is kept; open Throwdowns to continue.");
+        if(cone_editor)notice(s,g.settings.corners.size()>=3?std::format("Trick zone set: {} cones.",g.settings.corners.size())
+                                                         :std::string("Fewer than 3 cones: tricks count anywhere."));
+        else popup(s,"Placement closed. Your draft is kept; open Throwdowns to continue.");
         return;
     }
     editor_continue:
     const bool race_editor=s.placing==State::Placing::points && g.settings.mode==Mode::race;
-    const bool back = !race_editor && ((pressed&pad_left) || struck[1]);
-    bool confirm = (pressed & (race_editor?pad_a:(pad_right|pad_a))) || struck[0];
-    bool done = (pressed & (race_editor?0x10:pad_down)) || struck[2]; // Start: save
+    // The cone editor follows the gate editor: D-pad left / right undo and redo (Backspace holds Clear All).
+    const bool back = cone_editor ? (pressed&pad_left)!=0 : !race_editor && ((pressed&pad_left) || struck[1]);
+    const bool editor = race_editor || cone_editor;
+    bool confirm = (pressed & (editor?pad_a:(pad_right|pad_a))) || struck[0];
+    bool done = (pressed & (editor?0x10:pad_down)) || struck[2]; // Start: save
     if (!s.cursor_ok && confirm) {
         popup(s, s.game->settings.mode==Mode::race && s.race_object==4?"Move the Chevron clear of the surface.":"Aim at the ground");
         confirm = done = false;
@@ -1486,23 +1711,68 @@ void run_placing(State &s, std::uint64_t now) {
         }
         return;
     }
-    if (confirm && list.size() < limit) {
+    if (cone_editor) {
+        // Snapping, with the gate editor's buttons (Y on/off, L3/R3 the angle): from the third cone
+        // on, the edge from the last one keeps to steps of the snap angle from the first edge, and a
+        // cone near the first one's line lands on it, so a square comes out square.
+        constexpr std::array<float,5> snap_angles{5.f,15.f,30.f,45.f,90.f};
+        if(pressed&0x40)s.snap_angle=(s.snap_angle+4u)%5u;
+        if(pressed&0x80)s.snap_angle=(s.snap_angle+1u)%5u;
+        const bool snap=(buttons&0x8000) || held('G');
+        if(snap && !s.snap_previous)s.route_snap=!s.route_snap;
+        s.snap_previous=snap;
+        const auto& placed=g.settings.corners;
+        if(s.route_snap && placed.size()>=2) {
+            const auto& first=placed[0];const auto& last=placed.back();
+            const float ex=placed[1][0]-first[0],ez=placed[1][2]-first[2],edge=std::hypot(ex,ez);
+            const float dx=s.cursor[0]-last[0],dz=s.cursor[2]-last[2],length=std::hypot(dx,dz);
+            if(edge>.5f && length>.5f) {
+                const float ux=ex/edge,uz=ez/edge; // the first edge, and across it
+                const float step=snap_angles[s.snap_angle]*3.14159265f/180.f;
+                const float angle=std::round(std::atan2(dx*-uz+dz*ux,dx*ux+dz*uz)/step)*step;
+                const float du=std::cos(angle),dv=std::sin(angle);
+                float reach=length;
+                // Line up with the first cone along either axis when close (1.5 m).
+                const float lu=(last[0]-first[0])*ux+(last[2]-first[2])*uz,lv=(last[0]-first[0])*-uz+(last[2]-first[2])*ux;
+                for(const auto [along,from]:{std::pair{du,lu},std::pair{dv,lv}})
+                    if(std::abs(along)>.2f) {const float fit=-from/along;if(fit>.5f && std::abs(fit-reach)<1.5f)reach=fit;}
+                s.cursor[0]=last[0]+(du*ux-dv*uz)*reach;
+                s.cursor[2]=last[2]+(du*uz+dv*ux)*reach;
+            }
+        }
+    }
+    if (cone_editor && s.clear_hold.update((buttons&0x20) || held(VK_BACK),focus,now)) {
+        list.clear();s.cone_redo.clear();settings_changed(g);popup(s,"All cones cleared.");
+        return;
+    }
+    if (cone_editor && confirm && list.size() >= limit) {
+        popup(s, std::format("{} cones is the most. Press Start to finish.", limit));
+    } else if (cone_editor && (pressed & pad_right) && !s.cone_redo.empty() && list.size() < limit) {
+        list.push_back(s.cone_redo.back());s.cone_redo.pop_back();
+        settings_changed(g);
+        popup(s, std::format("Cone {} restored", list.size()));
+    } else if (confirm && list.size() < limit) {
+        if (cone_editor) s.cone_redo.clear();
         list.push_back(s.cursor);
         settings_changed(g);
-        popup(s, std::format("{} {} placed", corners ? std::string("Corner") : point_name(g), list.size()));
+        popup(s, std::format("{} {} placed", cone_editor ? std::string("Cone") : corners ? std::string("Corner") : point_name(g), list.size()));
     } else if (back) {
         if (list.empty()) {
-            s.placing = State::Placing::none;
+            if (!cone_editor) s.placing = State::Placing::none;
         } else {
+            if (cone_editor) s.cone_redo.push_back(list.back());
             list.pop_back();
             if (!corners && g.settings.yaws.size() > list.size()) g.settings.yaws.resize(list.size());
             if (!corners && g.settings.widths.size() > list.size()) g.settings.widths.resize(list.size());
             settings_changed(g);
             popup(s, std::format("Removed the last one ({} left)", list.size()));
         }
+    } else if (done && cone_editor && list.size() < 3) {
+        popup(s, "Place at least 3 cones.");
     } else if (done && (corners ? list.size() >= 3 : !list.empty())) {
         s.placing = State::Placing::none;
-        popup(s, corners ? std::format("Area set: {} corners.", list.size()) : std::format("{} {}s placed.", list.size(), point_name(g)));
+        if (cone_editor) notice(s, std::format("Trick zone set: {} cones.", list.size()));
+        else popup(s, corners ? std::format("Area set: {} corners.", list.size()) : std::format("{} {}s placed.", list.size(), point_name(g)));
     }
 }
 
@@ -1617,10 +1887,13 @@ void run_player(State &s, Game &g, std::uint64_t now) {
 
 }
 
-// R.E.S.K.A.T.E.: the local player's turn. skate.'s trick list is read from the moment it is theirs: each
-// trick's name (with its FS / BS side) joins the attempt until the line lands, which sends it, or a
-// bail, which misses it. One attempt per turn: the next turn (a new call from the referee) starts
-// over. Whoever is up is watched with the party Spectate camera, when the player wants that.
+// R.E.S.K.A.T.E.: the local player's turn. skate.'s trick list is read from the moment it is theirs:
+// each trick's name (with its FS / BS side) joins the attempt until the line lands, which sends it,
+// or a bail, which misses it. skate. does not list a landing for every trick (plants, some grabs and
+// grinds end without one, or list it before the name), so rolling away on the board for a moment
+// after a named trick lands it too, and stepping off the board misses it. One attempt per turn: the
+// next turn (a new call from the referee) starts over. Whoever is up is watched with the party
+// Spectate camera, when the player wants that.
 std::string trick_kinds_text(std::uint8_t kinds) {
     if (kinds == all_trick_kinds) return "any trick";
     std::string text;
@@ -1630,17 +1903,97 @@ std::string trick_kinds_text(std::uint8_t kinds) {
     return text;
 }
 std::string skate_trick(const State::SkateTurn &t) {
+    // skate. lists a nollie as its own entry, before or after the trick popped from it: it goes on
+    // the trick ("Nollie Kickflip"), so the same trick reads the same whatever the order.
+    auto parts = t.parts;
+    const auto is_nollie = [](const std::pair<std::uint64_t, std::string> &part) {
+        return part.second == "Nollie" || part.second == "nollie" || part.second == "NOLLIE";
+    };
+    const bool nollie = parts.size() > 1 && std::any_of(parts.begin(), parts.end(), is_nollie);
+    if (nollie) std::erase_if(parts, is_nollie);
+    // A flip trick lists no ollie of its own ("Kickflip"): an ollie listed before one is its own pop,
+    // and the flip a late flip ("Late Kickflip"). Before a grind or a grab it is just the pop into it.
+    std::set<std::uint64_t> late;
+    for (std::size_t i = 0; i + 1 < parts.size(); ++i)
+        if (parts[i].second == "Ollie" && trick_kinds_of(parts[i + 1].second) == trick_flips) {
+            late.insert(parts[i + 1].first);
+            parts.erase(parts.begin() + static_cast<std::ptrdiff_t>(i));
+        }
+    // Everything done before the board is back on the ground counts, in order: a flip into a grind
+    // or a grab is both ("Kickflip + BS Noseslide"), and a manual landed into joins it. A pop (Ollie,
+    // Boned Ollie) is only the way into the rest, so it counts only when nothing else was done.
+    if (parts.size() > 1) {
+        const auto pop = [](const std::pair<std::uint64_t, std::string> &part) {
+            std::string name;
+            for (const char c : part.second) name += static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+            return name.ends_with("ollie");
+        };
+        if (std::any_of(parts.begin(), parts.end(), [&](const auto &part) { return !pop(part); }))
+            std::erase_if(parts, pop);
+        if (parts.size() > 1) parts.erase(std::unique(parts.begin(), parts.end(), [](const auto &a, const auto &b) { return a.second == b.second; }), parts.end());
+    }
     std::string text;
-    for (const auto &[entry, name] : t.parts) {
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        const auto &[entry, name] = parts[i];
         if (!text.empty()) text += " + ";
-        if (const auto side = t.sides.find(entry); side != t.sides.end()) text += side->second + " ";
+        // As skate.'s own trick list shows it: stance, the board's spin, the trick, then its side and the
+        // body's spin ("Fakie 360 Inward Heelflip FS 180"); a side without a body spin goes first ("BS Pop-Shuvit").
+        // A nollie listed as its own entry is the trick's stance, as the stance field gives it.
+        if (const auto stance = t.stances.find(entry); stance != t.stances.end()) text += stance->second + " ";
+        else if (i == 0 && nollie && !name.starts_with("Nollie")) text += "Nollie ";
+        const auto side = t.sides.find(entry);
+        const auto body = t.body_spins.find(entry);
+        if (side != t.sides.end() && body == t.body_spins.end()) text += side->second + " ";
+        if (const auto spin = t.board_spins.find(entry); spin != t.board_spins.end() && name.find(spin->second) == std::string::npos)
+            text += spin->second + " ";
+        const auto mods = t.modifiers.find(entry);
+        const auto has = [&](const char *mod) { return mods != t.modifiers.end() && mods->second.contains(mod); };
+        if ((late.contains(entry) || has("Late")) && !name.starts_with("Late")) text += "Late ";
+        if (has("Darkflip")) text += "Darkflip ";
+        if (has("Dark Catch")) text += "Dark Catch ";
         text += name;
+        if (body != t.body_spins.end()) text += (side != t.sides.end() ? " " + side->second : std::string()) + " " + body->second;
     }
     if (text.size() > max_trick_length) text.resize(max_trick_length);
     return text;
 }
+constexpr std::uint64_t skate_return_ms = 1200, skate_return_give_up_ms = 20000, skate_return_retry_ms = 6000, land_hold_ms = 1000;
+// On the ground, on the board or off it (standing, walking), not in the air or a bail: where skate.
+// accepts a teleport.
+bool skate_rolling(const State &s) {
+    const auto physics = trainer::telemetry().physics_state;
+    return s.skater && !trainer::telemetry().airborne &&
+           ((physics >= 100 && physics < 200) || (physics >= offboard_states_first && physics < 600));
+}
+// Where a return sends the local player: the start when it is their turn, else their own spot round
+// it (spread like the line-up), facing it, so nobody lands inside anybody. The start faces into the
+// zone, or away from the flag, never the flag's own angle (that turned players round).
+std::pair<Vec3, float> skate_return_spot(const State &s) {
+    const auto &st = s.game->settings;
+    const Vec3 at = skate_start(st);
+    std::vector<std::uint64_t> ids;
+    if (s.game->state)
+        for (const auto &p : s.game->state->standings) ids.push_back(p.player);
+    std::sort(ids.begin(), ids.end());
+    const auto self = self_id(s);
+    if (ids.size() > 1 && s.game->state && s.game->state->turn != self && std::find(ids.begin(), ids.end(), self) != ids.end()) {
+        const auto count = static_cast<float>(ids.size());
+        const auto index = static_cast<float>(std::find(ids.begin(), ids.end(), self) - ids.begin());
+        const float ring = 3.0f + 0.6f * count, angle = 6.2831853f * index / count;
+        const Vec3 spot{at[0] + std::cos(angle) * ring, at[1], at[2] + std::sin(angle) * ring};
+        return {spot, heading_towards(spot, at)};
+    }
+    const auto centre = has_area(st) ? area_centre(st.corners) : at;
+    const float facing = std::hypot(centre[0] - at[0], centre[2] - at[2]) > 2.0f ? heading_towards(at, centre)
+                       : st.has_spawn && std::hypot(st.spawn[0] - at[0], st.spawn[2] - at[2]) > 2.0f ? heading_towards(st.spawn, at)
+                       : s.heading;
+    return {at, facing};
+}
 void run_skate(State &s, std::uint64_t now) {
     auto &t = s.skate;
+    if (!std::exchange(s.stance_loaded, true)) s.goofy = load_stance();
+    // The game's own stance (Gameplay Preferences) once it is known; `mode stance` until then.
+    if (const auto goofy = profile_runtime::game_stance_goofy()) s.goofy = *goofy;
     const auto self = self_id(s);
     const auto *st = s.game && s.game->state ? &*s.game->state : nullptr;
     const auto *me = s.game ? standing(*s.game, self) : nullptr;
@@ -1648,57 +2001,239 @@ void run_skate(State &s, std::uint64_t now) {
     if (s.game && s.game->settings.mode == Mode::skate) prepare_trick_gestures(); // once, in the background
     trick_feed().on.store(in, std::memory_order_release);
     auto notes = take_trick_notes();
-    // The camera on whoever is up, not on the local player's own turn.
-    const auto watch = in && s.spectate && st->turn && st->turn != self && s.present.contains(st->turn) ? st->turn : 0;
+    // The camera on whoever is up, not on the local player's own turn; players already out keep
+    // watching until the game ends.
+    const bool watching = st && s.game->settings.mode == Mode::skate && st->phase == Phase::playing && me;
+    const auto watch = watching && s.spectate && st->turn && st->turn != self && s.present.contains(st->turn) ? st->turn : 0;
     if (watch || t.spectating) multiplayer::spectate_party_member(watch);
     t.spectating = watch;
+    // After each attempt (set, landed, missed or outside the zone) back to the start flag, a
+    // moment later so the landing is seen. Refused during a bail: tried again once it is over.
+    if (s.skate_return_at && (!in || !s.game->settings.has_spawn || now > s.skate_return_at + skate_return_give_up_ms)) {
+        s.skate_return_at = s.skate_return_sent = 0;
+    } else if (s.skate_return_at && s.skate_return_sent && now >= s.skate_return_sent + 500 &&
+               std::hypot(s.position[0] - skate_return_spot(s).first[0], s.position[2] - skate_return_spot(s).first[2]) < 2.0f) {
+        s.skate_return_at = s.skate_return_sent = 0; // arrived
+    } else if (s.skate_return_at && now >= s.skate_return_at && (t.parts.empty() || t.sent) && !s.bail.active &&
+               now >= s.skate_return_sent + skate_return_retry_ms && skate_rolling(s)) {
+        // Only once on the ground, on the board or off it: skate.'s teleport is dropped while the
+        // skater is busy (getting up from a bail). Asked again until the player is there.
+        const auto [at, facing] = skate_return_spot(s);
+        if (teleport_to(at, facing)) {
+            s.skate_return_sent = now;
+            t.since = now; // nothing before the move counts towards the next try
+        }
+    }
     const bool mine = in && st->turn == self;
     if (!mine) {
         t = {.spectating = t.spectating};
         return;
     }
     if (!t.mine || t.key != st->call_serial) { // a new turn: nothing done before it counts
-        logging::log(logging::Level::info, logging::Channel::runtime, "R.E.S.K.A.T.E.: your turn, {} ({} trick list note{} before it ignored).",
-                     st->trick.empty() ? std::string("setting") : "copying the " + st->trick, notes.size(), notes.size() == 1 ? "" : "s");
+        skate_note(std::format("R.E.S.K.A.T.E.: your turn, {} ({} trick list note{} before it ignored).",
+                               st->trick.empty() ? std::string("setting") : "copying the " + st->trick, notes.size(), notes.size() == 1 ? "" : "s"));
         t.mine = true;
         t.key = st->call_serial;
+        // Every turn starts at the start flag, setting or copying (unless already there or on the way).
+        if (!s.skate_return_at && s.game->settings.has_spawn &&
+            std::hypot(s.position[0] - skate_start(s.game->settings)[0], s.position[2] - skate_start(s.game->settings)[2]) > 3.0f)
+            s.skate_return_at = now + 300;
         t.sent = false;
         t.since = now;
         t.parts.clear();
         t.sides.clear();
+        t.body_spins.clear();
+        t.board_spins.clear();
+        t.stances.clear();
+        t.modifiers.clear();
+        t.last_name = t.settled_since = t.off_since = t.landed_at = 0;
+        t.touched_down = false;
         return;
     }
     if (t.sent) return;
     const auto send_attempt = [&](bool landed) {
         const auto trick = skate_trick(t);
-        logging::log(logging::Level::info, logging::Channel::runtime, "R.E.S.K.A.T.E.: attempt \"{}\" {}.", trick,
-                     landed ? "landed" : "missed (a bail or a failed landing)");
+        // Outside the trick zone nothing counts, a miss neither: the player tries again inside it.
+        if (!inside(s.game->settings, s.position)) {
+            skate_note(std::format("R.E.S.K.A.T.E.: attempt \"{}\" outside the zone, not counted.", trick));
+            popup(s, "Landed outside the zone");
+            t.parts.clear();
+            t.sides.clear();
+            t.body_spins.clear();
+            t.board_spins.clear();
+            t.stances.clear();
+            t.modifiers.clear();
+            t.last_name = t.settled_since = t.off_since = t.landed_at = 0;
+            t.touched_down = false;
+            t.since = now; // a bail before this does not miss the next try
+            s.skate_return_at = now + skate_return_ms;
+            return;
+        }
+        skate_note(std::format("R.E.S.K.A.T.E.: attempt \"{}\" {}.", trick, landed ? "landed" : "missed (a bail, stepping off or a failed landing)"));
         report(s, Event::trick, landed ? 1 : 0, 0, s.position, {}, trick);
-        popup(s, landed ? "Landed: " + trick : trick.empty() ? std::string("Missed") : "Missed: " + trick);
+        // Copying: "Trick copied" when it is the trick to copy. Setting: a miss failed to set it.
+        const bool copying = !st->trick.empty();
+        popup(s, landed ? (copying && trick == st->trick ? "Trick copied: " + trick : "Landed: " + trick)
+                 : !copying ? std::string("Failed to set trick") : trick.empty() ? std::string("Missed") : "Missed: " + trick);
         t.sent = true;
+        s.skate_return_at = now + skate_return_ms;
     };
-    // Reverts count for nothing: a kickflip landed into a revert is a kickflip, and copies one landed without.
-    const auto revert = [](const std::string &name) {
+    const auto lower_text = [](const std::string &name) {
         std::string text;
         for (const char c : name) text += static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
-        return text.find("revert") != std::string::npos;
+        return text;
     };
+    // Reverts count for nothing: a kickflip landed into a revert is a kickflip, and copies one landed without.
+    const auto revert = [&](const std::string &name) { return lower_text(name).find("revert") != std::string::npos; };
+
+    // Names and sides first: a landing listed in the same tick as its trick's name still lands it.
+    std::optional<bool> landing;
     for (const auto &note : notes) {
-        logging::log(logging::Level::info, logging::Channel::runtime, "R.E.S.K.A.T.E.: trick list {} \"{}\" (entry {:x}).",
-                     note.kind == 'n' ? "name" : note.kind == 's' ? "side" : "landing", note.text, note.entry);
+        skate_note(std::format("R.E.S.K.A.T.E.: trick list {} \"{}\" (entry {:x}).",
+                               note.kind == 'n' ? "name" : note.kind == 's' ? "side" : note.kind == 'b' ? "body spin" :
+                               note.kind == 'r' ? "board spin" : note.kind == 'k' ? "stance" : note.kind == 'm' ? "modifier" : "landing",
+                               note.text, note.entry));
         if (note.kind == 'n') {
-            if (revert(note.text)) continue;
-            if (t.parts.size() < 8) t.parts.push_back({note.entry, note.text});
+            // Not tricks: reverts, a bail's "Slam", and the gaps and spots skate. lists in the
+            // same list by place ("Seawall - Plot 03 - ENT").
+            // Manuals and powerslides do not count in R.E.S.K.A.T.E.: one landed into a manual is
+            // the trick before it.
+            // Menu text written through the same field (the Skatepedia's "ID_SKATEPEDIA_CATEGORY_..."
+            // while it is open) is not a trick either.
+            // A trick skate. names only by its text key ("ID_TRICK_BSBONELESSBACKGRAB": a backside
+            // boneless back grab) is a trick all the same: it gets a readable name.
+            const auto text = note.text.starts_with("ID_TRICK_") ? readable_trick_key(note.text) : note.text;
+            // Not tricks: what keeps rewriting one name on one entry, like the music player's song
+            // title ("Billie Jean", written several times a second). A trick's entry writes its name
+            // once or twice. Dropped from the attempt, and that entry ignored for the rest of the
+            // session (the music player writes every song title through the same one).
+            const auto writer = std::format("{:x}", note.entry);
+            if (s.not_tricks.contains(writer)) continue;
+            if (auto &w = s.name_writes[note.entry]; w.text == text && now - w.first < 3000) {
+                if (++w.count >= 4) {
+                    if (s.not_tricks.size() > 256) s.not_tricks.clear();
+                    s.not_tricks.insert(writer);
+                    std::erase_if(t.parts, [&](const auto &part) { return part.first == note.entry; });
+                    if (t.parts.empty()) t.landed_at = t.settled_since = 0, t.touched_down = false;
+                    skate_note(std::format("R.E.S.K.A.T.E.: \"{}\" keeps being rewritten (entry {:x}): not a trick.", text, note.entry));
+                    continue;
+                }
+            } else {
+                if (s.name_writes.size() > 512) s.name_writes.clear();
+                w = {text, now, 1};
+            }
+            if (text == "Slam" || text.find(" - ") != std::string::npos || text.starts_with("ID_") ||
+                text.find("  ") != std::string::npos || text.starts_with("SET A TRICK") || text.starts_with("COPY") ||
+                text.starts_with("LETTERS") || (text.size() >= 2 && text[1] == '.'))
+                continue;
+            // Moves that are no trick on their own (rolling off something, a powerslide, a revert, a
+            // manual): the player is told so if nothing real follows. After a trick a revert or a
+            // powerslide is just how it was ridden away, and adds nothing.
+            const auto low = lower_text(text);
+            const bool manual = low.find("manual") != std::string::npos;
+            if (revert(text) || low.find("powerslide") != std::string::npos || low.find("trickless") != std::string::npos ||
+                (manual && t.parts.empty())) {
+                if (t.parts.empty()) t.invalid_at = now;
+                continue;
+            }
+            if (manual) { // landed into a manual: it joins the trick ("Kickflip + Manual"), one only
+                const bool known = std::any_of(t.parts.begin(), t.parts.end(), [&](const auto &part) { return part.first == note.entry; });
+                if (known) {
+                    for (auto &part : t.parts)
+                        if (part.first == note.entry) part.second = text;
+                } else if (std::none_of(t.parts.begin(), t.parts.end(), [&](const auto &part) { return lower_text(part.second).find("manual") != std::string::npos; }) &&
+                           t.parts.size() < 6) {
+                    t.parts.push_back({note.entry, text});
+                }
+                t.last_name = now;
+                continue;
+            }
+            // Not board tricks: jumps on foot or a hippy jump, and anything done off the board (vaults,
+            // climbs, dives, dynos, hangs, dismounts).
+            if (const auto lowered = lower_text(text);
+                std::any_of(off_board_words.begin(), off_board_words.end(), [&](std::string_view word) { return lowered.find(word) != std::string::npos; }))
+                continue;
+            if (const auto physics = trainer::telemetry().physics_state; physics >= offboard_states_first && physics < 600) continue;
+            const bool known = std::any_of(t.parts.begin(), t.parts.end(), [&](const auto &part) { return part.first == note.entry; });
+            if (known) { // the entry renamed as the trick grows ("Kickflip" to "Double Kickflip")
+                for (auto &part : t.parts)
+                    if (part.first == note.entry && part.second != text) {
+                        part.second = text;
+                        t.last_name = now;
+                    }
+            } else {
+                // One trick per attempt: what is done before the board is back on the ground is
+                // that trick (a kickflip into a darkslide, a grind and its flip out, a flip and its
+                // grab). Once on the ground, nothing more joins: trick spam adds nothing. One plain
+                // pop stays, as an ollie makes a late flip and a nollie a nollie trick.
+                const auto pop = [](const std::string &name) { return name == "Ollie" || name == "Nollie"; };
+                const bool have_pop = std::any_of(t.parts.begin(), t.parts.end(), [&](const auto &part) { return pop(part.second); });
+                if (t.touched_down || (pop(text) && have_pop) || t.parts.size() >= 6) continue;
+                t.parts.push_back({note.entry, text});
+                t.last_name = now;
+                t.invalid_at = 0; // a real trick followed: nothing to tell
+            }
         } else if (note.kind == 's') {
             t.sides[note.entry] = note.text == "ID_TRICK_FS" ? "FS" : note.text == "ID_TRICK_BS" ? "BS" : std::string();
             if (t.sides[note.entry].empty()) t.sides.erase(note.entry);
-        } else if (!t.parts.empty()) { // landed
-            send_attempt(note.text.find("BAIL") == std::string::npos && note.text.find("FAIL") == std::string::npos);
-            return;
+        } else if (note.kind == 'b') {
+            t.body_spins[note.entry] = note.text;
+        } else if (note.kind == 'r') {
+            t.board_spins[note.entry] = note.text;
+        } else if (note.kind == 'k') { // "ID_STANCE_SWITCH" -> "Switch"
+            auto stance = note.text.substr(10);
+            for (std::size_t i = 1; i < stance.size(); ++i) stance[i] = static_cast<char>(stance[i] >= 'A' && stance[i] <= 'Z' ? stance[i] - 'A' + 'a' : stance[i]);
+            if (!stance.empty() && stance != "Regular") t.stances[note.entry] = stance;
+        } else if (note.kind == 'm') {
+            t.modifiers[note.entry].insert(note.text);
+        } else if (!t.parts.empty() && (!landing || *landing) &&
+                   (std::any_of(t.parts.begin(), t.parts.end(), [&](const auto &part) { return part.first == note.entry; }) ||
+                    ((note.entry >> 32) != 0 && (note.entry >> 32) == (t.parts.front().first >> 32)))) {
+            // A landing lands the attempt only from its own line (the item number of its entries):
+            // an earlier line's landing listed late must not end it mid-air.
+            landing = note.text.find("BAIL") == std::string::npos && note.text.find("FAIL") == std::string::npos;
         }
     }
     // A bail during the turn misses it.
-    if (s.bail.active && s.bail.started >= t.since) send_attempt(false);
+    if (s.bail.active && s.bail.started >= t.since) {
+        send_attempt(false);
+        return;
+    }
+    // A move that is no trick on its own, with nothing real after it: said once, a moment later.
+    if (t.parts.empty() && t.invalid_at && t.invalid_told != t.invalid_at && now - t.invalid_at >= 1200) {
+        t.invalid_told = t.invalid_at;
+        popup(s, "Not a valid trick");
+    }
+    if (t.parts.empty()) return;
+    // A landing counts once it holds: a fall straight after skate. judged it landed (a bail caught
+    // above) misses it instead.
+    if (t.landed_at) {
+        // Falling or stepping off before it holds misses it, whether or not a bail was seen yet.
+        const auto held_state = trainer::telemetry().physics_state;
+        if (s.skater && ((held_state >= wipeout_state && held_state < wipeout_state + 100) ||
+                         (held_state >= offboard_states_first && held_state < 600)))
+            send_attempt(false);
+        else if (now - t.landed_at >= land_hold_ms) send_attempt(true);
+        return;
+    }
+    if (landing) {
+        if (*landing) t.landed_at = now;
+        else send_attempt(false);
+        return;
+    }
+    // One trick per attempt: back on the board on the ground (rolling, or rolling away in a manual)
+    // a moment after the last named trick lands it, without waiting for skate. to end the whole
+    // line. Getting off the board instead (not a plant, which comes back to it) misses it.
+    const auto physics = trainer::telemetry().physics_state;
+    const bool grounded = s.skater && !trainer::telemetry().airborne && physics >= 100 && physics < 200;
+    const bool off = s.skater && physics >= offboard_states_first && physics < 600;
+    t.settled_since = grounded ? (t.settled_since ? t.settled_since : now) : 0;
+    if (grounded && now - t.last_name >= 150) t.touched_down = true; // landed: the trick is complete
+    t.off_since = off ? (t.off_since ? t.off_since : now) : 0;
+    if (t.settled_since && now - t.settled_since >= settle_landed_ms && now - t.last_name >= settle_landed_ms)
+        t.landed_at = now;
+    else if (t.off_since && now - t.off_since >= stepped_off_ms)
+        send_attempt(false);
 }
 
 // R.E.S.K.A.T.E.'s trick to copy for the HUD: each part with its flick (or what kind of trick it is).
@@ -1722,6 +2257,7 @@ void fill_trick_parts(overlay::ModesHud &h, const std::string &trick, std::strin
 }
 
 void build_hud(State &s, std::uint64_t now) {
+    if (const auto goofy = profile_runtime::game_stance_goofy()) s.goofy = *goofy;
     overlay::ModesHud h;
     if (s.game) {
         const auto &g = *s.game;
@@ -1772,6 +2308,20 @@ void build_hud(State &s, std::uint64_t now) {
                                        : "YOUR TURN: land the " + st->trick;
                 else
                     h.status = setting ? name_of(s, st->turn) + " is setting a trick" : name_of(s, st->turn) + " is trying the " + st->trick;
+                // How to do it, as skate.'s Skatepedia shows it: the flick-it stick picture and buttons.
+                if (!setting) h.trick_steps = trick_steps(st->trick, s.goofy);
+                // The trick zone: how far outside it the local player is.
+                if (g.settings.area_radius > 0.0f && !g.settings.corners.empty() && !inside(g.settings, s.position))
+                    h.warning = std::format("OUT OF THE ZONE  -  {:.0f} M",
+                                            std::hypot(s.position[0] - g.settings.corners[0][0], s.position[2] - g.settings.corners[0][2]) - g.settings.area_radius);
+                // Skate 3's "Already been done": every trick set this game, as states name it.
+                if (s.letters_done_game != g.id) s.letters_done.clear(), s.letters_done_game = g.id;
+                if (!setting && std::find(s.letters_done.begin(), s.letters_done.end(), st->trick) == s.letters_done.end())
+                    s.letters_done.push_back(st->trick);
+                h.done_tricks = s.letters_done;
+                // The referee's latest calls as one short callout, the most important first.
+                h.callout = letters_callout(st->calls);
+                h.callout_serial = st->call_serial;
             } else if (mode == Mode::tag && st->turn) {
                 h.status = st->turn == self ? std::string("YOU'RE IT! Get close to someone to tag them")
                                             : name_of(s, st->turn) + " is it. Don't get tagged!";
@@ -1879,9 +2429,15 @@ void build_hud(State &s, std::uint64_t now) {
                     row.value = p.up ? std::format("SEEKING  {:.1f} s{}", p.score / 10.0, p.aux ? std::format(", found {}", p.aux) : "")
                                      : std::format("{:.1f} s hidden", p.score / 10.0);
                     break;
-                case Mode::skate:
-                    row.value = p.out ? "OUT" : p.aux > 0 ? skate_letters(static_cast<unsigned>(p.aux), g.settings.strikes) : "no letters";
+                case Mode::skate: { // the game's whole word, earned letters shown, the rest dashes: "R E S - - - -"
+                    std::string word;
+                    for (unsigned i = 0; i < g.settings.strikes && i < reskate_word.size(); ++i) {
+                        if (!word.empty()) word += ' ';
+                        word += static_cast<int>(i) < p.aux ? reskate_word[i] : '-';
+                    }
+                    row.value = word; // out: every letter of the word, spelled
                     break;
+                }
                 }
                 if (phase == Phase::setup) row.value = "ready";
                 h.rows.push_back(std::move(row));
@@ -1889,7 +2445,8 @@ void build_hud(State &s, std::uint64_t now) {
         // The end: who won, big in the middle of everyone's screen, and once in the chat.
         if (phase == Phase::results && st && !st->standings.empty() && !h.rows.empty()) {
             h.results = true;
-            h.winner = mode == Mode::race && st->standings.front().out ? "" : h.rows.front().name;
+            h.winner = (mode == Mode::race && st->standings.front().out) || (mode == Mode::skate && st->standings.size() == 1)
+                           ? "" : h.rows.front().name;
             h.winner_value = h.rows.front().value;
             h.winner_color = h.rows.front().color;
             h.closing_ms = st->remaining_ms;
@@ -2089,6 +2646,8 @@ void build_hud(State &s, std::uint64_t now) {
         native.cursor_valid=s.game->settings.mode==Mode::race && s.race_object==4?
             race_arrow_preview_visible(s.arrow_preview_ready,s.editor_rotating,s.editor_angles_ready):s.cursor_ok;
         native.cursor_yaw=s.placing==State::Placing::points && g.settings.mode==Mode::race?s.snapped_yaw:s.cursor_heading+s.yaw_offset;native.cursor_width=s.draft_width;
+        native.placing_circle=s.placing==State::Placing::circle;native.draft_radius=s.draft_radius;
+        native.placing_corners=s.placing==State::Placing::corners;native.zone_custom=g.zone_custom;
         native.cursor_roll=s.arrow_roll;native.cursor_pitch=s.editor_pitch;native.rotating=s.editor_rotating;native.arrow_height_snapped=s.arrow_height_snapped;
         if(native.placing && g.settings.mode==Mode::race && s.editor_save_blocked)native.editor_warning=std::string(race_route_save_error(g.settings,g.race_finish_placed));
         native.route_snap=s.route_snap;
@@ -2198,7 +2757,17 @@ std::vector<std::vector<std::uint8_t>> tick(const SessionInput &input) {
            !s.game->referee && s.game->id==flag->game && s.world==flag->world) {
             auto& g=*s.game;
             g.settings.spawn=flag->at;g.settings.has_spawn=true;g.native_flag_yaw=flag->yaw;g.native_flag_placed=true;
+            // R.E.S.K.A.T.E.'s trick zone is centred on its start flag, as Spot Battle's area.
+            if(g.settings.mode==Mode::skate && g.settings.area_radius>0.0f)g.settings.corners={flag->at};
             settings_changed(g);
+            // A custom zone: its cones are placed now, one at each corner, as Deathrace's gates are.
+            if(g.settings.mode==Mode::skate && g.zone_custom && s.placing==State::Placing::none) {
+                g.settings.corners.clear();g.settings.area_radius=0.0f;settings_changed(g);
+                s.placing=State::Placing::corners;
+                s.pad_previous=~0u;
+                s.keys_previous={true,true,true,true};
+                s.placing_tick=0;s.cursor_ok=false;
+            }
         }
         if(native_start && s.game && s.game->native_lobby && s.game->native_flag_placed &&
            s.game->leading &&
@@ -2403,6 +2972,11 @@ bool receive(std::uint64_t sender, std::span<const std::uint8_t> bytes) {
 
 std::vector<std::string> take_notices() { return std::exchange(state().notices, {}); }
 
+std::atomic<bool> &flick_test_flag() {
+    static std::atomic<bool> value{};
+    return value;
+}
+bool flick_test() noexcept { return flick_test_flag().load(std::memory_order_relaxed); }
 std::string command(std::string_view verb, const std::vector<std::string> &arguments) {
     auto &s = state();
     const auto now = now_ms();
@@ -2462,11 +3036,48 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
                    ? "Showing it for 10 seconds (if the trick has a flick, its diagram shows once the game's gestures are read)."
                    : "Showing its flick diagram for 10 seconds.";
     }
+    if (v == "zone") {
+        // R.E.S.K.A.T.E.'s trick zone: a circle this many metres wide around the start flag (or the
+        // player, until the flag is placed); 0 or off: anywhere counts.
+        if (!arguments.empty() && arguments[0] == "custom") {
+            if (!s.game || !s.game->leading) return "error: only the game's leader sets its zone.";
+            auto &g = *s.game;
+            if (g.state && g.state->phase != Phase::setup) return "error: the zone is set before the game starts.";
+            g.zone_custom = true;
+            g.settings.area_radius = 0.0f;
+            g.settings.corners.clear();
+            settings_changed(g);
+            logging::log(logging::Level::info, logging::Channel::runtime, "R.E.S.K.A.T.E.: Trick zone: custom cones, placed after the flag.");
+            return "Custom trick zone: after the start flag, place a cone at each corner.";
+        }
+        const bool off = !arguments.empty() && (arguments[0] == "off" || arguments[0] == "0");
+        const auto metres = off ? std::optional<float>(0.0f) : number(arguments, 0);
+        if (!metres || (*metres != 0.0f && (*metres < min_area_radius || *metres > max_area_radius)))
+            return std::format("error: usage: mode zone <{:.0f}-{:.0f} metres>|off", min_area_radius, max_area_radius);
+        if (!s.game || !s.game->leading) return "error: only the game's leader sets its zone.";
+        auto &g = *s.game;
+        if (g.state && g.state->phase != Phase::setup) return "error: the zone is set before the game starts.";
+        g.zone_custom = false;
+        g.settings.area_radius = *metres;
+        if (*metres > 0.0f) g.settings.corners = {g.settings.has_spawn ? g.settings.spawn : s.position};
+        else g.settings.corners.clear();
+        settings_changed(g);
+        const auto said = *metres > 0.0f ? std::format("Trick zone: {:.0f} m around the start.", *metres) : std::string("No trick zone: tricks count anywhere.");
+        logging::log(logging::Level::info, logging::Channel::runtime, "R.E.S.K.A.T.E.: {}", said);
+        return said;
+    }
+    if (v == "flicktest") {
+        const bool on = !arguments.empty() && arguments[0] == "on";
+        flick_test_flag().store(on, std::memory_order_relaxed);
+        return on ? "The trick picture slot shows the 1UP badge (test)." : "The trick picture slot shows the flick-it picture.";
+    }
     if (v == "stance") {
         if (arguments.empty() || (arguments[0] != "regular" && arguments[0] != "goofy"))
             return std::format("R.E.S.K.A.T.E.'s flick diagrams are shown for a {} stance. Usage: mode stance regular|goofy", s.goofy ? "goofy" : "regular");
         s.goofy = arguments[0] == "goofy";
-        return std::format("Flick diagrams shown for a {} stance.", s.goofy ? "goofy" : "regular");
+        s.stance_loaded = true;
+        save_stance(s.goofy);
+        return std::format("Flick diagrams shown for a {} stance (kept for next time).", s.goofy ? "goofy" : "regular");
     }
     if (v == "spectate") {
         if (arguments.empty() || (arguments[0] != "on" && arguments[0] != "off"))
@@ -2520,7 +3131,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
         physics_tuning::prepare();
         if (tag_like(*mode)) g.settings.radius = default_tag_reach; // how close tags (or infects)
         if (*mode == Mode::skate) { // R.E.S.K.A.T.E.: seven letters, time to line a trick up
-            g.settings.strikes = 7;
+            g.settings.strikes = max_strikes;
             g.settings.turn_s = 45;
         }
         // Where it was set up: its banner's spot for the others until an area or route is placed.
@@ -2542,7 +3153,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
         case Mode::tag: next = "The whole map is the playground; Place Circle in Throwdowns fences it in (up to 3 km across). Then START GAME."; break;
         case Mode::infection: next = "The whole map is the hunting ground; Place Circle in Throwdowns fences it in. Then START GAME."; break;
         case Mode::hide: next = "Pick the hiding time in Throwdowns > Hide & Seek, PLACE CIRCLE to keep everyone close (recommended), then START GAME."; break;
-        case Mode::skate: next = "Pick the tricks that count with `mode tricks` (or `mode tricks flips grabs grinds manuals`), then START GAME."; break;
+        case Mode::skate: next = "Pick the turn time in Throwdowns > R.E.S.K.A.T.E. (`mode tricks` limits the kinds of trick), then START."; break;
         default: next = "Optional: `mode corner` at each corner of an area. Then `mode start`."; break;
         }
         return std::format("{} set up. {}", mode_name(*mode), next);
@@ -2696,7 +3307,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
     if (v == "time" && g.settings.mode==Mode::race) return "Deathrace deadline is fixed at 120 seconds; the clock appears for the last 30.";
     if (v == "time") return set_number(30, 3600, [&](float x) { g.settings.duration_s = static_cast<std::uint32_t>(x); }, "Time (s)");
     if (v == "turn") return set_number(10, 120, [&](float x) { g.settings.turn_s = static_cast<std::uint32_t>(x); }, "Turn time (s)");
-    if (v == "strikes") return set_number(1, g.settings.mode==Mode::skate?7.f:5.f, [&](float x) { g.settings.strikes = static_cast<std::uint8_t>(x); }, "Strikes");
+    if (v == "strikes") return set_number(1, max_strikes, [&](float x) { g.settings.strikes = static_cast<std::uint8_t>(x); }, "Strikes");
     if (v == "tricks") {
         // R.E.S.K.A.T.E.: the kinds of trick that may be set, one or more.
         std::uint8_t kinds = 0;

@@ -923,6 +923,32 @@ void hide_flow() {
     check(decode(encode(st)) == st && parse_mode("hideandseek") == Mode::hide, "a Hide & Seek state round trips");
 }
 
+// Alone, a set trick is landed again by its setter, or it takes a letter.
+void skate_solo_flow() {
+    Settings s;
+    s.mode = Mode::skate;
+    s.strikes = 2;
+    Referee r(s, a, 9);
+    r.add_player(a);
+    r.start(0);
+    r.tick(countdown_ms);
+    const std::uint64_t t = countdown_ms;
+    std::uint32_t sa = 0;
+    const Vec3 here{};
+    r.event(a, Event::trick, 1, here, ++sa, t, {}, "Kickflip");
+    auto st = r.state(t);
+    check(st.turn == a && st.trick == "Kickflip", "alone: the setter copies their own kickflip");
+    r.event(a, Event::trick, 1, here, ++sa, t, {}, "Kickflip");
+    st = r.state(t);
+    check(st.turn == a && st.trick.empty() && st.standings.front().aux == 0, "landed again: no letter, set the next");
+    r.event(a, Event::trick, 1, here, ++sa, t, {}, "Heelflip");
+    r.event(a, Event::trick, 0, here, ++sa, t, {}, "");
+    st = r.state(t);
+    check(st.standings.front().aux == 1 && st.trick.empty() && r.phase() == Phase::playing, "missed it again: a letter");
+    r.event(a, Event::trick, 1, here, ++sa, t, {}, "Hardflip");
+    r.event(a, Event::trick, 1, here, ++sa, t, {}, "Kickflip");
+    check(r.phase() == Phase::results, "all the letters alone: the game is over");
+}
 void reskate_seven_letters_flow() {
     check(mode_name(Mode::skate)=="R.E.S.K.A.T.E." && parse_mode("R.E.S.K.A.T.E.")==Mode::skate &&
         parse_mode("skate")==Mode::skate,"new branding and existing command aliases resolve to the same mode");
@@ -955,12 +981,48 @@ void skate_flow() {
     check(trick_kinds_of("Heelflip + Seatbelt") == (trick_flips | trick_grabs) && trick_kinds_of("Manual") == trick_manuals,
           "a combo is every kind its parts are");
     check(trick_kinds_of("Rocket Air") == trick_grabs && trick_kinds_of("FS Powerslide") == trick_grinds, "grabs and slides");
-    check(skate_letters(3, 7) == "R.E.S" && skate_letters(0, 5).empty(), "letters spell R.E.S.K.A.T.E.");
+    check(trick_kinds_of("Tail Nosebone") == trick_grabs && trick_kinds_of("Fastplant") == trick_grabs &&
+          trick_kinds_of("Stalefish") == trick_grabs && trick_kinds_of("Ollie FS 180") == trick_flips, "skate.'s grabs, plants and spins");
+    check(skate_letters(3, 7) == "R.E.S" && skate_letters(7, 7) == "R.E.S.K.A.T.E" && skate_letters(0, 7).empty(),
+          "letters spell R.E.S.K.A.T.E.");
+    check(mode_name(Mode::skate) == "R.E.S.K.A.T.E." && parse_mode("reskate") == Mode::skate && parse_mode("skate") == Mode::skate,
+          "ReSkate's letters game is R.E.S.K.A.T.E.");
+    check(trick_steps("Kickflip", false) == "[img {0}]FLICKIT_Kickflip_RS[/img]" &&
+          trick_steps("Kickflip", true) == "[img {0}]FLICKIT_Heelflip_RS[/img]", "a kickflip's flick-it picture, by stance");
+    check(trick_steps("FS 180 Nollie Kickflip", false) == "[img {0}]FLICKIT_NollieKickflip_RS[/img]" &&
+          trick_steps("Inward Heelflip", false).find("FLICKIT_Inwardheelflip_RS") != std::string::npos &&
+          trick_steps("BS Pop-Shuvit", false).find("FLICKIT_BSPopshuvit_RS") != std::string::npos &&
+          trick_steps("Impossible", false).find("FLICKIT_Impossible_RS") != std::string::npos &&
+          !trick_steps("BS 50-50 Grind", false).empty() && trick_steps("Trick #42", false).empty() &&
+          !trick_steps("Kickflip Underflip", false).empty() && !trick_steps("Nollie Heelflip Underflip", false).empty() &&
+          trick_steps("Late Kickflip", false) == "In air [img {0}]FLICKIT_Kickflip_RS[/img]" &&
+          trick_steps("360 Flip", false).find("FLICKIT_360Flip_RS") != std::string::npos &&
+          trick_steps("Switch Kickflip", false) == trick_steps("Kickflip", true) &&
+          trick_steps("Double Kickflip", false) == trick_steps("Kickflip", false) &&
+          trick_steps("Fakie 360 Inward Heelflip FS 180", false).find("Inwardheelflip") != std::string::npos &&
+          !trick_steps("Switch FS 360 Pop-Shuvit", false).empty() && trick_steps("FS 180 Ollie", false).find("FLICKIT_Ollie") != std::string::npos,
+          "set tricks find their Skatepedia steps through sides, spins, nollies and grinds");
+    check(set_trick_name("Ollie + BS 50-50 Grind") == "BS 50-50 Grind" && set_trick_name("Ollie") == "Ollie" &&
+          set_trick_name("Nollie + Kickflip") == "Nollie + Kickflip", "an ollie into the trick is not part of it; a nollie is");
+    check(copies_trick("Ollie + BS 50-50 Grind", "BS 50-50 Grind") && copies_trick("Heelflip + Seatbelt", "heelflip + seatbelt") &&
+          copies_trick("FS 180 Kickflip", "fs 180 kickflip"), "copies: an ollie into it and case aside");
+    check(!copies_trick("FS 50-50 Grind", "BS 50-50 Grind") && !copies_trick("Seatbelt + Heelflip", "Heelflip + Seatbelt") &&
+          !copies_trick("Kickflip", "Kickflip + Indy") && !copies_trick("Kickflip + Indy", "Kickflip") &&
+          !copies_trick("Nollie + Kickflip", "Kickflip") && !copies_trick("FS 360 Kickflip", "FS 180 Kickflip") &&
+          !copies_trick("", "Kickflip"), "a different side, spin, order, nollie, more or less is not a copy");
+    {
+        Settings seven;
+        seven.mode = Mode::skate;
+        seven.strikes = max_strikes;
+        Message msg;msg.kind=Message::Kind::setup;msg.leader=a;msg.game=7;msg.settings=seven;
+        check(max_strikes == 7 && decode(encode(msg)) == msg, "seven letters are valid settings that reach everyone");
+    }
     Settings s;
     s.mode = Mode::skate;
     s.strikes = 2;
     s.trick_kinds = trick_flips | trick_grinds; // no grabs, no manuals
-    check(trick_allowed(s, "Kickflip") && !trick_allowed(s, "Heelflip + Seatbelt") && !trick_allowed(s, "Manual"), "the leader's kinds");
+    check(trick_allowed(s, "Kickflip") && trick_allowed(s, "Heelflip + Seatbelt") && !trick_allowed(s, "Seatbelt") && !trick_allowed(s, "Manual"),
+          "the leader's kinds: any part of an allowed kind will do");
     Referee r(s, a, 8);
     r.add_player(a);
     r.add_player(b);
@@ -974,7 +1036,7 @@ void skate_flow() {
     check(st.turn == a && st.setter == a && st.trick.empty(), "a sets first");
     r.event(b, Event::trick, 1, here, ++sb, t, {}, "Kickflip");
     check(r.state(t).trick.empty(), "only the player up counts");
-    r.event(a, Event::trick, 1, here, ++sa, t, {}, "Heelflip + Seatbelt");
+    r.event(a, Event::trick, 1, here, ++sa, t, {}, "Seatbelt");
     st = r.state(t);
     check(st.setter == b && st.turn == b && st.trick.empty(), "a set a grab in a game without grabs: b sets");
     r.event(b, Event::trick, 1, here, ++sb, t, {}, "Kickflip");
@@ -1346,6 +1408,7 @@ int main() {
         tag_flow();
         graffiti_flow();
         skate_flow();
+        skate_solo_flow();
         reskate_seven_letters_flow();
         infection_flow();
         hide_flow();

@@ -5,7 +5,7 @@ struct MatchPanelRow {
     std::string name,value;
 };
 struct MatchPanelView {
-    bool available{},rewind{};
+    bool available{},rewind{},steam_pictures{};
     std::uint64_t local{};
     std::string title,description,logo,timer_caption,timer,score_caption;
     std::string rule_caption,rule_value;
@@ -13,6 +13,43 @@ struct MatchPanelView {
     std::vector<MatchPanelRow> players;
 };
 std::string mode_racer_time(const modes::NativeView&,const modes::Standing&,std::uint64_t);
+// A player's Steam profile picture, for the native web image in their panel row. Their public
+// Steam profile names it (no key needed); skate. then downloads it from Steam's image servers,
+// whose Let's Encrypt certificates ReSkate already trusts for news images. Looked up once per
+// player in the background: empty until then, and for a lookup that failed.
+struct SteamPictures { std::mutex mutex; std::map<std::uint64_t,std::string> urls; std::set<std::uint64_t> asked; };
+SteamPictures& steam_pictures() { static auto* value=new SteamPictures; return *value; }
+std::string steam_picture(std::uint64_t id) {
+    if(!individual_steam_id(id))return {};
+    auto& pictures=steam_pictures();
+    {
+        std::lock_guard lock(pictures.mutex);
+        if(const auto found=pictures.urls.find(id);found!=pictures.urls.end())return found->second;
+        if(!pictures.asked.insert(id).second)return {};
+    }
+    std::thread([id] {
+        std::string url;
+        try {
+            const auto profile=https::get_text(L"https://steamcommunity.com/profiles/"+std::to_wstring(id)+L"?xml=1",512*1024,10,L"ReSkate/1");
+            constexpr std::string_view open="<avatarFull><![CDATA[";
+            if(profile)if(const auto at=profile->find(open);at!=std::string::npos) {
+                const auto start=at+open.size(),end=profile->find("]]>",start);
+                if(end!=std::string::npos)url=profile->substr(start,end-start);
+            }
+            // Only Steam's own image servers.
+            if(!url.starts_with("https://avatars.") || url.find(".steamstatic.com/")==std::string::npos)url.clear();
+        } catch(...) {url.clear();}
+        logging::log(logging::Level::info,logging::Channel::ui,"Steam picture for {}: {}",id,url.empty()?std::string("none"):url);
+        auto& pictures=steam_pictures();std::lock_guard lock(pictures.mutex);pictures.urls[id]=url;
+    }).detach();
+    return {};
+}
+// R.E.S.K.A.T.E.'s letters as the panel shows them: "R E S - - - -" reads "R.E.S", none yet "-".
+std::string reskate_earned_letters(std::string_view spelled) {
+    std::string letters;
+    for(const char ch:spelled)if(ch>='A' && ch<='Z') {if(!letters.empty())letters+='.';letters+=ch;}
+    return letters.empty()?std::string("-"):letters;
+}
 MatchPanelView match_panel_view() {
     MatchPanelView result;
     const auto oneup=one_up::view();
@@ -65,6 +102,15 @@ MatchPanelView match_panel_view() {
         result.description="STAY CLEAR\nAvoid infected skaters. Once caught, join the hunt.";
     else if(mode.settings.mode==modes::Mode::hide)
         result.description="HIDE & SEEK\nHide during the countdown, then avoid the seeker.";
+    else if(mode.settings.mode==modes::Mode::skate) {
+        // R.E.S.K.A.T.E.: short lines that fit the rules panel, a letters column and the trick zone.
+        result.description="COPY OR TAKE A LETTER\nSpell R.E.S.K.A.T.E. and you're out.";
+        result.score_caption="Letters";
+        result.steam_pictures=true;
+        result.rule_caption="Trick Zone";
+        const float radius=mode.settings.area_radius;
+        result.rule_value=mode.zone_custom?"Custom":radius<=0.f?"Anywhere":radius<=10.f?"Small":radius<=20.f?"Medium":radius<=35.f?"Large":"Huge";
+    }
     result.open_command="mode-throwdown-panel";result.quit_command="mode-panel-quit";
     result.argument=std::to_string(mode.game);
     for(unsigned i=0;i<mode.state->standings.size();++i) {
@@ -75,6 +121,7 @@ MatchPanelView match_panel_view() {
             name!=mode.names.end()?name->second:std::to_string(standing.player),
             mode.settings.mode==modes::Mode::race?
                 mode_racer_time(mode,standing,GetTickCount64()):
+                mode.settings.mode==modes::Mode::skate?reskate_earned_letters(i<feed.rows.size()?feed.rows[i].value:std::string()):
                 i<feed.rows.size()?feed.rows[i].value:std::to_string(standing.score)});
     }
     return result;
@@ -791,6 +838,12 @@ void refresh_match_panel(const Context& c,const MatchPanelView& view) {
                 row.portrait_attempted=true;
             }
         } catch(const std::exception&) { /* Other players keep their own native portrait. */ }
+        // R.E.S.K.A.T.E.: each player's Steam picture, through the row's own native web image.
+        if(view.steam_pictures && !row.portrait_attempted)
+            if(const auto url=steam_picture(player.id);!url.empty() && url!=row.picture_url) {
+                for(const auto texture:ui_models(c,c.field(row.row,0xaed127c3),2005356313U))c.text(c.field(texture,3630279999U),url);
+                row.picture_url=url;
+            }
         plain_label(c,c.field(row.rank,0x2718c842),std::to_string(rank));
         plain_label(c,row.outcome,player.value);
         order.push_back(player.id);rows.push_back({0,row.row.handle});

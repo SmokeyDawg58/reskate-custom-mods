@@ -2,7 +2,7 @@
 #include <string_view>
 
 namespace dingosdk::multiplayer::menu_data {
-enum class NativeSetupRole { other, players, timer, hide_timer, rounds };
+enum class NativeSetupRole { other, players, timer, hide_timer, rounds, letters };
 
 // Native setup labels can already be localized when the page becomes ready;
 // the private timer caption is also changed after the first adaptation tick.
@@ -12,6 +12,7 @@ inline NativeSetupRole native_setup_role(std::string_view text) noexcept {
     if(text=="ID_LABEL_TURNTIMER" || text=="ID_LABEL_DURATION" || text=="Turn Timer" ||
        text=="Timer" || text=="Duration" || text=="Finish deadline")return NativeSetupRole::timer;
     if(text=="Hide Timer")return NativeSetupRole::hide_timer;
+    if(text=="Letters")return NativeSetupRole::letters;
     if(text=="ID_LABEL_ROUNDS" || text=="Rounds")return NativeSetupRole::rounds;
     return NativeSetupRole::other;
 }

@@ -20,6 +20,7 @@
 #include <cstring>
 #include <format>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <set>
 #include <vector>
@@ -45,12 +46,23 @@ struct State {
     std::uint32_t game{},ready_game{};std::uint64_t ready_world{};
     bool verified{},route_ready{};std::string error,waiting;
     std::set<unsigned> dirty;
+    // R.E.S.K.A.T.E.'s trick zone: skate.'s own traffic cone around the circle's edge.
+    std::uintptr_t cone{};std::uint16_t cone_domain{};unsigned cone_name{};std::vector<Vec3> cone_points;
+    // And a beacon over its middle, seen from afar: Deathrace's lightning bolt, high up and turning.
+    std::uintptr_t bolt{};std::uint16_t bolt_domain{};std::uint64_t bolt_retry{},bolt_moved{};
 };
 State& state(){static State s;return s;}
+// R.E.S.K.A.T.E.'s zone cones: a copy packed with the Throwdown assets first (resident everywhere),
+// else skate.'s own traffic cone wherever its world content has it loaded, else (custom maps,
+// which do not load it) the Throwdown pack's grey Deathrace guide bolt, which every map has.
+constexpr std::array<const char*,3> cone_names{
+    "World/ReSkate/Throwdowns/TrafficCone",
+    "World/Props/Common/Construction/CMN_PRP_TrafficCone_01/CMN_PRP_TrafficCone_01",
+    "World/ReSkate/Deathrace/SM_FX_GP_LightningBolt_A_Guide"};
 void waiting(State& s,std::string issue) {
     if(s.waiting==issue)return;
     s.waiting=std::move(issue);
-    logging::log(logging::Level::debug,logging::Channel::runtime,"Deathrace world objects: {}",s.waiting);
+    logging::log(logging::Level::info,logging::Channel::runtime,"Native world objects (Deathrace gates, R.E.S.K.A.T.E. cones): {}",s.waiting);
 }
 constexpr std::array<const char*,11> checkpoint_names{
     "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AT_Gate",
@@ -158,6 +170,134 @@ void clear_group(std::uintptr_t base,unsigned group) {
     for(const auto& entity:old)if(ptr(entity.entity,0x20)==entity.context && ptr(entity.entity,0x40)==entity.owner)
         reinterpret_cast<void(*)(std::uintptr_t,std::uintptr_t)>(base+e::destroy_entity)(entity.entity,entity.owner);
 }
+// The zone's edge, every 4 m or so (8 to 48 cones), at the height of its centre: the placed area,
+// or while one is being placed, the circle under the cursor (moving with it, as Deathrace's gate).
+std::vector<Vec3> zone_ring(const NativeView& view) {
+    std::vector<Vec3> points;
+    // A custom zone: a cone at each corner placed, and along its edges every 4 m (closed once it has
+    // three corners); while placing, one more under the cursor.
+    if(view.settings.area_radius<=0.f && (view.zone_custom || view.placing_corners)) {
+        // While placing: the placed cones' edges only (open), and one cone where the next would go.
+        // Filling the edges to the aim point too trailed lines of cones after the camera.
+        const auto& corners=view.settings.corners;
+        if(view.placing_corners && view.cursor_valid)points.push_back(view.cursor);
+        for(std::size_t i=0;i<corners.size() && points.size()<48;++i) {
+            const auto& a=corners[i];points.push_back(a);
+            const bool closing=i+1==corners.size();
+            if(closing && (corners.size()<3 || view.placing_corners))break;
+            const auto& b=corners[closing?0:i+1];
+            const float dx=b[0]-a[0],dy=b[1]-a[1],dz=b[2]-a[2],length=std::sqrt(dx*dx+dz*dz);
+            const auto between=static_cast<unsigned>(length/4.f);
+            for(unsigned k=1;k<between && points.size()<48;++k) {
+                const float f=static_cast<float>(k)/static_cast<float>(between);
+                points.push_back({a[0]+dx*f,a[1]+dy*f,a[2]+dz*f});
+            }
+        }
+        return points;
+    }
+    const bool preview=view.placing_circle && view.cursor_valid;
+    if(!preview && (view.settings.area_radius<=0.f || view.settings.corners.empty()))return points;
+    const auto centre=preview?view.cursor:view.settings.corners[0];
+    const float radius=preview?view.draft_radius:view.settings.area_radius;
+    const auto count=std::clamp(static_cast<unsigned>(2.f*3.14159265f*radius/4.f),8u,48u);
+    for(unsigned i=0;i<count;++i) {
+        const float angle=2.f*3.14159265f*static_cast<float>(i)/static_cast<float>(count);
+        points.push_back({centre[0]+radius*std::cos(angle),centre[1],centre[2]+radius*std::sin(angle)});
+    }
+    return points;
+}
+constexpr unsigned beacon_group=900; // apart from the cones (0..47)
+constexpr const char* bolt_name="World/ReSkate/Deathrace/SM_FX_GP_LightningBolt_A_Gate";
+// The beacon's place: a finished zone's middle (none while its cones are being placed).
+std::optional<Vec3> zone_beacon(const NativeView& view) {
+    if(view.placing_corners || view.placing_circle)return {};
+    if(view.settings.area_radius>0.f && !view.settings.corners.empty())return view.settings.corners[0];
+    if(view.zone_custom && view.settings.corners.size()>=3)return area_centre(view.settings.corners);
+    return {};
+}
+void tick_beacon(std::uintptr_t base,std::uintptr_t context,const NativeView& view,State& s,std::uint64_t now,
+                 std::uintptr_t(*find)(std::uint16_t,const char*)) {
+    if(s.bolt && !detail::checkpoint_resident(s.bolt,find(s.bolt_domain,bolt_name),base,[](auto at){return ptr(at);})) {
+        clear_group(base,beacon_group);s.bolt=0;
+    }
+    const auto at=zone_beacon(view);
+    std::optional<Entity> live;
+    {std::lock_guard lock(s.mutex);for(const auto& entity:s.entities)if(entity.group==beacon_group)live=entity;}
+    if(!at) {if(live)clear_group(base,beacon_group);return;}
+    if(!s.bolt) {
+        if(now<s.bolt_retry)return;s.bolt_retry=now+2000;
+        for(std::uint16_t domain=0;domain<0xbbf && !s.bolt;++domain) {
+            if(!ptr(base+addr::engine::domain_owners,std::uintptr_t(domain)*8))continue;
+            const auto asset=find(domain,bolt_name);
+            if(detail::checkpoint_blueprint(asset,base,[](auto at){return ptr(at);}))s.bolt=asset,s.bolt_domain=domain;
+        }
+        if(!s.bolt)return;
+    }
+    if(now<s.bolt_moved+16)return;
+    s.bolt_moved=now;
+    // Eight metres up, four times a gate bolt's size, a turn every six seconds.
+    constexpr float size=4.f;
+    const float yaw=static_cast<float>(now%6000)/6000.f*2.f*3.14159265f,co=std::cos(yaw),si=std::sin(yaw);
+    const Matrix matrix{co*size,0,-si*size,0,0,size,0,0,si*size,0,co*size,0,(*at)[0],(*at)[1]+8.f,(*at)[2],1};
+    if(live) {
+        const auto collection=ptr(live->entity,0x70);
+        if(ptr(live->entity,0x20)==live->context && ptr(live->entity,0x40)==live->owner && collection && ptr(collection)==live->entity) {
+            reinterpret_cast<void(*)(std::uintptr_t,const void*,std::uint8_t,std::uint8_t)>(base+e::move_spatial_entity)(live->entity,matrix.data(),1,1);
+            return;
+        }
+        clear_group(base,beacon_group);
+    }
+    const auto parent=parent_bus(base,context);if(!parent)return;
+    (void)create(base,parent,s.bolt,matrix,beacon_group,0);
+}
+void tick_zone(std::uintptr_t base,std::uintptr_t context,const NativeView& view,State& s,std::uint64_t now) {
+    const auto find=game::native_data().find_asset;if(!find)return;
+    tick_beacon(base,context,view,s,now,find);
+    if(s.cone && !detail::checkpoint_resident(s.cone,find(s.cone_domain,cone_names[s.cone_name]),base,[](auto at){return ptr(at);})) {
+        clear(base);s.cone=0;s.cone_points.clear();
+    }
+    if(!s.cone) {
+        if(now<s.retry)return;s.retry=now+2000;
+        // In order of preference, each looked for in every loaded domain before the next.
+        for(unsigned i=0;i<cone_names.size() && !s.cone;++i)
+            for(std::uint16_t domain=0;domain<0xbbf && !s.cone;++domain) {
+                if(!ptr(base+addr::engine::domain_owners,std::uintptr_t(domain)*8))continue;
+                const auto asset=find(domain,cone_names[i]);
+                if(detail::checkpoint_blueprint(asset,base,[](auto at){return ptr(at);}))s.cone=asset,s.cone_domain=domain,s.cone_name=i;
+            }
+        if(!s.cone) {waiting(s,"no traffic cone or guide bolt is loaded in this part of the world; the zone shows on the HUD only");return;}
+        logging::log(logging::Level::info,logging::Channel::runtime,"R.E.S.K.A.T.E. zone: cones from {}.",cone_names[s.cone_name]);
+    }
+    const auto points=zone_ring(view);
+    std::vector<Entity> live;
+    {std::lock_guard lock(s.mutex);for(const auto& entity:s.entities)if(entity.group!=beacon_group)live.push_back(entity);}
+    if(points==s.cone_points && live.size()==points.size())return;
+    if(now<s.preview_at)return;
+    s.preview_at=now+16;
+    // The same number of cones: move them (recreating every frame made Deathrace's preview jump).
+    if(live.size()==points.size() && s.cone_points.size()==points.size() && std::all_of(live.begin(),live.end(),[](const auto& entity) {
+        const auto collection=ptr(entity.entity,0x70);
+        return ptr(entity.entity,0x20)==entity.context && ptr(entity.entity,0x40)==entity.owner && collection && ptr(collection)==entity.entity;
+    })) {
+        for(const auto& entity:live) {
+            if(entity.group>=points.size())continue;
+            const auto& at=points[entity.group];
+            const Matrix matrix{1,0,0,0,0,1,0,0,0,0,1,0,at[0],at[1],at[2],1};
+            reinterpret_cast<void(*)(std::uintptr_t,const void*,std::uint8_t,std::uint8_t)>(base+e::move_spatial_entity)(entity.entity,matrix.data(),1,1);
+        }
+        s.cone_points=points;
+        return;
+    }
+    const auto parent=parent_bus(base,context);if(!parent) {waiting(s,"waiting for the native local skater entity bus");return;}
+    std::set<unsigned> groups;for(const auto& entity:live)groups.insert(entity.group);
+    for(const auto group:groups)clear_group(base,group); // the cones only: the beacon stays
+    for(unsigned i=0;i<points.size();++i) {
+        const auto& at=points[i];
+        (void)create(base,parent,s.cone,Matrix{1,0,0,0,0,1,0,0,0,0,1,0,at[0],at[1],at[2],1},i,0);
+    }
+    s.cone_points=points;
+    if(!points.empty())waiting(s,std::format("{} zone cones placed",points.size()));
+}
 }
 void entity_destroyed(std::uintptr_t entity) noexcept {
     auto& s=state();std::lock_guard lock(s.mutex);
@@ -178,12 +318,20 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
         }
         const auto context=ptr(client,8);const auto now=GetTickCount64();
         const bool active=view.active && view.settings.mode==Mode::race && !(view.state && view.state->phase==Phase::results);
+        // R.E.S.K.A.T.E.'s trick zone, when its leader placed one: cones on its edge.
+        const bool zone=view.active && view.settings.mode==Mode::skate && !(view.state && view.state->phase==Phase::results) &&
+            ((view.settings.area_radius>0.f && !view.settings.corners.empty()) || (view.placing_circle && view.cursor_valid) ||
+             (view.zone_custom && (!view.settings.corners.empty() || (view.placing_corners && view.cursor_valid))));
         {std::lock_guard lock(s.mutex);s.route_ready=false;}
         if(s.context && s.context!=context) {std::lock_guard lock(s.mutex);s.entities.clear();s.gates.clear();s.dirty.clear();s.assets={};s.context=0;}
         if(!ready || !context) {if(active)waiting(s,"waiting for local client world readiness");return;}
         // Releasing a route is independent of the native creation gate. That
         // gate can be closed after Leave even while these entities still live.
-        if(!active) {bool tracked{};{std::lock_guard lock(s.mutex);tracked=!s.entities.empty();}if(tracked || !s.gates.empty())clear(base);s.waiting.clear();return;}
+        if(!active && !zone) {
+            bool tracked{};{std::lock_guard lock(s.mutex);tracked=!s.entities.empty();}
+            if(tracked || !s.gates.empty())clear(base);
+            s.cone_points.clear();s.waiting.clear();return;
+        }
         const auto tls_array=static_cast<std::uintptr_t>(__readgsqword(0x58));
         const auto index=get<std::uint32_t>(base+addr::engine::tls_index);if(index>4095)return;
         const auto tls=ptr(tls_array,std::uintptr_t(index)*8);
@@ -201,6 +349,7 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
             prefix(base,b::create_bus,b::create_bus_prefix);prefix(base,b::acquire_bus,b::acquire_bus_prefix);
             std::string detail;require(multiplayer::install_entity_hooks(base,detail),"Native entity lifetime hooks unavailable.");s.verified=true;
         }
+        if(zone) {tick_zone(base,context,view,s,now);return;}
         if(!assets_resident(base,s)) {
             // The native registry owns the asset lifetime, not the local client
             // context. Recreate only after all current roots resolve again.

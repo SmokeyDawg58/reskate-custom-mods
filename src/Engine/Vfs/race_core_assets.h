@@ -17,19 +17,26 @@ inline constexpr std::array<std::string_view,9> race_core_roots{
     "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
     "world/reskate/deathrace/sm_fx_gp_checkpoint_a_al_guide",
     "world/reskate/deathrace/sm_fx_gp_lightningbolt_a_guide"};
+// The asset pack under either name: the core 1-Up bundle the DLL extracts, or the lean
+// playtest's Throwdown asset mod (its folder name, possibly versioned). Without the second, a
+// custom map that replaces the core bundle drops the pack's runtime roots in the lean build, and
+// joining that map's server freezes in a lookup that never finds them (2026-10-17).
+inline bool race_core_owner(std::string_view mod) {
+    return mod == race_core_mod || mod.starts_with("SmokeyDawg58-ReSkate_Throwdown_Assets");
+}
 inline bool race_core_root(std::string_view mod,std::string_view bundle,std::string_view name) {
-    return mod == race_core_mod && bundle == race_core_bundle &&
+    return race_core_owner(mod) && bundle == race_core_bundle &&
         std::find(race_core_roots.begin(),race_core_roots.end(),name) != race_core_roots.end();
 }
 inline bool race_core_resident_root(std::string_view mod,std::string_view bundle,std::string_view name) {
     // Measured HUD variants, captions and clocks are selected by the DLL at
     // runtime and have no authored import from the picker. Retain them when
     // a custom map replaces the core bundle, just like the checkpoint roots.
-    return mod == race_core_mod && bundle == race_core_bundle &&
+    return race_core_owner(mod) && bundle == race_core_bundle &&
         (race_core_root(mod,bundle,name) || name.starts_with("ui/reskate/throwdowns/"));
 }
 inline bool race_core_shader(std::string_view mod,std::string_view bundle,std::string_view name,std::uint32_t type) {
-    return mod == race_core_mod && bundle == race_core_bundle && type == 0x73312045 &&
+    return race_core_owner(mod) && bundle == race_core_bundle && type == 0x73312045 &&
         name == "world/reskate/deathrace/checkpoints_win32_shaderstate/shaderblockdepot_12937733901070835605";
 }
 }

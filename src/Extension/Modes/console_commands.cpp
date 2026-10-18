@@ -35,6 +35,8 @@ void register_mode_commands(Commands &registry) {
         {"bounce", "How much a ragdoll bounces off the ground in Hall of Meat (0 to 1)", "[0-1|off|meat|always]"},
         {"debug", "Diagnostics for building game modes", "states on|off"},
         {"tricklog", "Log the trick names skate. shows (for building S.K.A.T.E.)", "on|off"},
+        {"zone", "R.E.S.K.A.T.E.: the trick zone around the start flag, in metres", "<metres>|off"},
+        {"flicktest", "R.E.S.K.A.T.E.: show the 1UP badge in the trick picture slot (test)", "on|off"},
     };
     for (const auto &verb : verbs) {
         std::vector<Argument> arguments;

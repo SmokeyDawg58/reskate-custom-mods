@@ -1,4 +1,5 @@
 #include "mode_rules.h"
+#include "skatepedia_inputs.h"
 #include "race_route.h"
 #include <algorithm>
 #include <bit>
@@ -47,7 +48,7 @@ struct Reader {
 
 bool valid_settings(const Settings &s) noexcept {
     if (!std::any_of(std::begin(all_modes), std::end(all_modes), [&](Mode m) { return m == s.mode; })) return false;
-    if (s.duration_s < 30 || s.duration_s > 3600 || s.turn_s < 10 || s.turn_s > 120 || s.strikes < 1 || s.strikes > (s.mode == Mode::skate ? 7 : 5))
+    if (s.duration_s < 30 || s.duration_s > 3600 || s.turn_s < 10 || s.turn_s > 120 || s.strikes < 1 || s.strikes > max_strikes)
         return false;
     if (s.trick_kinds == 0 || s.trick_kinds > all_trick_kinds) return false;
     if (!(s.radius >= 1.0f && s.radius <= 50.0f)) return false;
@@ -150,7 +151,8 @@ std::uint8_t part_kinds(const std::string &part) {
         kinds |= trick_grinds;
     if (has_any(part, {"grab", "indy", "melon", "stalefish", "mute", "japan", "seatbelt", "benihana", "method", "madonna", "crail",
                        "airwalk", "christ", "boned", "judo", "roast", "lien", "rocket", "stiffy", "tuck", "nuclear", "slob",
-                       "weddle", "one foot", "frontside air", "backside air"}))
+                       "weddle", "one foot", "frontside air", "backside air", "bone", "stale", "dogpiss", "dog piss", "superdude",
+                       "frigid", "tweak", "shifty", "no foot", "nofoot", "onefoot", "tailwalk", "plant", "double grab"}))
         kinds |= trick_grabs;
     if (has_any(part, {"flip", "shuv", "varial", "impossible", "ollie", "nollie", "360", "180", "spin", "pop"})) kinds |= trick_flips;
     return kinds ? kinds : trick_flips; // anything else done in the air off the board's pop
@@ -173,12 +175,141 @@ std::uint8_t trick_kinds_of(std::string_view trick) noexcept {
         return 0;
     }
 }
+namespace {
+// A trick's parts as skate. names them ("Ollie", "BS 50-50 Grind"), without the plain ollie into the
+// part that matters: "Ollie + BS 50-50 Grind" is a 50-50 to set and to copy. A lone ollie stays one.
+// A nollie is kept: a nollie into a trick is a different trick.
+std::vector<std::string> trick_parts(std::string_view trick) {
+    std::vector<std::string> parts;
+    std::size_t start = 0;
+    while (start <= trick.size()) {
+        auto end = trick.find(" + ", start);
+        if (end == std::string_view::npos) end = trick.size();
+        if (end > start) parts.emplace_back(trick.substr(start, end - start));
+        start = end + 3;
+    }
+    const auto filler = [](const std::string &part) {
+        const auto text = lower(part);
+        return text == "ollie";
+    };
+    if (std::any_of(parts.begin(), parts.end(), [&](const std::string &part) { return !filler(part); }))
+        std::erase_if(parts, filler);
+    return parts;
+}
+} // namespace
+
+std::string set_trick_name(std::string_view trick) {
+    try {
+        std::string text;
+        for (const auto &part : trick_parts(trick)) {
+            if (!text.empty()) text += " + ";
+            text += part;
+        }
+        return text;
+    } catch (...) {
+        return std::string(trick);
+    }
+}
+bool copies_trick(std::string_view attempt, std::string_view set) noexcept {
+    try {
+        const auto wanted = trick_parts(set), done = trick_parts(attempt);
+        if (wanted.empty()) return false;
+        // The same parts in the same order, case aside: more or less is a different trick.
+        if (done.size() != wanted.size()) return false;
+        for (std::size_t i = 0; i < done.size(); ++i)
+            if (lower(done[i]) != lower(wanted[i])) return false;
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+namespace {
+// A trick list name as a Skatepedia key: lower case letters and digits, without "grab"/"grind".
+std::string skatepedia_key(std::string_view name) {
+    std::string key;
+    for (const char c : lower(name))
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) key += c;
+    for (const std::string_view word : {"grind", "grab"})
+        if (const auto at = key.find(word); at != std::string::npos && key.size() > word.size()) key.erase(at, word.size());
+    return key;
+}
+const skatepedia::Inputs *skatepedia_entry(std::string_view key) noexcept {
+    for (const auto &entry : skatepedia::inputs)
+        if (entry.key == key) return &entry;
+    return nullptr;
+}
+} // namespace
+
+std::string trick_steps(std::string_view trick, bool goofy) {
+    try {
+        std::string text;
+        for (const auto &part : trick_parts(trick)) {
+            // "Switch FS 180 360 Late Flip": the words before the trick's own name. The stance only
+            // changes which foot is forward; a nollie, side and spins can name a Skatepedia entry.
+            std::string side, spin, nollie, name = part;
+            bool late = false, mirrored = false;
+            for (bool more = true; more;) {
+                more = false;
+                for (const std::string_view word : {"Switch ", "Fakie ", "Nollie ", "FS ", "BS ", "180 ", "360 ", "540 ", "720 ", "Late ",
+                                                    "Double ", "Triple ", "Quad ", "Darkflip ", "Dark Catch "}) {
+                    if (!name.starts_with(word) || name.size() == word.size()) continue;
+                    if (word == "Nollie ") nollie = "Nollie ";
+                    else if (word == "Switch ") mirrored = true; // the other foot forward: the other stance's flick
+                    else if (word == "FS " || word == "BS ") side = std::string(word.substr(0, 2));
+                    else if (word == "Late ") late = true;
+                    else if (word[0] >= '0' && word[0] <= '9') spin = std::string(word.substr(0, 3)); // the last (the board's) names it
+                    name = name.substr(word.size());
+                    more = true;
+                }
+            }
+            // The side and body spin after the name ("Inward Heelflip FS 180"), as skate. lists them.
+            for (bool more = true; more;) {
+                more = false;
+                for (const std::string_view word : {" FS", " BS", " 180", " 360", " 540", " 720"}) {
+                    if (!name.ends_with(word) || name.size() == word.size()) continue;
+                    if (word == " FS" || word == " BS") side = std::string(word.substr(1));
+                    name.resize(name.size() - word.size());
+                    more = true;
+                }
+            }
+            // A late flip: the flip's own flick, done in the air (the Skatepedia's "late flip tricks").
+            if (late) {
+                if (!text.empty()) text += ' ';
+                text += "In air";
+            }
+            const skatepedia::Inputs *entry{};
+            // The nollie versions have their own entries ("nolliekickflipunderflip"): those first.
+            for (const auto &candidate : {nollie + side + spin + name, nollie + side + name, nollie + spin + name, nollie + name,
+                                          side + spin + name, side + name, spin + name, name})
+                if ((entry = skatepedia_entry(skatepedia_key(candidate)))) break;
+            if (!entry) {
+                auto heel = skatepedia_key(name); // "Inward Heelflip" is the Skatepedia's "inwardheel"
+                if (const auto at = heel.find("heelflip"); at != std::string::npos) heel.replace(at, 8, "heel");
+                if (!spin.empty()) entry = skatepedia_entry(spin + heel); // "360inwardheel"
+                if (!entry) entry = skatepedia_entry(heel);
+            }
+            if (!entry) continue;
+            for (const auto step : goofy != mirrored ? entry->goofy : entry->regular) {
+                if (late && step == "ID_SKATEPEDIA_INAIR") continue; // said once already
+                const auto shown = step == "ID_SKATEPEDIA_INAIR" ? std::string_view("In air") : step == "ID_SKATEPEDIA_AND" ? std::string_view("+")
+                                   : step.starts_with("ID_") ? std::string_view() : step;
+                if (shown.empty()) continue; // also an unused (empty) step
+                if (!text.empty()) text += ' ';
+                text += shown;
+            }
+        }
+        return text;
+    } catch (...) {
+        return {};
+    }
+}
 bool trick_allowed(const Settings &s, std::string_view trick) noexcept {
     const auto kinds = trick_kinds_of(trick);
-    return kinds && (kinds & ~s.trick_kinds) == 0;
+    // Any part of the chosen kind will do: a darkslide flipped into is a grind, a kickflip indy a flip and a grab.
+    return (kinds & s.trick_kinds) != 0;
 }
 std::string skate_letters(unsigned letters, unsigned of) {
-    constexpr std::string_view word = "RESKATE";
+    constexpr std::string_view word = reskate_word;
     std::string text;
     for (unsigned i = 0; i < letters && i < of && i < word.size(); ++i) {
         if (!text.empty()) text += '.';
@@ -805,7 +936,7 @@ void Referee::next_turn(std::uint64_t now_ms) {
     call(target_ > 0 ? std::format("{} is up: beat {}", name_of(players_[turn_].id), target_)
                                  : name_of(players_[turn_].id) + " is up: set a score");
 }
-// ---- S.K.A.T.E.
+// ---- R.E.S.K.A.T.E.
 namespace {
 bool same_trick(std::string_view a, std::string_view b) noexcept {
     if (a.size() != b.size()) return false;
@@ -867,7 +998,7 @@ void Referee::next_copier(std::uint64_t now_ms) {
     call(name_of(players_[setter_].id) + " sets again");
 }
 void Referee::skate_attempt(Player &p, bool landed, std::string_view trick, std::uint64_t now_ms) {
-    const std::string name(trick.substr(0, max_trick_length));
+    const std::string name = set_trick_name(trick.substr(0, max_trick_length));
     if (set_trick_.empty() && turn_ == setter_) { // setting
         if (!landed || name.empty()) {
             call(name_of(p.id) + " missed the set");
@@ -883,11 +1014,15 @@ void Referee::skate_attempt(Player &p, bool landed, std::string_view trick, std:
             done_tricks_.push_back(name);
             ++p.score; // tricks set, the tiebreak
             call(std::format("{} set the {}", name_of(p.id), name));
-            next_copier(now_ms);
+            if (players_.size() == 1) { // playing alone: land your own set again, or take a letter
+                turn_at_ = now_ms;
+                call(std::format("{}: land the {} again", name_of(p.id), name));
+            } else
+                next_copier(now_ms);
         }
         return;
     }
-    if (landed && same_trick(name, set_trick_)) call(name_of(p.id) + " landed it");
+    if (landed && copies_trick(name, set_trick_)) call(name_of(p.id) + " landed it");
     else letter(p, landed && !name.empty() ? std::format("did a {}", name) : std::string("missed"));
     next_copier(now_ms);
 }

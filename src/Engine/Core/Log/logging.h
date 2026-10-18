@@ -45,7 +45,7 @@ void vprintf(Level level, Channel channel, const char* format, va_list args) noe
 void printf(Level level, Channel channel, const char* format, ...) noexcept;
 template<class... Args>
 void log(Level level, Context context, Channel channel, std::format_string<Args...> format, Args&&... args) noexcept {
-#if defined(DINGOSDK_LEAN_PLAYTEST)
+#if defined(DINGOSDK_LEAN_PLAYTEST) && !defined(DINGOSDK_LEAN_LOGGING)
     (void)level; (void)context; (void)channel; (void)format;
     ((void)args, ...);
 #else

@@ -51,6 +51,10 @@ struct ModesHudTrickPart {
 struct ModesHud {
     bool active{};        // in a game (the panel, the area and the rest); offers draw either way
     std::string trick_title;                  // S.K.A.T.E.: "COPY THIS", over the trick's diagram
+    std::string trick_steps;                  // R.E.S.K.A.T.E.: how to do the trick to copy (Skatepedia markup)
+    std::vector<std::string> done_tricks;     // R.E.S.K.A.T.E.: set already this game, newest last
+    std::string callout;                      // R.E.S.K.A.T.E.: "TRICK SET!", "SMOKEY  R.E.S", "SMOKEY IS OUT"
+    std::uint64_t callout_serial{};           // changes with each new callout
     std::vector<ModesHudTrickPart> trick_parts;
     bool goofy{};                             // mirror the flicks for a goofy stance
     std::vector<ModesHudPlayer> players; // Skate Tag and Infection, while they are played

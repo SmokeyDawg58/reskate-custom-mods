@@ -22,6 +22,8 @@
 #include "Extension/Multiplayer/Hud/native_party.h"
 #include "Extension/Customization/local_player_card_runtime.h"
 #include "Engine/Core/Log/logging.h"
+#include "Engine/Vfs/https_download.h"
+#include "Extension/Multiplayer/Net/protocol.h"
 #include "Engine/Game/Build/20260929/engine.h"
 #include "Engine/Game/Build/20260929/native_menu.h"
 #include "Engine/Game/Build/20260929/native_party.h"
@@ -39,6 +41,7 @@
 #include <mutex>
 #include <optional>
 #include <set>
+#include <thread>
 #include <utility>
 
 namespace dingosdk::multiplayer {
@@ -63,7 +66,7 @@ struct Row { Value model, anchor, tile, selector; std::vector<Handle> choices; s
 struct Original { Value tile, category, description; std::array<float,2> tile_size{}, description_size{}; float icon_width{}, icon_height{}; };
 struct HudPlayer { Value row, background, name, stamps, strike_anchor, strike_item; std::array<Value,3> letters; bool out{}; };
 struct ResultPlayer { Value row, rank, outcome; };
-struct MatchPanelPlayer { Value row,rank,outcome; bool portrait_attempted{}; };
+struct MatchPanelPlayer { Value row,rank,outcome; bool portrait_attempted{}; std::string picture_url; };
 struct MatchPanel {
     ActivityMenuTransitionGate transition;
     float camera_fov_before{};
@@ -107,6 +110,8 @@ struct NativeSetupRows {
     bool owned_tiles{};
     Value timer_row;
     std::map<std::string,Value> extra;
+    struct Choice { Value selector;std::vector<Handle> options;int shown=-1,pending=-1;std::uint64_t pending_at{}; };
+    std::map<std::string,Choice> choices; // extra rows that pick one of several named options
 };
 struct NativeSetupActions { std::size_t callback_offset{};std::vector<OwnedNativeAction> rows; };
 // One bounded header owns background, icon and title. It never positions a
@@ -160,7 +165,23 @@ struct ModeHud {
     std::uint32_t game{};
     std::uint64_t go_until{};
     unsigned row_count=~0U;
-    bool race_layout{},placing_layout{};
+    Value placement_title; // the cone set's title row
+    Value letters_red,letters_grey,style_callout,style_neon52,style_clean52,style_clean64; // R.E.S.K.A.T.E.'s text styles
+    bool race_layout{},placing_layout{},placement_cones{}; // placement_cones: the editor rows are R.E.S.K.A.T.E.'s cone set
+    bool letters_layout{}; // R.E.S.K.A.T.E.: no header (Throwdowns explains it), standings top left
+    // R.E.S.K.A.T.E.'s trick card, top centre: a caption, the trick's flick-it picture, its name.
+    Value card_caption,card_caption_anchor,card_caption_item,card_image,card_image_anchor,card_image_item;
+    Value card_title,card_title_anchor,card_title_item;
+    bool card_image_visible{},card_title_visible{};
+    Value callout,callout_anchor,callout_item,done_caption,done_caption_anchor,done_caption_item;
+    std::array<Value,4> done_lines;
+    std::array<Value,5> done_cells; // the done list's boxed rows
+    unsigned done_width{};std::size_t done_rows{};
+    Value card_caption_list,card_title_list,card_image_list,callout_list,done_list; // the native lists holding them
+    std::size_t done_count{};
+    std::uint64_t callout_serial{},callout_until{};
+    std::string callout_text;
+    bool callout_visible{};
 };
 struct HudSurfaceSlot { Value anchor,item;Widget display{}; };
 struct HudSurface {
@@ -192,7 +213,7 @@ struct State {
     bool in_menu{};
     std::atomic<bool> gameplay_input_allowed{};
     bool panel_key_down{};
-    unsigned mode_seconds=300, mode_capacity=6, mode_hide_seconds=30;
+    unsigned mode_seconds=300, mode_capacity=6, mode_hide_seconds=30, mode_letters=7;
 
     // Borrowed native marker fields, restored when this match releases them.
     std::map<Handle,std::pair<Value,bool>> marker_originals;
@@ -1682,6 +1703,71 @@ void native_setup_action_row(const Context& c,NativeSetupRows& rows,const std::s
         throw;
     }
 }
+// A setup row picking one of several named options with the game's own left/right selector
+// (TD_Timer_BasicSelector, as Allow Join and Invite look). Returns the index the player chose
+// when it differs from `selected`, else -1.
+int native_setup_choice_row(const Context& c,NativeSetupRows& rows,const std::string& key,const std::string& caption,
+        const std::vector<std::string>& options,int selected) {
+    const bool fresh=!rows.extra.contains(key);
+    const auto checkpoint=state().owned.checkpoint();
+    try {
+    const auto row=native_setup_extra(c,rows,key,caption);
+    const auto setting=ui_models(c,row,setting_schema.hash).front();
+    plain_label(c,c.field(setting,0x58c9d354),caption);
+    auto& choice=rows.choices[key];
+    if(fresh) {
+        const auto control=record_model(c,"TD_HostParameters_ContentResource/TD_Timer_BasicSelector",selector_schema);
+        // The authored selector's two-way bindings belong to Skate Jam: own the options and only
+        // read this selector's index.
+        for(const auto field:{0x4256fd65U,0x85b8c3e6U,0xe88c0f54U})clear_value(c,c.field(control,field));
+        c.set(c.field(control,0xeb92bf1c),Ref{});
+        for(const auto field:{0x41b10c27U,0xd637e1f4U})c.set(c.field(control,field),Address{});
+        const auto list=c.field(control,0x760fc12b);c.set(c.field(list,0x340cfb95),Address{});
+        choice.options.clear();
+        for(const auto& option:options) {
+            auto item=make(c,selector_item_schema),text=make(c,label_schema);
+            c.copy(text,c.address(c.field(setting,0x58c9d354)));
+            label_styles(c,text,"TextStylesList/H64-XBold_White","TextStylesList/H64-XBold_Black");
+            plain_label(c,text,option);
+            c.text(c.field(item,0x58c9d354),option);
+            c.set(c.field(item,0x34c8bcc2),Ref{0,text.handle});choice.options.push_back(item.handle);
+        }
+        c.array(c.field(list,rows_field),std::vector<Ref>{});
+        c.array(c.field(list,0xf2c90867),choice.options);
+        c.set(c.field(control,0x369babfe),true);
+        c.set(c.field(setting,content),Widget{asset(c,"UI/Foundations/Components/Settings/Widgets/BasicSelector_Widget"),{0,control.handle}});
+        choice.selector=control;choice.shown=-1;
+    }
+    const auto list=c.field(choice.selector,0x760fc12b);
+    // The selector's choice is the handle of its current item (0x783c4b49); its index field
+    // (0x55511280) does not follow left/right.
+    const auto current=read<Handle>(c.address(c.field(list,0x783c4b49)));
+    const auto found=std::find(choice.options.begin(),choice.options.end(),current);
+    const int index=found==choice.options.end()?-1:static_cast<int>(found-choice.options.begin());
+    if(choice.shown<0 || (selected!=choice.shown && index==choice.shown)) {
+        // First shown, or changed elsewhere (a console command): show the setting's choice.
+        const auto at=std::clamp(selected,0,static_cast<int>(choice.options.size())-1);
+        c.set(c.field(list,0x55511280),at);c.set(c.field(list,0x783c4b49),choice.options[static_cast<std::size_t>(at)]);
+        choice.shown=at;return -1;
+    }
+    // A choice counts once it has stood for a quarter of a second while the page is open. skate.
+    // resets the selector to its first item as the page closes on Confirm, and the page can stay up
+    // a moment after (longer since the Deathrace editor release): the first item counts only after
+    // standing 2 s with the page open (it closes within a second of Confirm), so the reset never does.
+    const auto now=GetTickCount64();
+    if(index<0 || static_cast<std::size_t>(index)>=choice.options.size() || index==choice.shown) {choice.pending=-1;return -1;}
+    if(index!=choice.pending) {choice.pending=index;choice.pending_at=now;return -1;}
+    if(now-choice.pending_at<(index==0?2000u:250u) || !one_up::native_setup_mode_game())return -1; // only while the page is open
+    choice.shown=index;choice.pending=-1;
+    return index!=selected?index:-1;
+    } catch(...) {
+        if(fresh) {
+            rows.extra.erase(key);rows.choices.erase(key);
+            state().owned.rollback(checkpoint,[&](Value model){c.destroy(model);});
+        }
+        throw;
+    }
+}
 void native_setup_capabilities(const Context& c,Value panel,Value body_value,const throwdowns::Definition& definition,
         const modes::NativeView& mode) {
     auto& s=state();auto [found,fresh]=s.official_setup_rows.try_emplace(panel.handle);
@@ -1697,7 +1783,31 @@ void native_setup_capabilities(const Context& c,Value panel,Value body_value,con
     auto& rows=found->second;std::vector<Value> extra;
     if(mode.settings.mode==modes::Mode::hide)
         extra.push_back(native_setup_extra(c,rows,"hide-timer","Hide Timer"));
-    if(!definition.needs_points) {
+    // R.E.S.K.A.T.E.: how many letters put a player out (the word's first ones).
+    if(mode.settings.mode==modes::Mode::skate)
+        extra.push_back(native_setup_extra(c,rows,"letters","Letters"));
+    // R.E.S.K.A.T.E.: which tricks can be set, picked left/right like Allow Join.
+    if(mode.settings.mode==modes::Mode::skate) {
+        const auto kinds=mode.settings.trick_kinds;
+        const int selected=kinds==modes::trick_flips?1:kinds==modes::trick_grinds?2:kinds==modes::trick_grabs?3:0;
+        const auto picked=native_setup_choice_row(c,rows,"tricks","Tricks",{"All tricks","Flips only","Grinds only","Grabs only"},selected);
+        constexpr std::array<const char*,4> words{"all","flips","grinds","grabs"};
+        if(picked>=0 && mode.leading)modes::command("tricks",{words[static_cast<std::size_t>(picked)]});
+        extra.push_back(rows.extra.at("tricks"));
+    }
+    // R.E.S.K.A.T.E.'s trick zone: a size around its start flag (cones on its edge), as Spot Battle's
+    // area, picked left/right; the free-placed area is for the other challenges.
+    if(mode.settings.mode==modes::Mode::skate) {
+        constexpr std::array<int,5> sizes{0,10,20,35,60};
+        int selected{};
+        for(std::size_t i=0;i<sizes.size();++i)if(std::abs(mode.settings.area_radius-static_cast<float>(sizes[i]))<.5f)selected=static_cast<int>(i);
+        if(mode.zone_custom)selected=5; // Custom: cones placed after the start flag
+        const auto picked=native_setup_choice_row(c,rows,"zone","Trick Zone",{"Anywhere","Small","Medium","Large","Huge","Custom"},selected);
+        if(picked>=0 && mode.leading)
+            modes::command("zone",{picked==5?std::string("custom"):std::to_string(sizes[static_cast<std::size_t>(picked)])});
+        extra.push_back(rows.extra.at("zone"));
+    }
+    if(!definition.needs_points && mode.settings.mode!=modes::Mode::skate) {
         native_setup_action_row(c,rows,"area","Area",mode.settings.corners.empty()?"Set optional area":"Change area",
             "mode-setup-area",std::to_string(mode.game));
         extra.push_back(rows.extra.at("area"));
@@ -1769,9 +1879,11 @@ void official_setup(const Context& c) {
     if(race_game && !definition)return;
     const bool deathrace=definition && race.settings.mode==modes::Mode::race;
     const bool hide_timer=definition && race.settings.mode==modes::Mode::hide;
+    // R.E.S.K.A.T.E. has no game clock: the stock Timer row sets its turn time instead.
+    const bool letters=definition && race.settings.mode==modes::Mode::skate;
     if(s.official_race!=race_game) {
         restore_official(c);s.official_race=race_game;
-        if(race_game) {s.mode_capacity=race.capacity;s.mode_seconds=race.settings.duration_s;s.mode_hide_seconds=race.settings.turn_s;}
+        if(race_game) {s.mode_capacity=race.capacity;s.mode_seconds=race.settings.duration_s;s.mode_hide_seconds=race.settings.turn_s;s.mode_letters=race.settings.strikes;}
     }
     s.setup_open.store(true);
     for(const auto& root:c.roots({panel_schema.hash})) {
@@ -1881,9 +1993,10 @@ void official_setup(const Context& c) {
             const auto id=c.text(c.field(label,text_field));
             const auto role=native_setup_role(id);
             const bool players=role==NativeSetupRole::players;
-            const bool hiding=hide_timer && role==NativeSetupRole::hide_timer;
+            const bool hiding=(hide_timer && role==NativeSetupRole::hide_timer) || (letters && role==NativeSetupRole::timer);
             const bool turn=role==NativeSetupRole::timer || hiding;
-            if(!players && !turn)continue;
+            const bool letter_count=letters && role==NativeSetupRole::letters;
+            if(!players && !turn && !letter_count)continue;
             const auto presentation=c.field(setting,content);
             auto slider=reference(c,read<Widget>(c.address(presentation)).data);
             if(!slider.handle || read<std::uint32_t>(read<Address>(slider.type))!=0xcdc749b2)continue;
@@ -1903,22 +2016,24 @@ void official_setup(const Context& c) {
             }
             const auto range=c.field(slider,0x170bebf7), value=c.field(slider,0x5a547e87);
             const auto step=c.field(slider,0xb47e6cec);
-            const float minimum=players?1.f:deathrace?30.f:race_game && !hiding?30.f:10.f,
-                        maximum=players?6.f:deathrace?3600.f:race_game && !hiding?3600.f:120.f, increment=players?1.f:deathrace?30.f:hiding?5.f:10.f;
+            const float minimum=letter_count?1.f:players?1.f:deathrace?30.f:race_game && !hiding?30.f:10.f,
+                        maximum=letter_count?float(modes::max_strikes):players?6.f:deathrace?3600.f:race_game && !hiding?3600.f:120.f,
+                        increment=letter_count?1.f:players?1.f:deathrace?30.f:hiding?5.f:10.f;
             if(read<std::array<float,2>>(c.address(range))!=std::array<float,2>{minimum,maximum})
                 c.set(range,std::array<float,2>{minimum,maximum});
             if(read<float>(c.address(step))!=increment)c.set(step,increment);
             c.set(c.field(slider,264787447U),true); // TrimWholeValues
             c.set(c.field(slider,3516482810U),true); // RoundToNearestWhole
-            if(first)c.set(value,native_slider_position(players?(race_game?s.mode_capacity:s.max_players):(race_game?(hiding?s.mode_hide_seconds:s.mode_seconds):s.seconds),unsigned(minimum),unsigned(maximum)));
+            if(first)c.set(value,native_slider_position(letter_count?s.mode_letters:players?(race_game?s.mode_capacity:s.max_players):(race_game?(hiding?s.mode_hide_seconds:s.mode_seconds):s.seconds),unsigned(minimum),unsigned(maximum)));
             const auto normalized=read<float>(c.address(value));
             const unsigned selected=native_slider_choice(normalized,unsigned(minimum),unsigned(maximum),unsigned(increment));
             const auto snapped=native_slider_position(selected,unsigned(minimum),unsigned(maximum));
             if(!std::isfinite(normalized) || std::abs(normalized-snapped)>.00001f)c.set(value,snapped);
             if(race_game) {
-                auto& chosen=players?s.mode_capacity:hiding?s.mode_hide_seconds:s.mode_seconds;
-                if(chosen!=selected) {chosen=selected;modes::command(players?"players":hiding?"turn":"time",{std::to_string(selected)});}
-                if(!players)plain_label(c,label,deathrace?"Finish deadline":hiding?"Hide Timer":hide_timer?"Duration":"Timer");
+                auto& chosen=letter_count?s.mode_letters:players?s.mode_capacity:hiding?s.mode_hide_seconds:s.mode_seconds;
+                if(chosen!=selected) {chosen=selected;modes::command(letter_count?"strikes":players?"players":hiding?"turn":"time",{std::to_string(selected)});}
+                if(letter_count)plain_label(c,label,"Letters");
+                else if(!players)plain_label(c,label,deathrace?"Finish deadline":letters?"Turn Timer":hiding?"Hide Timer":hide_timer?"Duration":"Timer");
             } else if(players)s.max_players=selected;else s.seconds=selected;
         }
         one_up::set_native_setup_options(race_game?30:s.seconds,race_game?s.mode_capacity:s.max_players);
@@ -3030,7 +3145,10 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
                         s.mode_status=modes::command("stop",{});
                         if(!s.mode_status.starts_with("error:"))s.mode_status=modes::command("join",{s.mode_setup_argument});
                     }
-                } else if(s.mode_setup_command=="place")s.mode_status=modes::command("place",{s.mode_setup_argument});
+                } else if(s.mode_setup_command=="place") {
+                    s.mode_status=modes::command("place",{s.mode_setup_argument});
+                    logging::log(logging::Level::info,logging::Channel::ui,"Throwdown setup: place {} -> {}",s.mode_setup_argument,s.mode_status);
+                }
                 logging::log(logging::Level::info,logging::Channel::ui,"Throwdown native setup action: {}",s.mode_status);
                 s.mode_start_game=0;s.mode_setup_command.clear();s.mode_setup_argument.clear();
             }
