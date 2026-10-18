@@ -1,17 +1,16 @@
-# Diagnostics and validation
+# Validation and unresolved reports
 
-## Passed on this release
+This follow-up is a playtest prerelease. All 90 optimized Release checks passed; source reconstruction, package checksums and backup-installer fixtures passed. These checks do not establish correct in-game rendering.
 
-- All 90 configured optimized Release checks; no failed or skipped cases.
-- Exact source reconstruction from official 2.1.0, matching runtime/asset hashes, archive integrity and disabled diagnostics.
-- Both actual Improved maps in an isolated merge fixture: 1,162 chunk-bearing bundles and 646 texture records; exact Chevron geometry retained; three native shader-guard fingerprints match.
-- Backup-installer fixtures: preservation, running-program protection, missing-assets rejection, rollback on injected copy failure and Mods/ModData routing.
-- Human gameplay confirmation on the exact published runtime: repeated Skate3Improved → Skate2Improved → Skate3Improved loops; skater visible and moving after each load. The owner reported “Every load works.” See user-validation.json. No independent native trace is claimed for that run.
+## Reported on this exact runtime
 
-## Remaining checks
+- Challenge HUD still disappears after map travel to a custom map.
+- Deathrace nearby/map cards can still show Spot Battle branding despite a correct map marker logo.
 
-Wider multi-PC host/guest, disconnect/rejoin, longer sessions, finish crossings during bail/board-loss grace periods, and complete audio coverage remain playtest work. Historical narrow confirmations of custom features were made on earlier builds and do not certify every 2.1.0 combination. One native join confirmation may still say Spot Battle; live wording inspection and the dedicated R.E.S.K.A.T.E. rules playtest were deferred.
+Read-only inspection found the live stock HUD and created custom models, but an empty custom surface visible set. This is an observation, not a proven cause. Private memory captures and analysis tools are excluded from this repository and downloads.
 
-Original map inputs contain six lighting declared-size warnings. The focused geometry/metadata check does not certify every third-party map payload.
+## Still awaiting gameplay confirmation
 
-Runtime logging, profiling, tracing, crash uploads and shipped debug symbols are disabled. No private captures, local paths, personal settings or game binaries are included in the release.
+Complete multiplayer enrollment/host Start, native Skate Jam waiting-banner cleanup, HUD options off, repeated custom-map HUD survival, hippy jumps versus real bail recovery, disconnect/rejoin and longer sessions. Earlier map-load success belongs to the previous build and is not carried forward as proof for this changed runtime.
+
+See diagnostics.json for exact runtime hashes, RELEASE_NOTES_20261018.md under docs for detailed changes, and PLAYTEST.md for the test steps. Logging, profiling, tracing, crash uploads and shipped symbols remain disabled.

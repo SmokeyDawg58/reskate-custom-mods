@@ -1971,10 +1971,10 @@ index 3564fb3..ca260b9 100644
      } catch (...) {
 diff --git a/Extension/Modes/Test/mode_rules_tests.cpp b/Extension/Modes/Test/mode_rules_tests.cpp
 new file mode 100644
-index 0000000..363fb37
+index 0000000..d45a668
 --- /dev/null
 +++ b/Extension/Modes/Test/mode_rules_tests.cpp
-@@ -0,0 +1,1350 @@
+@@ -0,0 +1,1358 @@
 +// The game modes' rules and wire format without the game: referees are driven by hand with
 +// the events players would send.
 +#include "Extension/Modes/mode_rules.h"
@@ -2006,27 +2006,17 @@ index 0000000..363fb37
 +constexpr std::uint64_t a = 76561198000000001ULL, b = 76561198000000002ULL, c = 76561198000000003ULL;
 +const std::vector<Vec3> square{{0, 0, 0}, {40, 0, 0}, {40, 0, 40}, {0, 0, 40}};
 +
-+void lobby_readiness_flow() {
-+    LobbyReadiness lobby;
-+    std::vector<std::uint64_t> guests{b,c};
-+    check(!lobby.all(guests),"joined guests must explicitly ready before the host starts");
-+    check(!lobby.mark(a,guests) && !lobby.mark(0,guests),"only a joined guest can ready their own place");
-+    check(lobby.mark(b,guests) && !lobby.mark(b,guests),"retransmitted Ready is idempotent");
-+    check(!lobby.all(guests) && lobby.mark(c,guests) && lobby.all(guests),"all joined guests ready unlocks host start");
++void lobby_enrollment_flow() {
 +    Message state;state.kind=Message::Kind::state;state.leader=a;state.game=11;
-+    state.standings={{.player=a,.up=true},{.player=b,.up=lobby.ready(b)},{.player=c,.up=lobby.ready(c)}};
++    state.standings={{.player=a},{.player=b},{.player=c,.out=true}};
 +    const auto echoed=decode(encode(state));
-+    check(echoed && lobby_ready_count(*echoed)==3,"authoritative setup state carries the ready count to every PC");
-+    Message ready;ready.kind=Message::Kind::ready;ready.leader=a;ready.game=11;
-+    check(decode(encode(ready))==ready,"explicit guest Ready roundtrips on the wire");
-+    auto old=encode(ready);old[1]=12;check(!decode(old),"old mode versions cannot silently mix incompatible readiness rules");
-+    auto truncated=encode(ready);truncated.pop_back();check(!decode(truncated),"truncated Ready is rejected");
-+    lobby.remove(b);check(!lobby.ready(b),"a departing guest loses their ready state");
-+    guests={c};lobby.retain(guests);check(lobby.all(guests),"remaining ready players can still start after a guest leaves");
-+    guests.push_back(b);check(!lobby.all(guests),"a rejoining guest must ready again");
-+    lobby.reset();check(!lobby.all(guests),"editing the course or settings clears guest readiness");
-+    check(lobby.all({}),"solo host can start without nonexistent guests");
-+    state.phase=Phase::playing;check(lobby_ready_count(state)==0,"turn indicators in gameplay are not lobby readiness");
++    check(echoed && lobby_enrolled_count(*echoed)==2,"enrolled players count without any Ready inputs; departed players do not");
++    state.standings.erase(state.standings.begin()+1);
++    check(lobby_enrolled_count(state)==1,"leaving the lobby immediately removes the guest");
++    state.standings.push_back({.player=b});
++    check(lobby_enrolled_count(state)==2,"re-enrollment needs no additional confirmation");
++    state.phase=Phase::playing;
++    check(lobby_enrolled_count(state)==0,"gameplay standings are not a lobby count");
 +}
 +
 +void placement_camera_flow() {
@@ -3048,6 +3038,24 @@ index 0000000..363fb37
 +    camera[0]=0;camera[2]=-1;camera[8]=1;camera[10]=0;
 +    check(race_compass_offset({-10,0,0},camera)==0,"compass bearing follows camera rotation independently of skating direction");
 +    RaceRecoveryGrace grace;
++    RaceHippyJump hippy;
++    check(!hippy.observe(true,100,100,0,false,500),"riding alone is not a hippy jump");
++    grace.observe(false,true,510);
++    check(!hippy.observe(true,504,100,0,false,510) && hippy.observe(true,504,100,3.f,false,550),
++        "riding-to-offboard becomes a hippy jump only when upward motion confirms the takeoff");
++    grace.cancel_runout();check(!grace.pending(),"confirmed hippy takeoff cancels a pending false runout");
++    check(hippy.observe(true,504,100,-2.f,false,900),"descending part of a hippy jump remains intentional");
++    check(!hippy.observe(true,504,100,-2.f,true,910),"a real collision during a hippy jump still recovers");
++    grace.observe(true,false,920);grace.cancel_runout();check(grace.pending(),"hippy filtering never cancels a full bail");
++    grace.reset();
++    RaceHippyJump board_loss;board_loss.observe(true,100,100,0,false,100);
++    check(!board_loss.observe(true,504,100,-1.f,false,110) && !board_loss.observe(true,504,100,0,false,400),
++        "accidental board loss and deliberate grounded dismount are not classified as jumps");
++    check(!lobby_departure_blocks_rejoin(Phase::setup) && lobby_departure_blocks_rejoin(Phase::playing),
++        "leaving before a race starts permits another explicit join without replaying an in-progress race");
++    Settings draft;draft.mode=Mode::race;draft.race_finish=true;draft.points={{0,0,0},{0,0,10},{0,0,20}};
++    check(!advertised_lobby_settings(draft,true).race_finish && advertised_lobby_settings(draft,false).race_finish && draft.race_finish,
++        "unsaved routes withdraw their invitations, and saving publishes the finish without mutating the draft");
 +    check(grace.observe(true,false,1000) && grace.waiting(2999) && !grace.ready(2999) && grace.ready(3000),
 +        "a full bail always receives two complete seconds before recovery");
 +    grace.observe(true,false,1800);check(grace.ready(3000),"repeated bail samples do not extend recovery indefinitely");
@@ -3290,7 +3298,7 @@ index 0000000..363fb37
 +int main() {
 +    try {
 +        area_flow();
-+        lobby_readiness_flow();
++        lobby_enrollment_flow();
 +        placement_camera_flow();
 +        scoring_flow();
 +        wire_flow();
@@ -4420,10 +4428,10 @@ index 0000000..b265f56
 +} // namespace dingosdk::console
 diff --git a/Extension/Modes/game_modes.cpp b/Extension/Modes/game_modes.cpp
 new file mode 100644
-index 0000000..44afa89
+index 0000000..b4e8fb3
 --- /dev/null
 +++ b/Extension/Modes/game_modes.cpp
-@@ -0,0 +1,2894 @@
+@@ -0,0 +1,2872 @@
 +#include "game_modes.h"
 +#include "bone_cam.h"
 +#include "mode_rules.h"
@@ -4516,9 +4524,6 @@ index 0000000..44afa89
 +    std::size_t tags_sent{};              // leading: shapes already sent
 +    std::uint64_t tags_resent{};          // leading: when all were last sent again, for late arrivals
 +    std::vector<std::uint64_t> joiners; // leading, before the start: who answered the setup
-+    LobbyReadiness lobby_readiness;
-+    bool ready_requested{};
-+    std::uint64_t ready_sent{};
 +    std::optional<Referee> referee;     // leading, from the start
 +    std::optional<Message> state;       // the latest state (the leader's own when leading)
 +    std::uint64_t heard{}, setup_sent{}, state_sent{}, join_sent{};
@@ -4572,7 +4577,7 @@ index 0000000..44afa89
 +    std::uint64_t invite_at{}, invite_leader{};
 +    std::uint32_t invite_game{};
 +    std::optional<std::pair<std::uint64_t, std::uint32_t>> join_target; // what the join button would join now
-+    std::set<std::pair<std::uint64_t, std::uint32_t>> sat_out; // games the local player left, or seen end: not offered again
++    std::set<std::pair<std::uint64_t, std::uint32_t>> sat_out; // finished or already-started games we left
 +    std::uint64_t local{}, world{};
 +    bool barred{}, session{};
 +    std::string local_name;
@@ -4592,6 +4597,7 @@ index 0000000..44afa89
 +    Bail bail;
 +    RagdollBailEdge ragdoll_bail;
 +    RaceRunoutWatch race_runouts;
++    RaceHippyJump race_hippy;
 +    std::optional<Vec3> last_inside;
 +    std::uint64_t outside_since{};
 +    std::string popup;
@@ -4637,7 +4643,7 @@ index 0000000..44afa89
 +    struct RaceStart {std::uint64_t world{};std::uint32_t game{};Vec3 at{};float yaw{};};
 +    std::optional<RaceStart> race_start;
 +    std::optional<RaceStart> native_flag;
-+    struct NativeStart {std::uint64_t world{};std::uint32_t game{};bool ready{};};
++    struct NativeStart {std::uint64_t world{};std::uint32_t game{};};
 +    std::optional<NativeStart> native_start;
 +    std::optional<NativeStart> native_quit;
 +    // Where the next thing goes, like skate.'s quick drop: with `free_place` the free camera flies
@@ -4897,7 +4903,7 @@ index 0000000..44afa89
 +    auto m = header(g, Message::Kind::state);
 +    m.phase = Phase::setup;
 +    m.standings.push_back({.player=self_id(s),.up=true});
-+    for (const auto id : g.joiners) m.standings.push_back({.player=id,.up=g.lobby_readiness.ready(id)});
++    for (const auto id : g.joiners) m.standings.push_back({.player=id,.up=true});
 +    return m;
 +}
 +std::uint32_t default_duration(Mode mode) {
@@ -5095,7 +5101,7 @@ index 0000000..44afa89
 +    // A wipeout loses the line and starts measuring the bail: the counter the trainer keeps for
 +    // state 300, any other wipeout state (300-399), or a hard fall straight off the board.
 +    bool bailed = s.ragdoll_bail.observe(watch.ragdoll_known,watch.ragdoll);
-+    const bool runout=s.race_runouts.observe(watch.valid,watch.runouts);
++    const bool runout_edge=s.race_runouts.observe(watch.valid,watch.runouts);
 +    if (watch.valid || s.wipeouts_known) {
 +        if (!s.wipeouts_known) {
 +            s.wipeouts = watch.wipeouts;
@@ -5143,6 +5149,9 @@ index 0000000..44afa89
 +        }
 +        s.fall_peak = 0;
 +    }
++    const bool hippy=s.race_hippy.observe(watch.valid,physics,watch.previous,vertical,bailed,now);
++    const bool runout=runout_edge && !hippy;
++    if(hippy && s.game && s.game->settings.mode==Mode::race)s.game->recovery_grace.cancel_runout();
 +    // Checkpoint recovery is independent of the 3.5-second Meat measurement.
 +    // A second fall after a quick recovery must not be ignored by that timer.
 +    if(bailed || runout) {
@@ -5576,7 +5585,6 @@ index 0000000..44afa89
 +// The leader changed the settings before the start: everyone gets them at once.
 +void settings_changed(Game &g) {
 +    g.setup_sent = 0;
-+    g.lobby_readiness.reset();
 +    g.state_sent=0;
 +    // Every Deathrace gate has a facing: one placed without (the console) looks along the route.
 +    auto &s = g.settings;
@@ -5908,7 +5916,7 @@ index 0000000..44afa89
 +            if(!issue.empty()) {
 +                s.editor_save_blocked=true;popup(s,std::string(issue));
 +                overlay::notify(overlay::NoticeLevel::warning,"Deathrace route not saved",std::string(issue));
-+            } else {s.editor_save_blocked=false;s.placing=State::Placing::none;popup(s,"Deathrace route saved.");}
++            } else {s.editor_save_blocked=false;s.placing=State::Placing::none;settings_changed(g);popup(s,"Deathrace route saved.");}
 +        }
 +        return;
 +    }
@@ -5971,10 +5979,10 @@ index 0000000..44afa89
 +    if (!g.referee) {
 +        // Setting up: players who left are dropped from the ones who answered.
 +        if (s.session) std::erase_if(g.joiners, [&](std::uint64_t id) { return !s.present.contains(id); });
-+        g.lobby_readiness.retain(g.joiners);
 +        if (now - g.setup_sent >= setup_every_ms) {
 +            auto m = header(g, Message::Kind::setup);
-+            m.settings = g.settings;
++            m.settings = advertised_lobby_settings(g.settings,s.placing!=State::Placing::none ||
++                (g.native_lobby && !g.native_flag_placed));
 +            send(s, m);
 +            g.setup_sent = now;
 +        }
@@ -6040,11 +6048,7 @@ index 0000000..44afa89
 +        send(s, header(g, Message::Kind::join));
 +        g.join_sent = now;
 +    }
-+    const auto* me=standing(g,self_id(s));
-+    if(g.ready_requested && (!g.state || g.state->phase==Phase::setup) && (!me || !me->up) &&
-+       !s.barred && now-g.ready_sent>=join_every_ms) {
-+        send(s,header(g,Message::Kind::ready));g.ready_sent=now;
-+    }
++
 +}
 +
 +// R.E.S.K.A.T.E.: the local player's turn. skate.'s trick list is read from the moment it is theirs: each
@@ -6506,7 +6510,6 @@ index 0000000..44afa89
 +        native.settings=g.settings;native.state=g.state;native.capacity=g.capacity;native.placing=s.placing!=State::Placing::none;
 +        native.state_sampled_ms=g.state_sampled_ms;
 +        native.flag_placed=g.native_flag_placed;
-+        native.local_ready=g.leading || g.ready_requested;
 +        native.pending_flag=g.native_lobby && !g.native_flag_placed && !g.referee;
 +        native.waiting=g.native_lobby && g.native_flag_placed && !g.referee && !native.placing &&
 +            (!g.state || g.state->phase==Phase::setup);
@@ -6632,9 +6635,9 @@ index 0000000..44afa89
 +            settings_changed(g);
 +        }
 +        if(native_start && s.game && s.game->native_lobby && s.game->native_flag_placed &&
-+           s.game->leading!=native_start->ready &&
++           s.game->leading &&
 +           !s.game->referee && s.placing==State::Placing::none && s.game->id==native_start->game && s.world==native_start->world) {
-+            const auto result=command(native_start->ready?"ready":"start",{});
++            const auto result=command("start",{});
 +            if(result.starts_with("error:"))popup(s,result.substr(7));
 +        }
 +        run_placing(s, now);
@@ -6748,7 +6751,6 @@ index 0000000..44afa89
 +        if (ours) {
 +            if (!s.game->leading && s.game->settings != m.settings) {
 +                s.game->settings = m.settings;
-+                s.game->ready_requested=false;s.game->ready_sent=0;
 +            }
 +            s.game->heard = now;
 +            break;
@@ -6801,6 +6803,7 @@ index 0000000..44afa89
 +        break;
 +    case Message::Kind::join:
 +        if (ours && s.game->leading && sender != self_id(s)) {
++            if(s.game->settings.mode==Mode::race && s.placing!=State::Placing::none)break;
 +            if (s.game->referee) {
 +                s.game->referee->add_player(sender); // until the countdown ends
 +            } else if (std::find(s.game->joiners.begin(), s.game->joiners.end(), sender) == s.game->joiners.end() &&
@@ -6812,12 +6815,10 @@ index 0000000..44afa89
 +    case Message::Kind::leave:
 +        if (ours && s.game->leading) {
 +            if (s.game->referee) s.game->referee->remove_player(sender, now);
-+            else {std::erase(s.game->joiners, sender);s.game->lobby_readiness.remove(sender);s.game->state_sent=0;}
++            else {std::erase(s.game->joiners, sender);s.game->state_sent=0;}
 +        }
 +        break;
-+    case Message::Kind::ready:
-+        if(ours && s.game->leading && !s.game->referee && sender!=self_id(s) &&
-+           s.game->lobby_readiness.mark(sender,s.game->joiners))s.game->state_sent=0;
++    case Message::Kind::ready: // Reserved legacy wire action; enrollment is sufficient.
 +        break;
 +    case Message::Kind::end:
 +        if (ours && !s.game->leading && sender == m.leader)
@@ -6986,24 +6987,16 @@ index 0000000..44afa89
 +        // Quit leaves immediately; Stop deliberately presents match results.
 +        // Followers also suppress the same host's still-advertised match.
 +        send(s,header(g,local_quit_kind(g.leading)));
-+        if(!g.leading)s.sat_out.insert({g.leader,g.id});
++        if(!g.leading && lobby_departure_blocks_rejoin(g.state?g.state->phase:Phase::setup))s.sat_out.insert({g.leader,g.id});
 +        end_game(s,{});
 +        return "You quit the Throwdown.";
 +    }
 +    if (v == "leave") {
 +        if (g.leading) return "error: you lead this game: `mode stop` ends it for everyone.";
 +        send(s, header(g, Message::Kind::leave));
-+        s.sat_out.insert({g.leader, g.id});
++        if(lobby_departure_blocks_rejoin(g.state?g.state->phase:Phase::setup))s.sat_out.insert({g.leader,g.id});
 +        end_game(s, {});
 +        return "You left the game.";
-+    }
-+    if(v=="ready") {
-+        if(g.leading)return "You host this Throwdown. Start when everyone is ready.";
-+        if(g.state && g.state->phase!=Phase::setup)return "error: this Throwdown has already started.";
-+        if(s.barred)return "error: this session's competition rules prevent joining.";
-+        g.ready_requested=true;g.ready_sent=now;
-+        send(s,header(g,Message::Kind::ready));
-+        return "Ready. Waiting for the host to start.";
 +    }
 +    if (!g.leading) return "error: only " + name_of(s, g.leader) + " (the leader) can change or start this game.";
 +    if (v == "stop") {
@@ -7046,6 +7039,7 @@ index 0000000..44afa89
 +                }
 +            }
 +            s.placing = State::Placing::none;
++            settings_changed(g);
 +            return "Placing stopped.";
 +        }
 +        if (what == "freecam") {
@@ -7161,7 +7155,6 @@ index 0000000..44afa89
 +            s.draft_width = half;
 +        }, "Radius (m)");
 +    if (v == "start") {
-+        if(!g.lobby_readiness.all(g.joiners))return "error: waiting for joined players to press Ready.";
 +        if(g.native_lobby && !g.native_flag_placed)return "error: place the native starting flag before starting this Throwdown.";
 +        if(g.native_lobby && s.placing!=State::Placing::none)return "error: finish placing the area or capture spots before starting this Throwdown.";
 +        if(g.settings.mode==Mode::race && (!race_route_ready(g.settings,g.race_finish_placed) || s.placing!=State::Placing::none ||
@@ -7247,13 +7240,6 @@ index 0000000..44afa89
 +        auto& s=state();std::lock_guard lock(s.race_start_mutex);s.native_start=State::NativeStart{world,game};return true;
 +    } catch(...) {return false;}
 +}
-+bool request_native_ready(std::uint64_t world,std::uint32_t game) noexcept {
-+    try {
-+        const auto v=native_view();
-+        if(!world || !game || !v.active || v.leading || !v.waiting || v.world!=world || v.game!=game)return false;
-+        auto& s=state();std::lock_guard lock(s.race_start_mutex);s.native_start=State::NativeStart{world,game,true};return true;
-+    } catch(...) {return false;}
-+}
 +bool request_native_quit(std::uint64_t world,std::uint32_t game) noexcept {
 +    try {
 +        const auto v=native_view();
@@ -7320,10 +7306,10 @@ index 0000000..44afa89
 +} // namespace dingosdk::modes
 diff --git a/Extension/Modes/game_modes.h b/Extension/Modes/game_modes.h
 new file mode 100644
-index 0000000..6be8016
+index 0000000..7129df1
 --- /dev/null
 +++ b/Extension/Modes/game_modes.h
-@@ -0,0 +1,101 @@
+@@ -0,0 +1,100 @@
 +#pragma once
 +#include "Extension/UI/Overlay/overlay.h"
 +#include "mode_view.h"
@@ -7375,7 +7361,6 @@ index 0000000..6be8016
 +struct NativeView {
 +    bool active{}, leading{}, placing{};
 +    bool pending_flag{}, flag_placed{}, waiting{};
-+    bool local_ready{};
 +    std::uint64_t local{}, leader{}, world{};
 +    std::uint64_t state_sampled_ms{};
 +    std::uint32_t game{};
@@ -7400,9 +7385,10 @@ index 0000000..6be8016
 +    Vec3 at{};
 +    float yaw{};
 +    unsigned players=1,duration_s=120,required_gates{};
++    std::uint64_t native_match{}; // Full 1-UP identity; mode IDs remain 32 bit.
 +    bool operator==(const NativeFlagOffer&) const=default;
 +    bool same_registration(const NativeFlagOffer& other) const {
-+        return leader==other.leader && game==other.game && key==other.key && at==other.at && yaw==other.yaw;
++        return leader==other.leader && game==other.game && native_match==other.native_match && key==other.key && at==other.at && yaw==other.yaw;
 +    }
 +};
 +// Game-thread bridge: the existing mode invitation owns the race; a native
@@ -7414,7 +7400,6 @@ index 0000000..6be8016
 +// stays an explicit waiting-HUD hold action, dispatched on the client tick.
 +void accept_native_start_flag(std::uint64_t world, std::uint32_t game, const Vec3& at, float yaw);
 +bool request_native_start(std::uint64_t world, std::uint32_t game) noexcept;
-+bool request_native_ready(std::uint64_t world, std::uint32_t game) noexcept;
 +bool request_native_quit(std::uint64_t world, std::uint32_t game) noexcept;
 +bool active() noexcept;
 +std::optional<Vec3> peek_race_recovery_velocity() noexcept;
@@ -7467,39 +7452,30 @@ index 0000000..35a0908
 +}
 diff --git a/Extension/Modes/mode_lobby.h b/Extension/Modes/mode_lobby.h
 new file mode 100644
-index 0000000..2ab3462
+index 0000000..ee44b1a
 --- /dev/null
 +++ b/Extension/Modes/mode_lobby.h
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,22 @@
 +#pragma once
 +#include "mode_rules.h"
 +#include <algorithm>
-+#include <set>
-+#include <span>
 +
 +namespace dingosdk::modes {
-+// The leader is ready by owning the draft. Joining reserves a place; only
-+// that joined player's explicit Ready action can mark their place ready.
-+class LobbyReadiness {
-+    std::set<std::uint64_t> ready_;
-+public:
-+    bool mark(std::uint64_t player,std::span<const std::uint64_t> joined) {
-+        if(!player || std::find(joined.begin(),joined.end(),player)==joined.end())return false;
-+        return ready_.insert(player).second;
-+    }
-+    bool ready(std::uint64_t player) const {return ready_.contains(player);}
-+    bool all(std::span<const std::uint64_t> joined) const {
-+        return std::all_of(joined.begin(),joined.end(),[&](auto id){return ready(id);});
-+    }
-+    void remove(std::uint64_t player) {ready_.erase(player);}
-+    void reset() {ready_.clear();}
-+    void retain(std::span<const std::uint64_t> joined) {
-+        std::erase_if(ready_,[&](auto id){return std::find(joined.begin(),joined.end(),id)==joined.end();});
-+    }
-+};
-+inline std::size_t lobby_ready_count(const Message& state) {
++inline bool lobby_departure_blocks_rejoin(Phase phase) noexcept {
++    return phase!=Phase::setup;
++}
++inline Settings advertised_lobby_settings(const Settings& settings,bool editing) {
++    auto advertised=settings;
++    // An unsaved Deathrace is a draft, even after its red finish is placed.
++    // The existing route-validity check withdraws its flag on every peer.
++    if(advertised.mode==Mode::race && editing)advertised.race_finish=false;
++    return advertised;
++}
++// Enrollment is the complete guest action. The wire's historical `up` bit
++// is a gameplay indicator and must not gate lobby start or the player count.
++inline std::size_t lobby_enrolled_count(const Message& state) {
 +    if(state.phase!=Phase::setup)return 0;
-+    return std::count_if(state.standings.begin(),state.standings.end(),[](const auto& p){return !p.out && p.up;});
++    return std::count_if(state.standings.begin(),state.standings.end(),[](const auto& p){return !p.out;});
 +}
 +} // namespace dingosdk::modes
 diff --git a/Extension/Modes/mode_participation.h b/Extension/Modes/mode_participation.h
@@ -9762,10 +9738,10 @@ index 0000000..496c28a
 +}
 diff --git a/Extension/Modes/race_momentum.h b/Extension/Modes/race_momentum.h
 new file mode 100644
-index 0000000..c9c24c5
+index 0000000..7e4e1ac
 --- /dev/null
 +++ b/Extension/Modes/race_momentum.h
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,138 @@
 +#pragma once
 +#include "mode_rules.h"
 +#include <algorithm>
@@ -9793,10 +9769,38 @@ index 0000000..c9c24c5
 +        const bool changed=*seen!=count;seen=count;return changed;
 +    }
 +};
++// Hippy jumps and walking share state 504. A clean riding -> offboard
++// transition followed by upward motion identifies the jump; state alone
++// cannot distinguish it from an accidental loss of the board.
++class RaceHippyJump {
++    std::uint64_t candidate_until{},jump_until{},landed_until{};
++    std::uint32_t last{};
++public:
++    bool observe(bool valid,std::uint32_t state,std::uint32_t previous,float vertical,
++                 bool bail,std::uint64_t now) noexcept {
++        if(!valid || !std::isfinite(vertical) || bail) {
++            candidate_until=jump_until=landed_until=0;last=state;return false;
++        }
++        if(state!=last) {
++            candidate_until=state==504 && previous==100?now+250:0;
++            if(state!=504) {
++                if(jump_until && now<jump_until && state<300)landed_until=now+250;
++                jump_until=0;
++            }
++            last=state;
++        }
++        if(state==504 && candidate_until && now<=candidate_until && vertical>.5f) {
++            jump_until=now+4000;candidate_until=0;
++        }
++        if(state!=504 || now>=jump_until)jump_until=0;
++        return jump_until!=0 || (state<300 && now<landed_until);
++    }
++};
 +class RaceRecoveryGrace {
 +    std::uint64_t until{};bool full_bail{};
 +public:
 +    void reset() noexcept {until=0;full_bail=false;}
++    void cancel_runout() noexcept {if(!full_bail)reset();}
 +    bool pending() const noexcept {return until!=0;}
 +    bool waiting(std::uint64_t now) const noexcept {return until && now<=until;}
 +    bool ready(std::uint64_t now) const noexcept {return until && now>=until;}
@@ -12671,10 +12675,10 @@ index 0000000..578945f
 +}
 diff --git a/Extension/Throwdowns/Test/one_up_placement_tests.cpp b/Extension/Throwdowns/Test/one_up_placement_tests.cpp
 new file mode 100644
-index 0000000..9407a19
+index 0000000..59daa7c
 --- /dev/null
 +++ b/Extension/Throwdowns/Test/one_up_placement_tests.cpp
-@@ -0,0 +1,547 @@
+@@ -0,0 +1,558 @@
 +#include <Windows.h>
 +static ULONGLONG test_now=1000;
 +static ULONGLONG placement_test_clock() { return test_now; }
@@ -13218,13 +13222,24 @@ index 0000000..9407a19
 +        observe_flag_destroyed(5001);tick();check(!flag_registration_owned() && test_mode_active);
 +        current_mode_view.state->phase=dingosdk::modes::Phase::results;tick();check(native_flag_mode_game()==0);
 +        abandon_flag_placement();
++        current_mode_view={};test_mode_active=false;current_view.state={};
++        check(adopt_native_one_up_flag(901,6001,{10,20,30},90,30,6));
++        tick();check(flag_registration_waiting() && owns_flag_registration(6001) && native_flag_mode_game()==0);
++        current_view.state.match=0x1234567800000021ULL;current_view.state.phase=Phase::lobby;tick();
++        check(flag_registration_waiting());
++        flag_registration_left();tick();check(destroyed.back()==6001);
++        observe_flag_destroyed(6001);test_now+=501;tick();
++        current_view.state={};
++        check(adopt_native_one_up_flag(901,6002,{10,20,30},90,30,6));
++        check(flag_registration_waiting() && owns_flag_registration(6002));
++        abandon_flag_placement();
 +        std::cout<<count<<" flag bridge checks passed\n";
 +        return 0;
 +    } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }
 +}
 diff --git a/Extension/Throwdowns/Test/one_up_runtime_tests.cpp b/Extension/Throwdowns/Test/one_up_runtime_tests.cpp
 new file mode 100644
-index 0000000..4106f54
+index 0000000..aace741
 --- /dev/null
 +++ b/Extension/Throwdowns/Test/one_up_runtime_tests.cpp
 @@ -0,0 +1,298 @@
@@ -13334,7 +13349,7 @@ index 0000000..4106f54
 +        create_selected_spawn(r,picked,7202);
 +        check(r.hosted && r.spot==picked.position && r.spot!=*r.input.position);
 +        check(r.facing==picked.facing);
-+        check(r.selected.config.max_players==6 && r.selected.config.turn_ms==50000 && r.ready_pending);
++        check(r.selected.config.max_players==6 && r.selected.config.turn_ms==50000 && r.selected.phase==Phase::lobby);
 +        const auto placed_match=r.selected.match;
 +        create_selected_spawn(r,SpawnRequest{{0,0,0},10,a,30,4},7203);
 +        check(r.selected.match==placed_match && r.spot==picked.position);
@@ -13379,7 +13394,7 @@ index 0000000..4106f54
 +        };
 +        deliver(guest); guest.action = Action::ready; guest.sequence = 2; guest.flag = true; deliver(guest);
 +        queue("ready"); test_now = 1001; tick(0, input);
-+        check(view().state.players.size() == 2 && view().state.players[0].ready && view().state.players[1].ready);
++        check(view().state.players.size() == 2 && !view().state.players[0].ready && view().state.players[1].ready);
 +        queue("start"); test_now = 1002; tick(0, input); check(view().state.phase == Phase::countdown && !waits_offboard());
 +        check(countdown_locks_input());
 +        check(view().state.config.countdown_ms==6000);
@@ -13420,7 +13435,7 @@ index 0000000..4106f54
 +        input.peers.push_back(peer); test_now=58611; tick(0,input);
 +        check(!view().state.match && !view().solo_test && !waits_offboard());
 +        current.players=1;create_at_spawn(current);test_now=58612;tick(0,input);
-+        check(view().state.config.max_players==1 && view().state.players[0].ready);
++        check(view().state.config.max_players==1 && view().state.phase==Phase::lobby);
 +        queue("start");test_now=58613;tick(0,input);
 +        check(view().solo_test && view().state.phase==Phase::countdown && countdown_locks_input());
 +        test_now=64613;tick(0,input);
@@ -13433,7 +13448,7 @@ index 0000000..4106f54
 +        create_at_spawn(SpawnRequest{{1,2,3},12,7,30,1});test_now=65000;check(tick(0,offline).empty());
 +        check(view().state.match && !view().state.players.front().ready);
 +        queue("start");test_now=65001;tick(0,offline);
-+        check(view().state.phase==Phase::lobby && runtime().start_pending); // Fast Start waits for flag arrival.
++        check(view().state.phase==Phase::countdown && view().positioning); // Start arms the countdown; arrival still holds its clock.
 +        offline.position=std::array<float,3>{1,2,3};test_now=65501;tick(0,offline);
 +        test_now=65502;tick(0,offline);
 +        check(view().solo_test && view().state.phase==Phase::countdown && countdown_locks_input());
@@ -13447,7 +13462,7 @@ index 0000000..4106f54
 +        offline.world=13;tick(0,offline);check(!view().state.match && !countdown_locks_input());
 +        offline.position=std::array<float,3>{1,2,3};
 +        create_at_spawn(SpawnRequest{{1,2,3},13,7,30,1});test_now=72000;tick(0,offline);
-+        test_now=72001;tick(0,offline);check(view().state.players.front().ready);
++        test_now=72001;tick(0,offline);check(view().state.phase==Phase::lobby);
 +        test_teleport_pending=true;
 +        queue("start");test_now=72002;tick(0,offline);
 +        check(view().positioning && countdown_locks_input());
@@ -13466,7 +13481,7 @@ index 0000000..4106f54
 +        const auto flag=std::array<float,3>{1,2,3};offline.position=flag;
 +        const Facing turn_facing{0,0,-1,0,1,0,1,0,0};
 +        create_at_spawn(SpawnRequest{flag,13,7,10,1,turn_facing});tick(0,offline);
-+        ++test_now;tick(0,offline);check(view().state.players.front().ready);
++        ++test_now;tick(0,offline);check(view().state.phase==Phase::lobby);
 +        queue("start");++test_now;tick(0,offline);
 +        test_now+=6000;tick(0,offline);
 +        for(unsigned turn=1;turn<=4;++turn) {
@@ -13503,7 +13518,7 @@ index 0000000..4106f54
 +        clear(runtime());test_now=200000;
 +        offline=local_input(disconnected,7,14,flag);
 +        tick(0,offline);create_at_spawn(SpawnRequest{flag,14,7,30,1});tick(0,offline);
-+        ++test_now;tick(0,offline);check(view().state.players.front().ready);
++        ++test_now;tick(0,offline);check(view().state.phase==Phase::lobby);
 +        const auto retained_match=view().state.match;
 +        offline=local_input(disconnected,7,14,std::nullopt);
 +        for(unsigned frame=0;frame<120;++frame) {test_now+=16;tick(0,offline);}
@@ -13514,7 +13529,7 @@ index 0000000..4106f54
 +        // On return, the same loaded world can start another accepted flag.
 +        offline=local_input(disconnected,7,14,flag);
 +        tick(0,offline);create_at_spawn(SpawnRequest{flag,14,7,30,1});tick(0,offline);
-+        ++test_now;tick(0,offline);check(view().state.players.front().ready);
++        ++test_now;tick(0,offline);check(view().state.phase==Phase::lobby);
 +        offline=local_input(disconnected,7,14,std::nullopt);
 +        test_now+=1000;tick(0,offline);check(view().state.phase==Phase::lobby);
 +        offline=local_input(disconnected,7,14,flag);
@@ -13528,7 +13543,7 @@ index 0000000..4106f54
 +}
 diff --git a/Extension/Throwdowns/Test/one_up_tests.cpp b/Extension/Throwdowns/Test/one_up_tests.cpp
 new file mode 100644
-index 0000000..8dc729e
+index 0000000..ecf8922
 --- /dev/null
 +++ b/Extension/Throwdowns/Test/one_up_tests.cpp
 @@ -0,0 +1,132 @@
@@ -13577,14 +13592,16 @@ index 0000000..8dc729e
 +        check(!skating_sequence(2,true) && !skating_sequence(3,true),"on-foot and wipeout sequences do not score");
 +        check(!skating_trick_category(11) && !skating_trick_category(12),"bonus and challenge actions do not score");
 +        Match lobby(1, 2, a); check(!lobby.start(0), "two players required"); lobby.join(b);
-+        check(!lobby.start(0), "all ready required"); check(!lobby.join(a), "no duplicate roster");
++        check(lobby.start(0), "host starts all enrolled skaters without any Ready inputs"); check(!lobby.join(a), "no duplicate roster");
++        Match rejoin(8,9,a);check(rejoin.join(b) && rejoin.leave(b,0) && rejoin.join(b),"pre-start Leave permits re-enrollment");
++        check(rejoin.start(0),"re-enrolled guest starts with the host without Ready");
++        check(!rejoin.start(1) && !rejoin.join(c),"Start cannot restart a running match or enroll late players");
 +        Config limit; limit.max_players = 2;
 +        Match pair(2, 3, a, limit);
 +        check(pair.join(b) && !pair.join(c), "selected player limit is enforced by the host");
 +        limit.max_players = 1; check(limit.valid(), "one-player selection accepted");
 +        Match selected_solo(5,6,a,limit);
-+        check(!selected_solo.join(b) && !selected_solo.start(0), "one-player limit excludes guests and still requires readiness");
-+        selected_solo.ready(a,true);
++        check(!selected_solo.join(b), "one-player limit excludes guests");
 +        check(selected_solo.start(0) && selected_solo.solo_test(), "Players 1 uses normal Start for solo play");
 +        Message solo_snapshot; solo_snapshot.match=selected_solo.state().match;solo_snapshot.world=selected_solo.state().world;
 +        solo_snapshot.leader=a;solo_snapshot.state=selected_solo.state();
@@ -13594,9 +13611,7 @@ index 0000000..8dc729e
 +        Match partial(3,4,a); partial.join(b); partial.ready(a,true); partial.ready(b,true);
 +        check(partial.start(0), "host can start with two ready skaters and four open slots");
 +        Match solo(4,5,a);
-+        check(!solo.start_solo_test(0),"solo test requires ready confirmation");
-+        solo.ready(a,true);
-+        check(!solo.start(0) && solo.start_solo_test(0),"normal start still requires two, explicit test accepts one");
++                check(!solo.start(0) && solo.start_solo_test(0),"normal start still requires two, solo test needs no Ready step");
 +        solo.tick(3000); finish_turn(solo,450);
 +        check(solo.state().phase==Phase::feedback && solo.state().target==450 && !solo.state().winner,"solo never immediately awards a win");
 +        next(solo); finish_turn(solo,450);
@@ -13630,7 +13645,7 @@ index 0000000..8dc729e
 +        check(cutoff.state().players[0].penalties==1,"resolution applied once");
 +        auto out = match(); for (unsigned i = 0; i < 3; ++i) { finish_turn(out, 0); if (i < 2) { next(out); finish_turn(out, 100); next(out); } }
 +        check(out.state().players[0].penalties == 3 && out.state().winner == b && out.state().phase == Phase::finished, "three penalties eliminate and choose winner");
-+        check(out.rematch(0) && !out.state().players[0].ready && out.state().players[0].penalties == 0, "rematch requires ready again");
++        check(out.rematch(0) && !out.state().players[0].ready && out.state().players[0].penalties == 0, "rematch clears penalties and reopens enrollment");
 +        auto quit = match(true); check(quit.leave(a, 4000) && quit.state().phase == Phase::cancelled, "host departure cancels");
 +        quit = match(true); finish_turn(quit, 200); next(quit); check(quit.leave(b, quit.turn_at()) && quit.state().active == c && quit.state().target == 0, "active disconnect skips and resets");
 +        check(quit.leave(c, quit.turn_at()) && quit.state().winner == a, "disconnect winner");
@@ -13665,24 +13680,34 @@ index 0000000..8dc729e
 +    } catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; }
 +}
 diff --git a/Extension/Throwdowns/Test/throwdown_relay_tests.cpp b/Extension/Throwdowns/Test/throwdown_relay_tests.cpp
-index 95fe1ac..bcd5419 100644
+index 95fe1ac..8783e35 100644
 --- a/Extension/Throwdowns/Test/throwdown_relay_tests.cpp
 +++ b/Extension/Throwdowns/Test/throwdown_relay_tests.cpp
-@@ -7,6 +7,7 @@
+@@ -7,6 +7,8 @@
  #include "Extension/Throwdowns/grouped_number.h"
  #include "Extension/Multiplayer/Hud/native_party.h"
  #include "Extension/Settings/named_settings.h"
 +#include "Extension/Modes/game_modes.h"
++#include "Extension/Throwdowns/one_up_runtime.h"
  #include <Windows.h>
  #include <chrono>
  #include <cmath>
-@@ -27,6 +28,15 @@ std::map<std::string, std::string> settings_changed;
+@@ -27,6 +29,24 @@ std::map<std::string, std::string> settings_changed;
  bool leaderboard_live = true;
  bool types_ready = true; // stands in for the event types of the level being found
  std::uint64_t last_token{};
 +std::vector<dingosdk::modes::NativeFlagOffer> custom_offers;
 +std::vector<std::pair<dingosdk::modes::NativeFlagOffer,std::uint32_t>> custom_joins;
 +bool accept_custom_join=true;
++dingosdk::multiplayer::one_up::View oneup_view;
++std::vector<std::string> oneup_commands;
++}
++namespace dingosdk::multiplayer::one_up {
++View view() {return oneup_view;}
++void queue(std::string_view command) {oneup_commands.emplace_back(command);}
++bool adopt_native_one_up_flag(std::uint64_t world,std::uint32_t mmid,const std::array<float,3>&,float,unsigned,unsigned) noexcept {
++    return world==777 && mmid!=0;
++}
 +}
 +namespace dingosdk::modes {
 +std::vector<NativeFlagOffer> native_flag_offers(std::uint64_t) {return custom_offers;}
@@ -13692,7 +13717,7 @@ index 95fe1ac..bcd5419 100644
  }
  
  namespace dingosdk {
-@@ -46,6 +56,10 @@ bool queue_throwdown_spawn(std::uint64_t token, std::uint32_t host, const std::s
+@@ -46,6 +66,10 @@ bool queue_throwdown_spawn(std::uint64_t token, std::uint32_t host, const std::s
      calls.push_back({"spawn", series, host, 0, 0, token});
      return true;
  }
@@ -13703,7 +13728,32 @@ index 95fe1ac..bcd5419 100644
  bool queue_throwdown_add(std::uint32_t player, const std::string &series, std::uint32_t mmid) noexcept {
      calls.push_back({"add", series, player, mmid});
      return true;
-@@ -779,6 +793,45 @@ void level_change_flow() {
+@@ -156,6 +180,24 @@ void end_session() {
+     calls.clear();
+ }
+ 
++void native_queue_banner_lifetime() {
++    const auto before=native_queue_hud_state().generation;
++    local(Local::created,501);auto queue=native_queue_hud_state();
++    check(queue.generation>before && queue.waiting,"Creating a native queue enables its waiting notice");
++    local(Local::force_started,501);check(native_queue_hud_state().waiting,"A Start request alone does not assume the event successfully began");
++    local(Local::entered,501);check(!native_queue_hud_state().waiting,"Actual activity entry retires the long-timer waiting banner");
++    local(Local::ended,501);check(!native_queue_hud_state().waiting,"A completed Skate Jam cannot resurrect its waiting banner");
++    local(Local::joined,502);auto rejoined=native_queue_hud_state();
++    check(rejoined.generation>queue.generation && rejoined.waiting,"A new enrollment gets a fresh waiting notice");
++    local(Local::left,502);check(!native_queue_hud_state().waiting,"Leave retires the queue notice immediately");
++    local(Local::joined,503);local(Local::quit,503);
++    check(!native_queue_hud_state().waiting,"Quit cannot leave a stock waiting banner alive");
++    local(Local::created,504);retire_native_queue_hud();
++    check(!native_queue_hud_state().waiting,"A real level teardown retires its waiting notice");
++    local(Local::created,505);check(native_queue_hud_state().waiting,"The next map's fresh queue is visible");
++    end_session();
++}
++
+ // Another player's drop: shown, joined natively, started by its leader, scored.
+ void guest_flow() {
+     const ThrowdownRelayInput in{me, {{leader, 3}, {other, 5}}, true, 77};
+@@ -779,6 +821,62 @@ void level_change_flow() {
      check(count("spawn") == 1, "The drop was not shown once the event types were found again");
      end_session();
  }
@@ -13745,11 +13795,36 @@ index 95fe1ac..bcd5419 100644
 +    throwdown_relay_spawned(same_tick,504,10);local(Local::joined,504);tick(in);
 +    check(custom_joins.back().second==504 && count("destroy")==0,"native Join in the spawn callback's tick resolves the correct mode");
 +    custom_offers.clear();end_session();
++    calls.clear();oneup_view={};oneup_view.world=777;oneup_view.can_create=true;
++    oneup_view.offers.push_back({leader,0x1234567800000021ULL,"Host",false,{11,2,33},dingosdk::multiplayer::one_up::default_facing,1,30,6});
++    tick(in);
++    check(count("custom flag")==1 && find("custom flag")->series=="oneup","1-UP lobby snapshots create their own native branded flag");
++    throwdown_relay_spawned(last_token,601,10);tick(in);
++    check(custom_throwdown_flag_key(601)=="oneup","1-UP flag has its own identity before enrollment");
++    local(Local::joined,601);tick(in);
++    check(!oneup_commands.empty() && oneup_commands.back()=="join "+std::to_string(leader)+" 1311768464867721249" && count("start")==0,
++        "1-UP enrollment keeps the full 64-bit match ID and never starts the donor Spot Battle");
++    oneup_view.state.match=oneup_view.offers.front().match;tick(in);
++    check(count("custom flag")==1,"a participant must not respawn another invitation while already joined");
++    oneup_view.state={};tick(in);
++    check(count("custom flag")==2,"leaving an open 1-UP lobby restores its joinable flag");
++    oneup_view.offers.front().started=true;
++    throwdown_relay_spawned(last_token,602,10);tick(in);
++    check(custom_throwdown_flag_key(602).empty(),"late 1-UP flags retire when the lobby starts");
++    oneup_view={};end_session();
 +}
  } // namespace
  
  // A score read from text: what atoi reads, and digit groups read whole.
-@@ -813,6 +866,7 @@ int main() {
+@@ -803,6 +901,7 @@ void grouped_number_checks() {
+ }
+ int main() {
+     try {
++        native_queue_banner_lifetime();
+         guest_flow();
+         leader_flow();
+         removal_flow();
+@@ -813,6 +912,7 @@ int main() {
          challenge_flow();
          beacon_flow();
          level_change_flow();
@@ -14211,7 +14286,7 @@ index 0000000..4398f08
 +};
 +}
 diff --git a/Extension/Throwdowns/native_throwdowns.cpp b/Extension/Throwdowns/native_throwdowns.cpp
-index fd87c43..e8fb441 100644
+index fd87c43..db7fca9 100644
 --- a/Extension/Throwdowns/native_throwdowns.cpp
 +++ b/Extension/Throwdowns/native_throwdowns.cpp
 @@ -1,4 +1,12 @@
@@ -14527,7 +14602,7 @@ index fd87c43..e8fb441 100644
      ModeParameter{"ThrowdownSkate", "Privacy", 0, 1, 0}};
  
  // Builds the array exactly as the native response flattener
-@@ -404,14 +610,232 @@ std::uint32_t local_native_player_id() noexcept {
+@@ -404,14 +610,241 @@ std::uint32_t local_native_player_id() noexcept {
      profile_runtime::PreserveError preserve;
      try { return active() ? sole_offline_player_id() : 0; } catch (...) { return 0; }
  }
@@ -14658,6 +14733,7 @@ index fd87c43..e8fb441 100644
 +    } catch (...) {}
 +}
 +void native_throwdown_level_left() noexcept {
++    retire_native_queue_hud();
 +    set_custom_activity_menu_request(0);
 +    sync_custom_activity_ui_presence(false);
 +    try {
@@ -14697,6 +14773,9 @@ index fd87c43..e8fb441 100644
 +            if(active() && realm()==client_realm)complete_solo_client_exit();
 +            complete_one_up_controls(vm);
 +            complete_custom_details_presence(vm);
++            const auto join_resource=vm?read<Address>(vm+0x38):0;
++            if(join_resource && read<std::uint32_t>(join_resource+0x10)==0xebb4ab69 && active() && realm()==client_realm)
++                observe_native_custom_join_details(vm);
 +            // Replace presentation at the native publication boundary, rather
 +            // than waiting for the next throttled UI/camera confirmation tick.
 +            // Real activities, other realms/threads and unarmed requests keep
@@ -14712,6 +14791,11 @@ index fd87c43..e8fb441 100644
 +            }
 +        } catch(...) {}
 +    }
++    try {
++        const auto resource=vm?read<Address>(vm+0x38):0;
++        if(resource && read<std::uint32_t>(resource+0x10)==0x627382a6 && active() && realm()==client_realm)
++            observe_native_flag_interaction(vm);
++    } catch(...) {}
 +    const bool one_up_queue=one_up::flag_registration_owned();
 +    const bool solo_queue=!one_up_queue && native_solo_throwdown_waiting();
 +    if(one_up_queue || solo_queue) {
@@ -14762,7 +14846,7 @@ index fd87c43..e8fb441 100644
      // The throwdown is over once a client throwdown enters its end state or
      // leaves in progress. (Starting the round destroys the registration point
      // through MPThrowdownCoordinator.OnRequestThrowdownDestroy, so neither that
-@@ -422,8 +846,7 @@ void complete_native_throwdown_parameters(Address vm) noexcept {
+@@ -422,8 +855,7 @@ void complete_native_throwdown_parameters(Address vm) noexcept {
              const auto resource = vm ? read<Address>(vm + 0x38) : 0;
              switch (resource ? read<std::uint32_t>(resource + 0x10) : 0) {
              case 0x224de9ab: case 0xd373badf: case 0x2ea80cac: case 0x1d82a056: // Client*Throwdown.EnterEnd
@@ -14772,7 +14856,7 @@ index fd87c43..e8fb441 100644
                      logging::log(logging::Level::info, logging::Channel::progression,
                          "Throwdown: ended (graph {:#x}).", read<std::uint32_t>(resource + 0x10));
                  break;
-@@ -599,6 +1022,7 @@ void initialize_native_throwdowns(Address base) noexcept {
+@@ -599,6 +1031,7 @@ void initialize_native_throwdowns(Address base) noexcept {
      install_parse_int(base);
      struct Hook { Address rva; std::array<unsigned char, 19> prefix; void* replacement; void** original; };
      const std::array hooks{
@@ -14883,7 +14967,7 @@ index 0000000..cafa109
 +}
 diff --git a/Extension/Throwdowns/one_up_match.cpp b/Extension/Throwdowns/one_up_match.cpp
 new file mode 100644
-index 0000000..8050154
+index 0000000..1b7fdb5
 --- /dev/null
 +++ b/Extension/Throwdowns/one_up_match.cpp
 @@ -0,0 +1,171 @@
@@ -14902,7 +14986,7 @@ index 0000000..8050154
 +Match::Match(std::uint64_t identity, std::uint64_t world, PlayerId leader, Config config) {
 +    if (!identity || !world || !leader || !config.valid()) throw std::invalid_argument("Invalid 1-Up match");
 +    state_.match = identity; state_.world = world; state_.leader = leader; state_.config = config;
-+    state_.players.push_back({leader}); state_.notice = "Choose Ready when you are at the spot."; changed();
++    state_.players.push_back({leader}); state_.notice = "Enrolled. Waiting for the host to start."; changed();
 +}
 +void Match::changed() { ++state_.revision; }
 +Player* Match::player(PlayerId id) {
@@ -14924,13 +15008,13 @@ index 0000000..8050154
 +bool Match::start(Time now) {
 +    if (state_.config.max_players == 1) return start_solo_test(now);
 +    if (state_.phase != Phase::lobby || state_.players.size() < 2 ||
-+        std::any_of(state_.players.begin(), state_.players.end(), [](const Player& p) { return !p.connected || !p.ready; })) return false;
++        std::any_of(state_.players.begin(), state_.players.end(), [](const Player& p) { return !p.connected; })) return false;
 +    cursor_ = 0; state_.target = 0; state_.winner = 0;
 +    countdown(now); return true;
 +}
 +bool Match::start_solo_test(Time now) {
 +    if(state_.phase!=Phase::lobby || state_.players.size()!=1 ||
-+       !state_.players.front().connected || !state_.players.front().ready) return false;
++       !state_.players.front().connected) return false;
 +    solo_test_=true; cursor_=0; state_.target=0; state_.winner=0;
 +    countdown(now); return true;
 +}
@@ -14943,7 +15027,7 @@ index 0000000..8050154
 +    std::erase_if(state_.players, [](const Player& p) { return !p.connected; });
 +    for (auto& p : state_.players) { p.penalties = 0; p.ready = false; }
 +    state_.phase = Phase::lobby; state_.target = state_.best = 0; state_.winner = state_.active = 0;
-+    state_.judged_player = 0; state_.notice = "Rematch: choose Ready."; changed(); return true;
++    state_.judged_player = 0; state_.notice = "Rematch opened. Waiting for the host to start."; changed(); return true;
 +}
 +void Match::cancel(std::string reason) {
 +    if (state_.phase == Phase::cancelled) return;
@@ -15464,10 +15548,10 @@ index 0000000..fea2c04
 +} // namespace dingosdk::multiplayer::one_up
 diff --git a/Extension/Throwdowns/one_up_placement.cpp b/Extension/Throwdowns/one_up_placement.cpp
 new file mode 100644
-index 0000000..00d21ea
+index 0000000..3095183
 --- /dev/null
 +++ b/Extension/Throwdowns/one_up_placement.cpp
-@@ -0,0 +1,465 @@
+@@ -0,0 +1,473 @@
 +#include "one_up_placement.h"
 +#include "one_up_runtime.h"
 +#include "Extension/Modes/game_modes.h"
@@ -15669,24 +15753,32 @@ index 0000000..00d21ea
 +    return p.step!=Step::idle && (p.step!=Step::waiting || p.mmid!=0);
 +}
 +bool owns_flag_registration(std::uint32_t mmid) noexcept { auto& p=placement(); std::lock_guard lock(p.mutex); return mmid && p.step!=Step::idle && p.mmid==mmid; }
-+bool adopt_native_mode_flag(std::uint64_t world,std::uint32_t game,std::uint32_t mmid,
-+    const std::array<float,3>& at,float yaw,unsigned seconds,unsigned players,bool race) noexcept {
++static bool adopt_native_flag(std::uint64_t world,std::uint32_t game,std::uint32_t mmid,
++    const std::array<float,3>& at,float yaw,unsigned seconds,unsigned players,bool race,bool oneup) noexcept {
 +    try {
 +        const auto local=view();
-+        if(!world || world!=local.world || !local.local || local.state.match || local_throwdown_event_active() || !game || !mmid ||
++        if(!world || world!=local.world || !local.local || local.state.match || local_throwdown_event_active() || (!game && !oneup) || !mmid ||
 +           !std::isfinite(yaw) || !std::all_of(at.begin(),at.end(),[](float n){return std::isfinite(n) && std::abs(n)<100000.f;}))return false;
 +        auto& p=placement();std::lock_guard lock(p.mutex);
 +        if(p.step!=Step::idle)return p.step==Step::waiting && p.world==world && p.race_game==game && p.mmid==mmid;
 +        reset(p);p.step=Step::waiting;p.world=world;p.local=local.local;p.race_game=game;p.mmid=mmid;
-+        p.generic_mode=!race;p.spawn=at;p.seconds=seconds;p.players=players;
++        p.generic_mode=!race && !oneup;p.spawn=at;p.seconds=seconds;p.players=players;
 +        const float radians=yaw*3.14159265f/180.f,co=std::cos(radians),si=std::sin(radians);
 +        p.facing={co,0,-si,0,1,0,si,0,co};
-+        p.handed_off=p.match_seen=p.exited=true;
++        p.handed_off=p.exited=true;p.match_seen=!oneup;
 +        p.changed=GetTickCount64();p.until=p.changed+15000;p.status.clear();
 +        if(std::find(p.custom_mmids.begin(),p.custom_mmids.end(),mmid)==p.custom_mmids.end())p.custom_mmids.push_back(mmid);
 +        release_one_up_native_placeholder(); // Only this donor queue's activity-presence lease; no actual event exists.
 +        return true;
 +    } catch(...) {return false;}
++}
++bool adopt_native_mode_flag(std::uint64_t world,std::uint32_t game,std::uint32_t mmid,
++    const std::array<float,3>& at,float yaw,unsigned seconds,unsigned players,bool race) noexcept {
++    return adopt_native_flag(world,game,mmid,at,yaw,seconds,players,race,false);
++}
++bool adopt_native_one_up_flag(std::uint64_t world,std::uint32_t mmid,
++    const std::array<float,3>& at,float yaw,unsigned seconds,unsigned players) noexcept {
++    return adopt_native_flag(world,0,mmid,at,yaw,seconds,players,false,true);
 +}
 +bool flag_registration_waiting() noexcept {
 +    auto& p=placement();std::lock_guard lock(p.mutex);
@@ -15935,10 +16027,10 @@ index 0000000..00d21ea
 +}
 diff --git a/Extension/Throwdowns/one_up_placement.h b/Extension/Throwdowns/one_up_placement.h
 new file mode 100644
-index 0000000..14dedbb
+index 0000000..d06f0fb
 --- /dev/null
 +++ b/Extension/Throwdowns/one_up_placement.h
-@@ -0,0 +1,67 @@
+@@ -0,0 +1,69 @@
 +#pragma once
 +#include <array>
 +#include <cstdint>
@@ -15985,6 +16077,8 @@ index 0000000..14dedbb
 +// It keeps the stock Join/waiting/Leave flow, without starting its donor event.
 +bool adopt_native_mode_flag(std::uint64_t world,std::uint32_t game,std::uint32_t mmid,
 +    const std::array<float,3>& at,float yaw,unsigned seconds,unsigned players,bool race) noexcept;
++bool adopt_native_one_up_flag(std::uint64_t world,std::uint32_t mmid,
++    const std::array<float,3>& at,float yaw,unsigned seconds,unsigned players) noexcept;
 +struct FlagSetupOptions { unsigned seconds{}, players{}; };
 +// The accepted flag keeps its selected limits before the custom lobby has
 +// received its first state. UI must not borrow the Spot Battle donor defaults.
@@ -16008,10 +16102,10 @@ index 0000000..14dedbb
 +}
 diff --git a/Extension/Throwdowns/one_up_runtime.cpp b/Extension/Throwdowns/one_up_runtime.cpp
 new file mode 100644
-index 0000000..aa8e44e
+index 0000000..3868e8b
 --- /dev/null
 +++ b/Extension/Throwdowns/one_up_runtime.cpp
-@@ -0,0 +1,369 @@
+@@ -0,0 +1,347 @@
 +#include "one_up_runtime.h"
 +#include "Extension/Modes/game_modes.h"
 +#include "one_up_native.h"
@@ -16051,11 +16145,11 @@ index 0000000..aa8e44e
 +    std::map<std::pair<PlayerId, std::uint64_t>, std::uint64_t> sequences;
 +    std::map<PlayerId, std::string> names;
 +    ThrowdownRelayInput input;
-+    Time snapshot_at{}, next_send{}, ready_until{}, ready_sent_at{}, position_until{}, turn_at{};
++    Time snapshot_at{}, next_send{}, position_until{}, turn_at{};
 +    std::uint64_t sequence{}, wire_revision{};
 +    std::uint32_t remaining{};
 +    Token placed, clock_token;
-+    bool ready_pending{}, start_pending{}, positioned{};
++    bool positioned{};
 +    std::string status;
 +    std::atomic<bool> waiting{}, playing{}, countdown_input{}, markers_restricted{};
 +    std::atomic<PlayerId> active{};
@@ -16113,7 +16207,7 @@ index 0000000..aa8e44e
 +}
 +void clear(Runtime& r) {
 +    r.hosted.reset(); r.selected = {}; r.inputs.clear(); r.sequence = r.wire_revision = 0;
-+    r.ready_pending = r.start_pending = false; r.placed = {}; r.clock_token = {}; r.waiting.store(false); r.playing.store(false); r.countdown_input.store(false); r.markers_restricted.store(false); r.active.store(0);
++    r.placed = {}; r.clock_token = {}; r.waiting.store(false); r.playing.store(false); r.countdown_input.store(false); r.markers_restricted.store(false); r.active.store(0);
 +    arm_native_lines({}, false, 0); spectate_party_member(0);
 +}
 +void publish(Runtime& r, Time now) {
@@ -16126,7 +16220,10 @@ index 0000000..aa8e44e
 +    v.status = r.status; v.solo_test=r.hosted && r.hosted->solo_test();
 +    for (const auto& [id, offer] : r.offers)
 +        if (id != r.input.local && present(r, id) && now - offer.at < 4000 && offer.message.state.phase != Phase::finished && offer.message.state.phase != Phase::cancelled)
-+            v.offers.push_back({id, offer.message.match, v.name(id), offer.message.state.phase != Phase::lobby});
++            v.offers.push_back({id,offer.message.match,v.name(id),offer.message.state.phase!=Phase::lobby,
++                offer.message.spot,offer.message.facing,
++                static_cast<unsigned>(std::count_if(offer.message.state.players.begin(),offer.message.state.players.end(),[](const auto& p){return p.connected;})),
++                offer.message.state.config.turn_ms/1000,offer.message.state.config.max_players});
 +    std::lock_guard lock(r.mutex); r.published = std::move(v);
 +}
 +void command(Runtime& r, std::string_view text, Time now) {
@@ -16164,7 +16261,7 @@ index 0000000..aa8e44e
 +        std::random_device random;
 +        auto identity = (std::uint64_t{random()} << 32) | random(); if (!identity) identity = now | 1;
 +        r.hosted.emplace(identity, r.input.world, r.input.local, config); r.selected = r.hosted->state(); r.spot = *r.input.position;r.facing=default_facing;
-+        r.sequence = r.wire_revision = 0; r.next_send = 0; r.status = "Spot placed. Invite a nearby skater, then choose Ready.";
++        r.sequence = r.wire_revision = 0; r.next_send = 0; r.status = "Spot placed. Enrolled skaters wait for you to start.";
 +    } else if (action == "join") {
 +        PlayerId leader{}; std::uint64_t identity{}; if (!(args >> leader >> identity) || r.selected.match) return;
 +        const auto it = r.offers.find(leader);
@@ -16176,27 +16273,20 @@ index 0000000..aa8e44e
 +        else r.status = "Watching this match. Join the next lobby after the host chooses Rematch.";
 +    } else if (action == "enroll" && r.selected.phase == Phase::lobby && !member(r.selected, r.input.local)) {
 +        Message m; m.action = Action::join; send_input(r, m, now); r.status = "Joining the next match...";
-+    } else if (action == "ready" && r.selected.phase == Phase::lobby && member(r.selected, r.input.local)) {
-+        if (teleport_local_skater_transform(spawn_transform(r.spot,r.facing))) { r.ready_pending = true; r.ready_sent_at = 0; r.ready_until = now + 6000; r.status = "Moving to the starting spot..."; }
-+        else r.status = "Could not move to the spot. Wait for the map to finish loading.";
 +    } else if (action == "start" && r.hosted) {
-+        if(r.hosted->state().phase==Phase::lobby && r.ready_pending && !r.hosted->state().players.front().ready) {
-+            r.start_pending=true;r.status="Moving to the flag. Starting when ready.";return;
-+        }
-+        r.start_pending=false;
 +        const bool solo=(r.hosted->state().config.max_players==1 || r.input.peers.empty()) && r.hosted->state().players.size()==1;
 +        const bool started=solo?r.hosted->start_solo_test(now):r.hosted->start(now);
 +        r.status=started?(solo?"Solo test started. Get ready!":"Get ready!"):
-+            (solo?"Choose Ready at your flag before starting.":"At least two skaters must join and choose Ready.");
++            (solo?"Unable to start this lobby.":"At least two skaters must enroll.");
 +        logging::log(logging::Level::info,logging::Channel::ui,"1-Up: {}",r.status);
 +    } else if(action=="solo") {
-+        if(!r.hosted) { r.status="Place a 1-Up flag and choose Ready before starting a solo test."; return; }
++        if(!r.hosted) { r.status="Place a 1-Up flag before starting a solo test."; return; }
 +        if(!r.input.peers.empty() && r.hosted->state().config.max_players!=1) { r.status="Select Players 1 to practice alone in a shared session."; return; }
 +        r.status=r.hosted->start_solo_test(now)?"Solo test started. Beat your previous line; three penalties end the test.":
-+            "Solo testing needs exactly one ready skater in a waiting 1-Up lobby.";
++            "Solo testing needs exactly one enrolled skater in a waiting 1-Up lobby.";
 +        logging::log(logging::Level::info,logging::Channel::ui,"1-Up: {}",r.status);
 +    } else if (action == "rematch" && r.hosted) {
-+        if (r.hosted->rematch(now)) { r.placed = {}; r.status = "Rematch opened. Everyone must choose Ready again."; }
++        if (r.hosted->rematch(now)) { r.placed = {}; r.status = "Rematch opened. Enrolled skaters are waiting for the host."; }
 +    }
 +}
 +void create_selected_spawn(Runtime& r, const SpawnRequest& request, Time now) {
@@ -16211,9 +16301,8 @@ index 0000000..aa8e44e
 +        r.spot=request.position;
 +        r.facing=request.facing;
 +        logging::log(logging::Level::info,logging::Channel::ui,"1-Up: flag handed to elimination rules, Players {}, turn {} seconds.",request.players,request.seconds);
-+        // Ready Up launches the native picker. After confirmation use the
++        // Flag placement uses the native picker. After confirmation use the
 +        // existing arrival check, then wait for the host's explicit Start.
-+        command(r,"ready",now);
 +    }
 +}
 +}
@@ -16274,24 +16363,7 @@ index 0000000..aa8e44e
 +    { std::lock_guard lock(r.mutex); commands = std::exchange(r.commands, {}); spawn=std::exchange(r.spawn_request,{}); }
 +    if(spawn) create_selected_spawn(r,*spawn,now);
 +    for (const auto& text : commands) command(r, text, now);
-+    if (r.hosted) r.selected = r.hosted->state();
-+    if (r.ready_pending) {
-+        const auto me = std::find_if(r.selected.players.begin(), r.selected.players.end(), [&](const Player& p) { return p.id == input.local; });
-+        if (me != r.selected.players.end() && me->ready) { r.ready_pending = false; r.status = "Ready at the spot."; }
-+        else if (input.position && distance(*input.position, r.spot) <= 2 && !local_skater_teleport_pending() && now - r.ready_sent_at >= 500) {
-+            Message m; m.action = Action::ready; m.flag = true; send_input(r, m, now); r.ready_sent_at = now;
-+        } else if (now >= r.ready_until) { r.ready_pending = false; r.status = "Could not reach the starting spot. Try Ready again."; }
-+    }
-+    if(r.start_pending && !r.ready_pending) {
-+        r.start_pending=false;
-+        if(r.hosted && r.hosted->state().phase==Phase::lobby) {
-+            const auto& players=r.hosted->state().players;
-+            if(std::all_of(players.begin(),players.end(),[](const auto& p){return p.ready && p.connected;}))
-+                command(r,"start",now);
-+        }
-+    }
-+    // Deferred Start can change the turn after the earlier snapshot refresh.
-+    // Publish that turn before positioning and arming its countdown.
++    // Publish Start before positioning and arming its countdown.
 +    if (r.hosted) r.selected = r.hosted->state();
 +    const Token token{r.selected.match, r.selected.turn, r.selected.active};
 +    r.markers_restricted.store(r.selected.match && running(r.selected) && member(r.selected,input.local));
@@ -16383,10 +16455,10 @@ index 0000000..aa8e44e
 +} // namespace dingosdk::multiplayer::one_up
 diff --git a/Extension/Throwdowns/one_up_runtime.h b/Extension/Throwdowns/one_up_runtime.h
 new file mode 100644
-index 0000000..6933613
+index 0000000..919d1d3
 --- /dev/null
 +++ b/Extension/Throwdowns/one_up_runtime.h
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,45 @@
 +#pragma once
 +#include "one_up_wire.h"
 +#include "throwdown_relay.h"
@@ -16394,7 +16466,12 @@ index 0000000..6933613
 +#include <string_view>
 +
 +namespace dingosdk::multiplayer::one_up {
-+struct Offer { PlayerId leader{}; std::uint64_t match{}; std::string name; bool started{}; };
++struct Offer {
++    PlayerId leader{}; std::uint64_t match{}; std::string name; bool started{};
++    std::array<float,3> spot{};
++    Facing facing=default_facing;
++    unsigned players{},turn_seconds{},capacity{};
++};
 +struct View {
 +    State state;
 +    PlayerId local{};
@@ -16644,7 +16721,7 @@ index 0000000..51f7fe9
 +bool apply_snapshot(State& current, const Message&, PlayerId authenticated_sender, std::uint64_t world);
 +} // namespace dingosdk::multiplayer::one_up
 diff --git a/Extension/Throwdowns/throwdown_lab.cpp b/Extension/Throwdowns/throwdown_lab.cpp
-index 1003d6c..565fca5 100644
+index 1003d6c..e673cee 100644
 --- a/Extension/Throwdowns/throwdown_lab.cpp
 +++ b/Extension/Throwdowns/throwdown_lab.cpp
 @@ -1,4 +1,7 @@
@@ -17277,7 +17354,7 @@ index 1003d6c..565fca5 100644
  }
 +bool queue_custom_throwdown_flag(std::uint64_t token,std::uint32_t host,const std::string& key,
 +    const std::array<float,3>& at,float yaw) noexcept {
-+    if(!token || !host || !modes::parse_mode(key) || key=="oneup" || !std::isfinite(yaw) ||
++    if(!token || !host || (key!="oneup" && !modes::parse_mode(key)) || !std::isfinite(yaw) ||
 +       !std::all_of(at.begin(),at.end(),[](float n){return std::isfinite(n) && std::abs(n)<100000.f;}))return false;
 +    try {
 +        Job job{Job::Kind::spawn,host};job.token=token;job.series="SpotBattle";
@@ -17354,18 +17431,20 @@ index 7d64463..78abbc1 100644
  bool queue_throwdown_remove(std::uint32_t player) noexcept; // RemoveParticipantFromCommunityEvent as `player`
  bool queue_throwdown_start(const std::string &series, std::uint32_t mmid) noexcept;
 diff --git a/Extension/Throwdowns/throwdown_relay.cpp b/Extension/Throwdowns/throwdown_relay.cpp
-index 1057718..5af167e 100644
+index 1057718..d653f69 100644
 --- a/Extension/Throwdowns/throwdown_relay.cpp
 +++ b/Extension/Throwdowns/throwdown_relay.cpp
-@@ -2,6 +2,7 @@
+@@ -2,6 +2,9 @@
  #include "throwdown_lab.h"
  #include "throwdown_wire.h"
  #include "native_throwdowns.h"
++#include "one_up_runtime.h"
++#include "one_up_placement.h"
 +#include "Extension/Modes/game_modes.h"
  #include "Engine/Core/Log/logging.h"
  #include "Engine/Core/Platform/memory.h"
  #include "Engine/Game/Build/addresses.h"
-@@ -112,6 +113,12 @@ struct Mirror {
+@@ -112,6 +115,12 @@ struct Mirror {
      bool joined{}; // the local player is in it
      std::optional<std::vector<std::uint64_t>> start; // the leader started before the copy existed
  };
@@ -17378,7 +17457,7 @@ index 1057718..5af167e 100644
  const char *state_name(Mirror::State s) {
      switch (s) {
      case Mirror::State::waiting: return "waiting";
-@@ -157,6 +164,8 @@ struct Relay {
+@@ -157,6 +166,8 @@ struct Relay {
      std::map<std::uint64_t, std::size_t> peers; // Steam ID -> slot
      std::optional<Hosted> hosted;
      std::map<Key, Mirror> mirrors;
@@ -17387,7 +17466,15 @@ index 1057718..5af167e 100644
      std::optional<Key> running;
      std::string running_series;
      std::map<std::uint64_t, Score> scores;                          // remote totals in `running`
-@@ -472,6 +481,16 @@ void on_local(Relay &r, ThrowdownLocalAction &a, std::uint64_t now) {
+@@ -181,6 +192,7 @@ struct Relay {
+     std::string timer, status_line; // status_line: under `mutex`
+     std::uint64_t next_timer{}, next_status{};
+     bool force_start_enabled{};
++    NativeQueueHudState queue_hud; // under mutex, including callbacks before the relay tick
+     std::optional<Challenge> challenge;
+     std::uint32_t next_challenge = 1;
+     ChallengePlan plan;                 // under `mutex`
+@@ -472,6 +484,27 @@ void on_local(Relay &r, ThrowdownLocalAction &a, std::uint64_t now) {
          break;
      }
      case Local::joined:
@@ -17395,7 +17482,18 @@ index 1057718..5af167e 100644
 +            // Native Join has already enrolled the local player in the flag's
 +            // registration. Hand that registration to the custom lobby so its
 +            // normal waiting/Leave flow and later teardown remain native.
-+            if(modes::join_native_flag_offer(flag.offer,flag.mmid)) {
++            bool joined{};
++            if(flag.offer.key=="oneup") {
++                const auto v=one_up::view();
++                const auto offer=std::find_if(v.offers.begin(),v.offers.end(),[&](const auto& o){
++                    return !o.started && o.leader==flag.offer.leader && o.match==flag.offer.native_match;
++                });
++                if(v.can_create && !v.state.match && offer!=v.offers.end() &&
++                   one_up::adopt_native_one_up_flag(r.world,flag.mmid,flag.offer.at,flag.offer.yaw,offer->turn_seconds,offer->capacity)) {
++                    one_up::queue(std::format("join {} {}",offer->leader,offer->match));joined=true;
++                }
++            } else joined=modes::join_native_flag_offer(flag.offer,flag.mmid);
++            if(joined) {
 +                close_hosted(r);leave_mirrors(r,a.mmid);flag.claimed=true;
 +            }
 +            else if(const auto local=local_native_player_id())queue_throwdown_remove(local);
@@ -17404,7 +17502,7 @@ index 1057718..5af167e 100644
          // Joining a queue removes the player from any other one and destroys a drop it hosts.
          if (r.hosted && a.mmid != r.hosted->id) close_hosted(r);
          leave_mirrors(r, a.mmid);
-@@ -723,6 +742,10 @@ void on_message(Relay &r, std::uint64_t sender, const ThrowdownMessage &m, std::
+@@ -723,6 +756,10 @@ void on_message(Relay &r, std::uint64_t sender, const ThrowdownMessage &m, std::
  }
  
  void on_spawned(Relay &r, std::uint64_t token, std::uint32_t mmid, std::uint32_t capacity, std::uint64_t now) {
@@ -17415,7 +17513,7 @@ index 1057718..5af167e 100644
      for (auto &[key, m] : r.mirrors) {
          if (m.token != token) continue;
          if (!mmid) {
-@@ -1051,6 +1074,10 @@ void reset(Relay &r, bool destroy_copies, std::uint64_t now) {
+@@ -1051,6 +1088,10 @@ void reset(Relay &r, bool destroy_copies, std::uint64_t now) {
      if (destroy_copies && r.in_world && r.prepared)
          for (auto &[key, m] : r.mirrors) destroy_mirror(r, m, now);
      r.mirrors.clear();
@@ -17426,7 +17524,7 @@ index 1057718..5af167e 100644
      r.spawn_refused.clear();
      r.declined.clear();
      r.running.reset();
-@@ -1203,6 +1230,40 @@ void apply_queue_timer(Relay &r, bool linked, std::uint64_t now) {
+@@ -1203,6 +1244,48 @@ void apply_queue_timer(Relay &r, bool linked, std::uint64_t now) {
      }
  }
  
@@ -17434,6 +17532,14 @@ index 1057718..5af167e 100644
 +    std::map<Key,modes::NativeFlagOffer> wanted;
 +    for(const auto& offer:modes::native_flag_offers(r.world))
 +        if(offer.leader!=r.local && r.peers.contains(offer.leader))wanted.try_emplace(Key{offer.leader,offer.game},offer);
++    const auto oneup=one_up::view();
++    if(oneup.world==r.world && oneup.can_create && !oneup.state.match)
++        for(const auto& offer:oneup.offers)if(!offer.started && offer.leader!=r.local && r.peers.contains(offer.leader)) {
++            modes::NativeFlagOffer flag{offer.leader,static_cast<std::uint32_t>(offer.match)|1U,"oneup",offer.spot,
++                std::atan2(offer.facing[6],offer.facing[8])*180.f/3.14159265f,
++                offer.players,offer.turn_seconds,0,offer.match};
++            wanted.try_emplace(Key{flag.leader,flag.game},flag);
++        }
 +    for(const auto& [key,offer]:wanted)
 +        if(!r.custom_flags.contains(key) && r.custom_flags.size()<64)r.custom_flags[key].offer=offer;
 +    for(auto it=r.custom_flags.begin();it!=r.custom_flags.end();) {
@@ -17467,7 +17573,7 @@ index 1057718..5af167e 100644
  void maintain(Relay &r, std::uint64_t now) {
      if (!r.in_world) return;
      // The event types belong to the level: each one's are found by a background heap scan,
-@@ -1215,6 +1276,7 @@ void maintain(Relay &r, std::uint64_t now) {
+@@ -1215,6 +1298,7 @@ void maintain(Relay &r, std::uint64_t now) {
      }
      std::erase_if(r.spawn_refused, [&](const auto &entry) { return now >= entry.second; });
      std::erase_if(r.declined, [&](const auto &entry) { return now < entry.second || now - entry.second >= decline_interval_ms; });
@@ -17475,7 +17581,7 @@ index 1057718..5af167e 100644
      if (r.prepared) {
          // A spawn nothing answered (the lab reports failures; this is the backstop) must not
          // hold every other copy back.
-@@ -1226,7 +1288,8 @@ void maintain(Relay &r, std::uint64_t now) {
+@@ -1226,7 +1310,8 @@ void maintain(Relay &r, std::uint64_t now) {
                  note("a linked {} never spawned here; giving up on it.", m.series);
              }
          // One spawn at a time: the server reports MMIDs in order.
@@ -17485,7 +17591,7 @@ index 1057718..5af167e 100644
                           [](const auto &entry) { return entry.second.state == Mirror::State::spawning; }))
              for (auto &[key, m] : r.mirrors) {
                  if (m.state != Mirror::State::waiting) continue;
-@@ -1397,6 +1460,14 @@ std::vector<std::vector<std::uint8_t>> tick_throwdown_relay(std::uintptr_t base,
+@@ -1397,6 +1482,14 @@ std::vector<std::vector<std::uint8_t>> tick_throwdown_relay(std::uintptr_t base,
          }
          update_peers(r, input, now);
          refresh_player_info(r, now);
@@ -17500,7 +17606,7 @@ index 1057718..5af167e 100644
          for (auto &action : actions) on_local(r, action, now);
          for (const auto &[token, mmid, max] : spawned) on_spawned(r, token, mmid, max, now);
          for (const auto &[sender, bytes] : inbox) {
-@@ -1429,6 +1500,23 @@ std::vector<std::vector<std::uint8_t>> tick_throwdown_relay(std::uintptr_t base,
+@@ -1429,6 +1522,23 @@ std::vector<std::vector<std::uint8_t>> tick_throwdown_relay(std::uintptr_t base,
      return std::exchange(r.outgoing, {});
  }
  
@@ -17524,8 +17630,41 @@ index 1057718..5af167e 100644
  void receive_throwdown_relay(std::uint64_t sender, std::span<const std::uint8_t> message) {
      auto &r = relay();
      std::lock_guard lock(r.mutex);
+@@ -1439,10 +1549,32 @@ void throwdown_relay_local(ThrowdownLocalAction action) noexcept {
+     try {
+         auto &r = relay();
+         std::lock_guard lock(r.mutex);
++        // Only local Create/Enroll owns a waiting notice. Offers for someone
++        // else's unjoined flag do not. Custom donor queues have their own UI.
++        switch(action.kind) {
++        case Local::created: case Local::joined:
++            ++r.queue_hud.generation;r.queue_hud.waiting=true;
++            break;
++        case Local::left: case Local::entered: case Local::ended: case Local::quit:
++            r.queue_hud.waiting=false;break;
++        case Local::exited:
++            if(action.cancelling)r.queue_hud.waiting=false;
++            break;
++        default:break;
++        }
+         if (r.actions.size() < 256) r.actions.push_back(std::move(action));
+     } catch (...) {}
+ }
+ 
++NativeQueueHudState native_queue_hud_state() noexcept {
++    try {auto& r=relay();std::lock_guard lock(r.mutex);return r.queue_hud;}
++    catch(...) {return {};}
++}
++
++void retire_native_queue_hud() noexcept {
++    try {auto& r=relay();std::lock_guard lock(r.mutex);r.queue_hud.waiting=false;}catch(...) {}
++}
++
+ void throwdown_relay_spawned(std::uint64_t token, std::uint32_t mmid, std::uint32_t capacity) noexcept {
+     try {
+         auto &r = relay();
 diff --git a/Extension/Throwdowns/throwdown_relay.h b/Extension/Throwdowns/throwdown_relay.h
-index d28caca..f65b2a3 100644
+index d28caca..1953ebe 100644
 --- a/Extension/Throwdowns/throwdown_relay.h
 +++ b/Extension/Throwdowns/throwdown_relay.h
 @@ -25,6 +25,7 @@ struct ThrowdownPeer {
@@ -17545,10 +17684,19 @@ index d28caca..f65b2a3 100644
  };
  // Multiplayer session tick (game thread). Returns the encoded messages to send to
  // every other player.
-@@ -44,6 +47,18 @@ std::vector<std::vector<std::uint8_t>> tick_throwdown_relay(std::uintptr_t base,
+@@ -44,6 +47,27 @@ std::vector<std::vector<std::uint8_t>> tick_throwdown_relay(std::uintptr_t base,
  // One message from another player, as relayed by the session (game thread).
  void receive_throwdown_relay(std::uint64_t sender, std::span<const std::uint8_t> message);
  std::string throwdown_relay_status();
++// Native queue notice lifetime. A queue's long host-controlled timer is not
++// proof that its waiting notice should survive an activity start/leave/end.
++struct NativeQueueHudState {
++    std::uint64_t generation{};
++    bool waiting{};
++};
++NativeQueueHudState native_queue_hud_state() noexcept;
++void retire_native_queue_hud() noexcept;
++
 +// Custom offer registrations use the same native physical flag/POI as retail.
 +// The local MMID identifies its mode for map/bubble branding before joining.
 +std::string custom_throwdown_flag_key(std::uint32_t mmid);
@@ -17810,15 +17958,17 @@ index 0000000..c234dc9
 +}
 +}
 diff --git a/Extension/UI/NativeMenu/Test/native_menu_lifetime_tests.cpp b/Extension/UI/NativeMenu/Test/native_menu_lifetime_tests.cpp
-index 18defa1..e072af4 100644
+index 18defa1..90f278c 100644
 --- a/Extension/UI/NativeMenu/Test/native_menu_lifetime_tests.cpp
 +++ b/Extension/UI/NativeMenu/Test/native_menu_lifetime_tests.cpp
-@@ -1,10 +1,20 @@
+@@ -1,10 +1,22 @@
  #include "Extension/UI/NativeMenu/native_menu_lifetime.h"
 +#include "Extension/UI/NativeMenu/native_array_publication.h"
 +#include "Extension/UI/NativeMenu/native_menu_ownership.h"
 +#include "Extension/UI/NativeMenu/native_setup_roles.h"
 +#include "Extension/UI/NativeMenu/native_hud_selection.h"
++#include "Extension/UI/NativeMenu/native_join_context.h"
++#include "Extension/UI/NativeMenu/native_flag_interaction.h"
 +#include "Extension/UI/NativeMenu/native_hud_values.h"
 +#include "Engine/Game/Input/owned_menu_input.h"
 +#include "Extension/Throwdowns/native_flag_preview.h"
@@ -17834,7 +17984,7 @@ index 18defa1..e072af4 100644
  
  using dingosdk::multiplayer::menu_data::OwnedMenuModels;
  using dingosdk::multiplayer::menu_data::MenuLifetime;
-@@ -12,6 +22,30 @@ using dingosdk::multiplayer::menu_data::MenuAction;
+@@ -12,6 +24,30 @@ using dingosdk::multiplayer::menu_data::MenuAction;
  using dingosdk::multiplayer::menu_data::action_slot;
  struct Model { unsigned handle, type; };
  void check(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
@@ -17865,7 +18015,7 @@ index 18defa1..e072af4 100644
  
  void map_transition() {
      OwnedMenuModels<Model> owned;
-@@ -62,6 +96,301 @@ void interrupted_cleanup() {
+@@ -62,6 +98,301 @@ void interrupted_cleanup() {
      owned.release([] {}, [&](Model) { throw std::runtime_error("Old manager handle reused"); });
      check(owned.empty(), "Replacing the native manager must discard its expired handles");
  }
@@ -18167,7 +18317,7 @@ index 18defa1..e072af4 100644
  void window_close() {
      MenuLifetime lifetime;
      lifetime.before_transition(13, [] {});
-@@ -181,10 +510,1039 @@ void action_slots() {
+@@ -181,10 +512,1104 @@ void action_slots() {
      check(render({"a", "b", "c", "d", "e", "f", "i", "g"}).back() == 7 && actions[7].argument == "g",
          "A command that lost its slot gets another when its button returns");
  }
@@ -18200,6 +18350,71 @@ index 18defa1..e072af4 100644
 +          "A newly mounted populated root supersedes an empty previous root");
 +    roots[0].active=false;roots[1].active=false;
 +    check(mounted_hud_root(roots,roots[1].handle)==0,"Never retain a retired inactive HUD");
++    std::array hidden{HudRootCandidate{0x30001025e0000ULL,true,0},HudRootCandidate{0x200018f380000ULL,true,0}};
++    check(mounted_hud_root(hidden,0,hidden[0].handle)==hidden[1].handle,
++        "Compass and D-Pad both hidden still bind the unique live HUD, excluding the native authored alias");
++    const auto old=hidden[1].handle;hidden[1].active=false;
++    std::array next_map{hidden[0],hidden[1],HudRootCandidate{0x300018f380000ULL,true,0}};
++    check(mounted_hud_root(next_map,old,hidden[0].handle)==next_map[2].handle,
++        "Map travel rebinds a new empty live HUD even when its handle has advanced generation bits");
++    next_map[1].active=true;
++    check(mounted_hud_root(next_map,0,hidden[0].handle)==0,"Ambiguous empty HUD instances wait for ownership evidence");
++    next_map[1].active=false;next_map[2].active=false;
++    check(mounted_hud_root(next_map,old,hidden[0].handle)==0,"A lone active authored default never receives gameplay overlays");
++}
++void selected_native_join_context() {
++    using dingosdk::multiplayer::menu_data::native_join_mmid;
++    std::map<std::uintptr_t,std::byte> memory;
++    const auto put=[&]<class T>(std::uintptr_t at,const T& value) {
++        const auto bytes=std::as_bytes(std::span(&value,1));for(std::size_t i=0;i<bytes.size();++i)memory[at+i]=bytes[i];
++    };
++    const auto read=[&](std::uintptr_t at,void* target,std::size_t n) {
++        for(std::size_t i=0;i<n;++i){const auto found=memory.find(at+i);if(found==memory.end())return false;static_cast<std::byte*>(target)[i]=found->second;}return true;
++    };
++    using P=std::uintptr_t;
++    put(0x1038,P{0x2000});put(0x1030,P{0x3000});put(0x3000,P{0x2000});put(0x2010,std::uint32_t{0xebb4ab69});
++    put(0x2020,std::array<std::uint32_t,10>{624,40656,76600,21866,312,0,292,8520953,54067355,17437442});
++    put(0x3000+624,P{0x10000});put(0x3000+632,P{0x20000});put(0x10000+27912,P{0x4000});put(0x4000,P{0x5000});
++    put(0x5000,std::uint32_t{1847693693});put(0x5004,std::uint16_t{99});put(0x5006,std::uint16_t{352});put(0x502a,std::uint16_t{4});put(0x5038,P{0x6000});
++    for(unsigned i=0;i<4;++i)put(0x6000+i*24,std::uint32_t{});
++    put(0x6018,std::uint32_t{0x66ba7ea4});put(0x6020,std::uint16_t{0x150});
++    put(0x20000+168,P{0x7000});put(0x7000,P{0x8000});put(0x8000,P{0x4000});put(0x8150,std::uint32_t{501});
++    check(native_join_mmid(0x1000,read)==501U,"Native Details uses its exact selected MMId through a borrowed class reference");
++    put(0x8150,std::uint32_t{502});check(native_join_mmid(0x1000,read)==502U,"A new flag selection cannot inherit the previous Deathrace identity");
++    put(0x6020,std::uint16_t{0x154});check(!native_join_mmid(0x1000,read),"Reject mismatched class fields instead of guessing another flag");
++    put(0x6020,std::uint16_t{0x150});put(0x8000,P{0x9000});put(0x8008,P{0x4000});
++    check(native_join_mmid(0x1000,read)==502U,"Native class headers with a separate vtable retain their typed selection");
++    put(0x5000,std::uint32_t{1});check(!native_join_mmid(0x1000,read),"A stock or unrelated rule class cannot authorize custom join-page branding");
++}
++void native_flag_interaction_owner() {
++    using dingosdk::multiplayer::menu_data::native_flag_interaction;
++    std::map<std::uintptr_t,std::byte> bytes;
++    const auto put=[&]<class T>(std::uintptr_t at,const T& value) {
++        const auto data=std::as_bytes(std::span(&value,1));for(std::size_t i=0;i<data.size();++i)bytes[at+i]=data[i];
++    };
++    const auto read=[&](std::uintptr_t at,void* out,std::size_t n) {
++        for(std::size_t i=0;i<n;++i){const auto b=bytes.find(at+i);if(b==bytes.end())return false;static_cast<std::byte*>(out)[i]=b->second;}return true;
++    };
++    using P=std::uintptr_t;
++    put(0x1038,P{0x2000});put(0x1030,P{0x3000});put(0x3000,P{0x2000});put(0x2010,std::uint32_t{0x627382a6});
++    put(0x2020,std::array<std::uint32_t,10>{80,1392,3539,760,7,0,8,3604513,6160395,1});
++    put(0x3050,P{0x4000});put(0x3058,P{0x5000});put(0x4000+1056,P{0x6000});put(0x6000,P{0x7000});
++    put(0x7000,std::uint32_t{3388528466U});put(0x7004,std::uint16_t{99});put(0x7006,std::uint16_t{512});
++    put(0x702a,std::uint16_t{1});put(0x7038,P{0x8000});put(0x7030,P{0x9000});put(0x9000,P{0xa000});
++    put(0xa000,std::uint32_t{2454258579U});put(0xa004,std::uint16_t{99});put(0xa006,std::uint16_t{480});
++    put(0xa02a,std::uint16_t{1});put(0xa038,P{0xb000});
++    put(0x8000,std::uint32_t{936281207});put(0x8008,std::uint16_t{0x1e8});put(0x8010,P{0xc000});
++    put(0xc000,P{0xd000});put(0xd006,std::uint16_t{8});
++    put(0xb000,std::uint32_t{0x66ba7ea4});put(0xb008,std::uint16_t{0x120});put(0xb010,P{0xe000});
++    put(0xe000,P{0xf000});put(0xf006,std::uint16_t{4});
++    put(0x5008,P{0x10000});put(0x10000,P{0x6000});put(0x10120,std::uint32_t{123});put(0x101e8,P{0xface});
++    auto owner=native_flag_interaction(0x1000,read);
++    check(owner && owner->mmid==123 && owner->model==0xface,"Focused flag resolves its own native interaction model");
++    put(0x10120,std::uint32_t{456});owner=native_flag_interaction(0x1000,read);
++    check(owner && owner->mmid==456,"Switching flags updates the banner owner instead of borrowing the nearest donor title");
++    put(0xb000,std::uint32_t{1});check(!native_flag_interaction(0x1000,read),"Missing MMID reflection cannot authorize a banner replacement");
++    put(0xb000,std::uint32_t{0x66ba7ea4});put(0x2010,std::uint32_t{1});
++    check(!native_flag_interaction(0x1000,read),"An unrelated native graph cannot rebrand a stock interaction");
 +}
 +void native_hud_clock_and_penalties() {
 +    using dingosdk::multiplayer::menu_data::native_hud_seconds;
@@ -19204,7 +19419,7 @@ index 18defa1..e072af4 100644
 +        native_activity_stack_selection();
 +        native_activity_page_identity_cleanup();native_activity_foreign_page_replacement();
 +        native_activity_first_frame_presentation();
-+        map_transition(); interrupted_cleanup(); partial_build_rollback(); interrupted_build_rollback(); window_close(); native_transition_without_load_request(); action_slots(); live_hud_binding(); native_hud_clock_and_penalties(); native_one_up_slider_values(); wrapped_waiting_notification(); private_throwdown_graphs(); native_setup_body_reentry(); native_setup_capability_rows(); native_setup_action_ownership(); native_setup_owned_tiles(); native_array_source_retention(); native_store_and_hub_snapshot_lifetimes();
++        map_transition(); interrupted_cleanup(); partial_build_rollback(); interrupted_build_rollback(); window_close(); native_transition_without_load_request(); action_slots(); live_hud_binding(); selected_native_join_context(); native_flag_interaction_owner(); native_hud_clock_and_penalties(); native_one_up_slider_values(); wrapped_waiting_notification(); private_throwdown_graphs(); native_setup_body_reentry(); native_setup_capability_rows(); native_setup_action_ownership(); native_setup_owned_tiles(); native_array_source_retention(); native_store_and_hub_snapshot_lifetimes();
 +        std::puts("Native menu lifetime: transitions, cleanup, rollback, action slots, HUD binding, setup presenter reentry, and native array source retention passed.");
          return 0;
      } catch (const std::exception& e) {
@@ -19242,6 +19457,61 @@ index 0000000..0983296
 +    std::invoke(publish, owner);
 +}
 +} // namespace dingosdk::multiplayer::menu_data
+diff --git a/Extension/UI/NativeMenu/native_flag_interaction.h b/Extension/UI/NativeMenu/native_flag_interaction.h
+new file mode 100644
+index 0000000..32c2552
+--- /dev/null
++++ b/Extension/UI/NativeMenu/native_flag_interaction.h
+@@ -0,0 +1,49 @@
++#pragma once
++#include <array>
++#include <cstdint>
++#include <optional>
++
++namespace dingosdk::multiplayer::menu_data {
++struct NativeFlagInteraction {std::uint32_t mmid{};std::uint64_t model{};};
++// Exact native ThrowdownEventInteractable.OnInteractableFocusChanged graph.
++// The event owns both MMID and UIInteractableHandle. Native field metadata
++// supplies offsets; never infer ownership from the visible Spot Battle label.
++template<class Read>
++std::optional<NativeFlagInteraction> native_flag_interaction(std::uintptr_t vm,Read&& read) {
++    const auto pointer=[&](std::uintptr_t at){std::uintptr_t x{};return at && read(at,&x,sizeof(x))?x:0;};
++    const auto word=[&](std::uintptr_t at){std::uint32_t x{};return at && read(at,&x,sizeof(x))?x:0;};
++    const auto half=[&](std::uintptr_t at)->std::uint16_t{std::uint16_t x{};return at && read(at,&x,sizeof(x))?x:0;};
++    const auto resource=pointer(vm+0x38),instance=pointer(vm+0x30);
++    constexpr std::array<std::uint32_t,10> expected{80,1392,3539,760,7,0,8,3604513,6160395,1};
++    std::array<std::uint32_t,10> layout{};
++    if(!resource || !instance || pointer(instance)!=resource || word(resource+0x10)!=0x627382a6 ||
++       !read(resource+0x20,layout.data(),sizeof(layout)) || layout!=expected)return {};
++    const auto constants=pointer(instance+80),ports=pointer(instance+88);
++    const auto type=constants?pointer(constants+1056):0,meta=pointer(type);
++    if(!meta || word(meta)!=3388528466U || ((half(meta+4)>>5)&31)!=3)return {};
++    auto object=ports?pointer(ports+8):0;
++    for(unsigned depth=0;object && depth<3;++depth) {
++        if(pointer(object)==type || pointer(object+8)==type)break;
++        object=pointer(object);
++    }
++    if(!object || (pointer(object)!=type && pointer(object+8)!=type))return {};
++    const auto field=[&](std::uintptr_t metadata,std::uint32_t hash,unsigned width)->std::optional<unsigned> {
++        const auto count=half(metadata+0x2a),size=half(metadata+6);
++        const auto entries=pointer(metadata+0x38);
++        if(count>32 || !entries || size>8192)return {};
++        for(unsigned i=0;i<count;++i)if(word(entries+i*24)==hash) {
++            const auto offset=half(entries+i*24+8);
++            const auto ft=pointer(entries+i*24+16),fm=pointer(ft);
++            if(fm && half(fm+6)==width && offset+width<=size)return offset;
++        }
++        return {};
++    };
++    const auto handle=field(meta,936281207U,8); // UIInteractableHandle
++    // ClassInfoData's parent ClassInfo is a typed native reflection pointer.
++    const auto parent=pointer(meta+0x30),base=pointer(parent);
++    if(!handle || !base || word(base)!=2454258579U || ((half(base+4)>>5)&31)!=3)return {};
++    const auto mmid=field(base,0x66ba7ea4,4);
++    if(!mmid)return {};
++    return NativeFlagInteraction{word(object+*mmid),pointer(object+*handle)};
++}
++} // namespace dingosdk::multiplayer::menu_data
 diff --git a/Extension/UI/NativeMenu/native_hub.cpp b/Extension/UI/NativeMenu/native_hub.cpp
 index 1618cdf..6efa8cc 100644
 --- a/Extension/UI/NativeMenu/native_hub.cpp
@@ -19270,10 +19540,10 @@ index 1618cdf..6efa8cc 100644
          }
 diff --git a/Extension/UI/NativeMenu/native_hud_selection.h b/Extension/UI/NativeMenu/native_hud_selection.h
 new file mode 100644
-index 0000000..428a4e3
+index 0000000..c3ef205
 --- /dev/null
 +++ b/Extension/UI/NativeMenu/native_hud_selection.h
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,168 @@
 +#pragma once
 +#include <cstdint>
 +#include <array>
@@ -19410,12 +19680,23 @@ index 0000000..428a4e3
 +// Authored defaults are registered as roots too. They have no game-owned
 +// compass/scoring/notification items and are not connected to a HUD widget.
 +inline std::uint64_t mounted_hud_root(std::span<const HudRootCandidate> roots,
-+                                     std::uint64_t preferred = 0) {
++                                     std::uint64_t preferred = 0,
++                                     std::uint64_t authored = 0) {
++    // The native name alias identifies the authored default exactly. Once
++    // excluded, a unique active instance is live even with every optional
++    // stock HUD section hidden. Handles include generations, not type tags.
++    if(authored) {
++        std::uint64_t live{};unsigned count{};
++        for(const auto& root:roots)if(root.handle && root.handle!=authored && root.active) {
++            live=root.handle;++count;
++        }
++        if(count==1)return live;
++    }
 +    std::uint64_t selected{};
 +    std::uint64_t retained{};
 +    unsigned most{};
 +    for (const auto& root : roots) {
-+        if (!root.handle || !root.active) continue;
++        if (!root.handle || !root.active || root.handle==authored) continue;
 +        // Native score/compass stacks briefly empty during activity changes.
 +        // Retain only a previously verified live identity, never a new default.
 +        if (!root.gameplay_stacks) {
@@ -19558,6 +19839,49 @@ index 0000000..a4a477a
 +inline float native_slider_position(unsigned choice,unsigned minimum,unsigned maximum) {
 +    if(maximum<=minimum)return 0.f;
 +    return float(std::clamp(choice,minimum,maximum)-minimum)/float(maximum-minimum);
++}
++} // namespace dingosdk::multiplayer::menu_data
+diff --git a/Extension/UI/NativeMenu/native_join_context.h b/Extension/UI/NativeMenu/native_join_context.h
+new file mode 100644
+index 0000000..e9f8447
+--- /dev/null
++++ b/Extension/UI/NativeMenu/native_join_context.h
+@@ -0,0 +1,37 @@
++#pragma once
++#include <array>
++#include <cstdint>
++#include <optional>
++
++namespace dingosdk::multiplayer::menu_data {
++// Captured ThrowdownDetailsMenuRule.FillContent: its Instance input is a
++// reference to the native rule which owns MMId. Class fields use +38 (struct
++// fields use +60); never infer the selected registration from a donor title.
++template<class Read> std::optional<std::uint32_t> native_join_mmid(std::uintptr_t vm,Read read) {
++    using P=std::uintptr_t;
++    const auto pointer=[&](P at) {P v{};return read(at,&v,sizeof(v))?v:P{};};
++    const auto word=[&](P at) {std::uint32_t v{};return read(at,&v,sizeof(v))?v:0U;};
++    const auto resource=pointer(vm+0x38),instance=pointer(vm+0x30);
++    constexpr std::array<std::uint32_t,10> expected{624,40656,76600,21866,312,0,292,8520953,54067355,17437442};
++    std::array<std::uint32_t,10> layout{};
++    if(!resource || !instance || pointer(instance)!=resource || word(resource+0x10)!=0xebb4ab69 ||
++       !read(resource+0x20,layout.data(),sizeof(layout)) || layout!=expected)return {};
++    const auto constants=pointer(instance+624),ports=pointer(instance+632);
++    const auto type=constants?pointer(constants+27912):0,meta=type?pointer(type):0;
++    std::uint16_t flags{},size{},count{};
++    if(!meta || word(meta)!=1847693693U || !read(meta+4,&flags,2) || ((flags>>5)&31)!=3 ||
++       !read(meta+6,&size,2) || size!=352 || !read(meta+0x2a,&count,2) || count!=4)return {};
++    const auto fields=pointer(meta+0x38);std::optional<unsigned> offset;
++    for(unsigned i=0;fields && i<count;++i)if(word(fields+i*24)==0x66ba7ea4) {
++        std::uint16_t at{};
++        if(read(fields+i*24+8,&at,2) && at==0x150)offset=at;
++    }
++    if(!offset || !ports)return {};
++    auto object=pointer(ports+168);
++    for(unsigned depth=0;object && depth<3;++depth) {
++        if(object!=type && (pointer(object)==type || pointer(object+8)==type))return word(object+*offset);
++        object=pointer(object);
++    }
++    return {};
 +}
 +} // namespace dingosdk::multiplayer::menu_data
 diff --git a/Extension/UI/NativeMenu/native_menu.cpp b/Extension/UI/NativeMenu/native_menu.cpp
@@ -21373,10 +21697,10 @@ index 0000000..afc0956
 +
 diff --git a/Extension/UI/NativeMenu/one_up_menu.cpp b/Extension/UI/NativeMenu/one_up_menu.cpp
 new file mode 100644
-index 0000000..f01d74b
+index 0000000..2c07298
 --- /dev/null
 +++ b/Extension/UI/NativeMenu/one_up_menu.cpp
-@@ -0,0 +1,3033 @@
+@@ -0,0 +1,3131 @@
 +#include "one_up_menu.h"
 +#include "Extension/Throwdowns/challenge_registry.h"
 +#include "Extension/Modes/game_modes.h"
@@ -21396,6 +21720,7 @@ index 0000000..f01d74b
 +#include "Extension/Throwdowns/native_flag_bubble.h"
 +#include "Extension/Throwdowns/one_up_placement.h"
 +#include "Extension/Throwdowns/throwdown_lab.h"
++#include "Extension/Throwdowns/throwdown_relay.h"
 +#include "Extension/Multiplayer/Session/session.h"
 +#include "Extension/Multiplayer/Hud/native_party.h"
 +#include "Extension/Customization/local_player_card_runtime.h"
@@ -21403,6 +21728,8 @@ index 0000000..f01d74b
 +#include "Engine/Game/Build/20260929/engine.h"
 +#include "Engine/Game/Build/20260929/native_menu.h"
 +#include "Engine/Game/Build/20260929/native_party.h"
++#include "native_join_context.h"
++#include "native_flag_interaction.h"
 +#include <Windows.h>
 +#include <algorithm>
 +#include <array>
@@ -21469,6 +21796,7 @@ index 0000000..f01d74b
 +    std::vector<BrandingPresenter> card;
 +    std::uint32_t card_mmid{};
 +};
++struct JoinCard {std::vector<BrandingPresenter> presenters;Value badge;};
 +struct ModeMarker { Value notice, anchor, item; };
 +struct RaceHudPlayer { Value list, rank, name, timer, background; unsigned place=~0U; bool crown=false; };
 +struct NativeSetupRows {
@@ -21557,6 +21885,8 @@ index 0000000..f01d74b
 +    ModeHud mode_hud,oneup_result_hud;
 +    HudResultsWindow oneup_result_window;
 +    MapBranding map_branding;
++    std::atomic<std::uint32_t> join_mmid{};
++    std::map<Handle,JoinCard> join_cards;
 +    MatchPanel match_panel;
 +    std::atomic<bool> match_panel_open{};
 +    std::mutex panel_input_mutex;
@@ -21596,7 +21926,15 @@ index 0000000..f01d74b
 +    std::uint64_t waiting_diagnostic{};
 +    std::set<Handle> waiting_widgets;
 +    std::set<Handle> waiting_retired_notifications;
++    std::mutex interaction_mutex;
++    menu_data::NativeFlagInteraction interaction;
++    struct InteractionBranding {Value model,title,icon,badge;std::string applied;};
++    InteractionBranding interaction_branding;
 +    std::uint64_t waiting_stock_revision{};
++    struct StockWaitingSlot {Value slot,saved;Handle notification{};};
++    std::map<Handle,StockWaitingSlot> stock_waiting_slots;
++    std::uint64_t stock_waiting_generation{};
++
 +    std::set<Handle> waiting_backups;
 +    std::set<Handle> waiting_hidden_slots;
 +    std::map<Handle,Value> waiting_originals;
@@ -21648,12 +21986,16 @@ index 0000000..f01d74b
 +void mode_hud_transients(const Context& c,const modes::NativeView& view,std::uint64_t now);
 +void mode_action(const Context& c,const Action& a);
 +void mode_art(const Context& c,std::span<const Value> fields,const std::string& logo);
++void restore_interaction_branding(const Context& c);
++void custom_flag_interaction(const Context& c);
 +void mode_hud_publish(const Context& c,bool show,bool countdown=false,bool intro=false,bool blind=false,bool results=false,bool race=false);
 +void mode_results(const Context&,const modes::NativeView&,const overlay::ModesHud&,const throwdowns::Definition&,ModeHud*);
 +void match_panel_notice_width(const Context&,Value,float);
 +void challenge_header(const Context&,ChallengeHeader&,std::string_view,const std::string&,const std::string&,Value,std::int32_t,std::int32_t);
 +void restore_match_panel(const Context& c);
 +void restore_map_branding(const Context& c);
++void restore_join_branding(const Context& c);
++void custom_join_details(const Context& c);
 +void throwdown_map_identity(const Context& c);
 +bool request_menu_toggle(const Context& c);
 +bool discard_mode_setup() {
@@ -21752,7 +22094,18 @@ index 0000000..f01d74b
 +    std::vector<Address> anchors;
 +    std::set<unsigned> domains;
 +    const auto add_anchor=[&](Address anchor) {
-+        if(anchor && domains.insert(read<std::uint16_t>(anchor+0x16)).second)anchors.push_back(anchor);
++        // A prior map's raw blueprint is not an asset-domain lease. Discard
++        // expired anchors locally so they cannot abort resident-domain lookup.
++        try {
++            if(!anchor)return;
++            const auto type=read<Address>(anchor+8);
++            if(type!=c.base+build::native_menu::widget_blueprint_type &&
++               type!=c.base+build::native_menu::texture_asset_type &&
++               type!=c.base+build::native_menu::image_asset_type)return;
++            const auto domain=read<std::uint16_t>(anchor+0x16);
++            if(domain<0xbbf && read<Address>(c.base+build::engine::domain_owners+domain*8ULL) &&
++               domains.insert(domain).second)anchors.push_back(anchor);
++        } catch(const std::exception&) { /* The native level retired this anchor. */ }
 +    };
 +    // CategoryTile_Widget is a shared foundation asset. Its parent domain
 +    // cannot find the Throwdown resources in the child domain. The retained
@@ -22578,6 +22931,9 @@ index 0000000..f01d74b
 +            "Throwdowns: picker generation retired; active gameplay HUD, native panel and delegates retained.");
 +        return;
 +    }
++    restore_interaction_branding(c);
++    {std::lock_guard interaction_lock(s.interaction_mutex);s.interaction={};}
++    restore_join_branding(c);s.join_mmid.store(0);
 +    restore_map_branding(c);
 +    restore_match_panel(c);
 +    session_marker_controls(c,true);
@@ -22596,7 +22952,7 @@ index 0000000..f01d74b
 +            if(owned)c.set(presentation.first,Widget{});
 +        }
 +    s.waiting_presentations.clear();
-+    s.waiting_hidden_slots.clear();
++    s.waiting_hidden_slots.clear();s.stock_waiting_slots.clear();s.stock_waiting_generation=0;
 +    { std::lock_guard lock(s.mutex);
 +      std::erase_if(s.pending,[](const Action& a){return a.command!="oneup" && a.command!="mode-setup-area" && a.command!="mode-setup-join" && a.command!="panel-quit" && a.command!="throwdown-panel" && a.command!="mode-panel-quit" && a.command!="mode-throwdown-panel" && a.command!="mode-wait-start" && a.command!="mode-wait-leave";}); }
 +    s.owned.release([&] {
@@ -22627,7 +22983,7 @@ index 0000000..f01d74b
 +    },[&](Value value){c.destroy(value);});
 +    s.page={}; s.cards={}; s.card={}; s.panel={}; s.panel_anchor={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.body_items={}; s.confirm_action={}; s.original_actions={};
 +    s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={};
-+    s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.details_list={};s.rows.clear(); s.originals.clear(); s.assets.clear(); s.displayed.clear(); s.duration_choices.clear(); s.details=false;
++    s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.interaction_branding={};{std::lock_guard interaction_lock(s.interaction_mutex);s.interaction={};}s.join_cards.clear();s.join_mmid.store(0);s.details_list={};s.rows.clear(); s.originals.clear(); s.assets.clear();s.anchor_asset=0;s.primary_input=0; s.displayed.clear(); s.duration_choices.clear(); s.details=false;
 +    clear_hud_state(preserve_match_input);
 +    s.setup_open.store(false,std::memory_order_release);
 +}
@@ -23421,9 +23777,20 @@ index 0000000..f01d74b
 +        s.waiting_presentations.clear();s.waiting_counts.clear();s.waiting_hidden_slots.clear();
 +        s.waiting_stock_revision=stock_revision;
 +    }
++    const auto stock=native_queue_hud_state();
++    if(s.stock_waiting_generation!=stock.generation) {
++        for(const auto& [handle,slot]:s.stock_waiting_slots) {
++            if(c.type_of(handle)!=slot.slot.type)continue;
++            const auto at=game::native_data().models.value(c.manager,handle,0,1);
++            if(at && !read<Widget>(at).data.handle && !read<Widget>(at).blueprint)
++                c.copy(slot.slot,c.address(slot.saved));
++        }
++        s.stock_waiting_slots.clear();s.stock_waiting_generation=stock.generation;
++    }
 +    const auto mode=modes::native_view();
 +    const auto flag_game=one_up::native_flag_mode_game();
 +    const bool generic=flag_game && mode.active && mode.game==flag_game;
++    const bool waiting_guest=generic?!mode.leading:(v.state.match && v.state.leader!=v.local);
 +    const auto* definition=generic?throwdowns::registry().mode(static_cast<unsigned>(mode.settings.mode)):nullptr;
 +    const bool registration_owned=one_up::flag_registration_owned();
 +    const bool retiring=one_up::flag_registration_retiring() ||
@@ -23437,17 +23804,14 @@ index 0000000..f01d74b
 +    // The live HUD is in the gameplay asset domain, which need not be a parent
 +    // of the card's domain. Resolve its registered type directly.
 +    constexpr std::uint32_t hash=273922540U; // NotificationViewModel
-+    const auto count=generic?(mode.state?modes::lobby_ready_count(*mode.state):(mode.leading?1U:0U)):awaiting_lobby?1:
-+        std::count_if(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.connected && p.ready;});
-+    const auto joined=generic?(mode.state?std::max<std::size_t>(1,mode.state->standings.size()):1U):0U;
++    const auto count=generic?(mode.state?modes::lobby_enrolled_count(*mode.state):1U):awaiting_lobby?1:
++        std::count_if(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.connected;});
 +    const auto selected=one_up::native_flag_options();
 +    const auto capacity=generic?mode.capacity:awaiting_lobby?selected.players:v.state.config.max_players;
 +    const std::string name=definition?definition->name:"1-UP";
 +    std::string message;
 +    if(generic && !mode.waiting_status.empty())message=mode.waiting_status;
-+    else if(lobby && generic) message=std::to_string(count)+"/"+std::to_string(joined)+" ready"+
-+        (mode.leading?"  |  Host starts":"  |  Waiting for host");
-+    else if(lobby) message="Waiting for players  "+std::to_string(count)+" / "+std::to_string(capacity)+" ready";
++    else if(lobby) message=waiting_guest?"Enrolled  |  Waiting for host":"Enrolled skaters  |  Host starts";
 +    else if(generic) message=mode.waiting_status;
 +    else if(v.state.phase==one_up::Phase::countdown) message="Starting in "+std::to_string((v.remaining+999)/1000);
 +    else if(v.state.phase==one_up::Phase::finished) message=v.name(v.state.winner)+" wins!";
@@ -23480,6 +23844,12 @@ index 0000000..f01d74b
 +                        s.waiting_presentations.erase(saved);
 +                    }
 +                }
++                if(const auto stock_slot=s.stock_waiting_slots.find(handle);stock_slot!=s.stock_waiting_slots.end()) {
++                    const auto original=read<Widget>(c.address(stock_slot->second.saved));
++                    if(!current.data.handle && !current.blueprint)current=original;
++                    else if(current.data.handle!=original.data.handle || current.blueprint!=original.blueprint)
++                        s.stock_waiting_slots.erase(stock_slot); // Native remount owns this slot now.
++                }
 +                current.data.handle=waiting_notification_source(current.data.handle,s.waiting_originals);
 +                const auto type=current.data.handle?c.type_of(current.data.handle):0;
 +                if(!type)return NotificationMountNode{};
@@ -23492,6 +23862,30 @@ index 0000000..f01d74b
 +                if(std::none_of(slots.begin(),slots.end(),[&](const auto& slot){return slot.handle==mounted->presentation;}))
 +                    slots.push_back({mounted->presentation,c.type_of(mounted->presentation)});
 +            }
++        }
++    }
++    // Retire only exact mounted stock queue notices, preserving unrelated
++    // notifications and every live waiting queue. The server/relay events own
++    // this lifetime; no timer or "still registered" heuristic keeps it alive.
++    if(stock.generation)for(const auto& [handle,presentations]:mounted_notifications) {
++        const Value source{handle,c.type_of(handle)};
++        if(!source.type || s.waiting_widgets.contains(handle))continue;
++        const auto title=c.text(c.path(source,{0x1c1d36ea,0x44688629,text_field}));
++        const bool queue_title=title=="Skate Jam" || title=="SKATE JAM" || title=="ID_ACTIVITY_JAMSESSION_TITLE" ||
++            title=="Spot Battle" || title=="SPOT BATTLE" || title=="ID_ACTIVITY_SPOTBATTLE_TITLE" ||
++            title=="S.K.A.T.E." || title=="ID_ACTIVITY_THROWDOWNSKATE_TITLE";
++        if(!queue_title || c.text(c.path(source,{0xc13bcfcd,0x58c9d354,text_field}))!="ID_LEAVE")continue;
++        for(const auto slot:presentations) {
++            auto found=s.stock_waiting_slots.find(slot.handle);
++            if(found==s.stock_waiting_slots.end()) {
++                const auto saved=make(c,presenter,slot.type);c.copy(saved,c.address(slot));
++                found=s.stock_waiting_slots.emplace(slot.handle,State::StockWaitingSlot{slot,saved,handle}).first;
++            }
++            const auto current=read<Widget>(c.address(slot));
++            const auto original=read<Widget>(c.address(found->second.saved));
++            if(!stock.waiting && (current.data.handle==handle || (!current.data.handle && !current.blueprint))) {
++                if(current.blueprint || current.data.handle)c.set(slot,Widget{});
++            } else if(stock.waiting && !current.data.handle && !current.blueprint)c.set(slot,original);
 +        }
 +    }
 +    const auto candidates=c.roots({hash});
@@ -23533,6 +23927,15 @@ index 0000000..f01d74b
 +        const auto model=s.waiting_originals.at(source.handle);
 +        const auto start=c.field(model,0xd31e2918),leave=c.field(model,0xc13bcfcd);
 +        clear_value(c,c.field(start,0x67212c85));
++        c.set_if_changed(c.field(start,0x659db23e),false);
++        // The authored notification hides SecondaryButton when its label is
++        // empty. Clear its action too: a guest has only Leave, including after
++        // this model was previously mounted for a host.
++        const auto start_action=c.path(start,{0x0fb0d794,0xa704272a,0xc52416ef,0xa704272a,0xa2b71c93});
++        const bool can_start=lobby && !waiting_guest;
++        const auto start_input=can_start?asset(c,"Configurations/Input/UI/UI_ActivityNotificationSecondaryInteract"):0;
++        c.set_if_changed(c.field(start_action,0x3d00de27),start_input);
++        c.set_if_changed(c.field(start_action,0x0169c2db),start_input);
 +        const auto heading=c.field(model,0x1c1d36ea);
 +        plain_label(c,c.field(heading,0x44688629),name);
 +        plain_label(c,c.field(heading,0x00f3b15e),message);
@@ -23541,7 +23944,12 @@ index 0000000..f01d74b
 +        // for Deathrace -> 1-UP. Its live flag selects the rules at dispatch;
 +        // a retired/hidden card or a real Spot Battle fails the owner check.
 +        footer_action(c,leave,"LEAVE","flag-wait-leave",std::to_string(source.handle));
-+        footer_action(c,start,lobby?(generic && !mode.leading?"READY":"START"):name,"flag-wait-start",std::to_string(source.handle));
++        if(can_start)footer_action(c,start,"START","flag-wait-start",std::to_string(source.handle));
++        else {
++            plain_label(c,c.field(start,0x58c9d354),"");
++            clear_value(c,c.field(start_action,0x9c76b86c));
++            c.text(c.field(start_action,0xb1e14cd6),"");
++        }
 +        if(!s.waiting_badge.handle) {
 +            s.waiting_badge=make(c,texture_schema);
 +            c.set(c.field(s.waiting_badge,0xf524c836),96.f);
@@ -23561,8 +23969,7 @@ index 0000000..f01d74b
 +            c.set(decorator,participant_widget);
 +        }
 +        const auto connected=generic || awaiting_lobby?count:std::count_if(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.connected;});
-+        plain_label(c,c.field(participants,0x58c9d354),generic?std::to_string(count)+"/"+std::to_string(joined)+" ready":
-+            std::to_string(connected)+"/"+std::to_string(capacity));
++        plain_label(c,c.field(participants,0x58c9d354),std::to_string(connected)+"/"+std::to_string(capacity));
 +        // CountdownViewModel explicitly supports an outside time source when
 +        // DoCountdown is false. Keep the authored timer artwork/animation and
 +        // feed the synchronized match clock, never the native S.K.A.T.E. clock.
@@ -23607,8 +24014,14 @@ index 0000000..f01d74b
 +void mount_hud(const Context& c,Value model,Address blueprint,Value& anchor,Value& item,int id,bool center) {
 +    auto& s=state();
 +    const auto roots=c.roots({0xe4c44873}); // HudViewModel, including authored defaults
++    // ModelManager's name lookup resolves this alias to the authored default,
++    // not the instance mounted by the game. Compare typed storage rather than
++    // assuming anything about handle generations or optional Compass/D-Pad.
++    const auto defaults=c.type_of(0xe4c44873)?game::native_data().models.value(c.manager,0xe4c44873,0,1):0;
++    Handle authored{};
 +    std::vector<HudRootCandidate> candidates;
 +    for(const auto& root:roots) {
++        if(defaults && root.value==defaults)authored=root.model.handle;
 +        const auto stack=c.field(root.model,0x44736c13); // FullAspectRatioStack
 +        const bool active=read<bool>(c.address(c.field(stack,0x369babfe)));
 +        unsigned populated{};
@@ -23621,7 +24034,7 @@ index 0000000..f01d74b
 +        }
 +        candidates.push_back({root.model.handle,active,populated});
 +    }
-+    const auto selected=mounted_hud_root(candidates,s.hud_root.handle);
++    const auto selected=mounted_hud_root(candidates,s.hud_root.handle,authored);
 +    require(selected!=0,"Native gameplay HUD is not mounted.");
 +    if(selected!=s.hud_root.handle || !s.hud_stack.handle) {
 +        publish_hud_items(c,false,false); // Detach from a retired root before rebinding.
@@ -23928,6 +24341,7 @@ index 0000000..f01d74b
 +#endif
 +void gameplay_hud(const Context& c,std::uint64_t now) {
 +    auto& s=state();
++    try {custom_join_details(c);}catch(const std::exception&) { /* Retry only this native card, preserving its controls. */ }
 +    // Retire expired countdown/intro before any optional HUD builder can fail.
 +    try {mode_hud_transients(c,modes::native_view(),now);}
 +    catch(const std::exception&) { /* Retired native parents are retried safely. */ }
@@ -23946,7 +24360,7 @@ index 0000000..f01d74b
 +        }
 +        return;
 +    }
-+    try {throwdown_map_identity(c);}
++    try {throwdown_map_identity(c);custom_flag_interaction(c);}
 +    catch(const std::exception& e) {
 +        static std::uint64_t report{};
 +        if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"Custom Throwdown map identity: {}",e.what());}
@@ -24007,21 +24421,18 @@ index 0000000..f01d74b
 +        setting_row(c,shown,"players-setting","Players","",true);
 +        setting_row(c,shown,"turn-setting","Turn","",true);
 +        penalty_row(c,shown);
-+        footer_action(c,s.footer_confirm,s.place_until?"CONNECTING...":"READY UP","place");
++        footer_action(c,s.footer_confirm,s.place_until?"CONNECTING...":"PLACE FLAG","place");
 +        for(const auto& offer:v.offers) action(("offer-"+std::to_string(offer.leader)).c_str(),std::string(offer.started?"Watch ":"Join ")+offer.name+"'s 1-Up","oneup","join "+std::to_string(offer.leader)+" "+std::to_string(offer.match));
 +    } else {
 +        if(v.state.phase==one_up::Phase::lobby) {
-+            const auto ready_count=std::count_if(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.ready && p.connected;});
 +            setting_row(c,shown,"session-type","Session Type","1-Up");
 +            setting_row(c,shown,"lobby-players","Players",std::to_string(v.state.players.size())+" / "+std::to_string(v.state.config.max_players));
 +            setting_row(c,shown,"lobby-duration","Duration",std::to_string(v.state.config.turn_ms/1000)+" sec");
 +            penalty_row(c,shown);
-+            const auto me=std::find_if(v.state.players.begin(),v.state.players.end(),[&](const auto& p){return p.id==v.local;});
-+            const bool ready=me!=v.state.players.end() && me->ready;
-+            if(v.state.leader==v.local && ready) footer_action(c,s.footer_confirm,"START 1-UP","oneup","start");
-+            else if(v.participant) footer_action(c,s.footer_confirm,ready?"READY":"READY UP","oneup","ready");
-+            else footer_action(c,s.footer_confirm,"JOIN","oneup","enroll");
-+            note("lobby-help",ready_count<2?"Waiting for skaters to ready up.":"Everyone is ready!");
++            if(v.state.leader==v.local)footer_action(c,s.footer_confirm,"START 1-UP","oneup","start");
++            else if(v.participant)footer_action(c,s.footer_confirm,"","","");
++            else footer_action(c,s.footer_confirm,"ENROLL","oneup","enroll");
++            note("lobby-help",v.state.leader==v.local?"Start when your skaters have enrolled.":"Enrolled. Waiting for the host to start.");
 +        }
 +        else if(v.state.phase==one_up::Phase::finished) {
 +            note("winner",v.name(v.state.winner)+" WINS!");
@@ -24069,6 +24480,19 @@ index 0000000..f01d74b
 +#include "throwdown_map_identity.inl"
 +} // namespace
 +bool native_one_up_setup_open() noexcept { return state().setup_open.load(std::memory_order_acquire); }
++void observe_native_custom_join_details(std::uintptr_t vm) noexcept {
++    try {
++        const auto mmid=menu_data::native_join_mmid(vm,[](Address at,void* out,std::size_t count){return memory::peek_bytes(at,out,count);});
++        if(mmid)state().join_mmid.store(*mmid,std::memory_order_release);
++    } catch(...) {}
++}
++void observe_native_flag_interaction(std::uintptr_t vm) noexcept {
++    try {
++        if(const auto interaction=menu_data::native_flag_interaction(vm,[](Address at,void* out,std::size_t n){return memory::peek_bytes(at,out,n);})) {
++            auto& s=state();std::lock_guard interaction_lock(s.interaction_mutex);s.interaction=*interaction;
++        }
++    } catch(...) {}
++}
 +bool native_one_up_hud_ready() noexcept { return state().hud_ready.load(std::memory_order_acquire); }
 +bool native_one_up_match_panel_open() noexcept { return state().match_panel_open.load(std::memory_order_acquire); }
 +bool native_throwdown_gameplay_input_allowed() noexcept {
@@ -24102,7 +24526,7 @@ index 0000000..f01d74b
 +    auto& s=state(); if(s.owned.empty()) { s.owner.store(0); s.setup_open.store(false); return true; }
 +    try { const auto ui=read<Address>(base+build::engine::ui_manager); const auto manager=ui?read<Address>(ui+0x140):0;
 +        require(manager!=0,"1-Up UI manager unavailable during cleanup.");
-+        if(manager!=s.manager) { s.owned.manager_replaced(); s.hud_active_budget.manager_replaced(); s.hud_surfaces.clear(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear(); s.displayed.clear(); s.generations.clear(); s.details=false; return true; }
++        if(manager!=s.manager) { s.owned.manager_replaced(); s.hud_active_budget.manager_replaced(); s.hud_surfaces.clear(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.interaction_branding={};{std::lock_guard interaction_lock(s.interaction_mutex);s.interaction={};}s.join_cards.clear();s.join_mmid.store(0);s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0;s.stock_waiting_slots.clear();s.stock_waiting_generation=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear();s.anchor_asset=0;s.primary_input=0; s.displayed.clear(); s.generations.clear(); s.details=false; return true; }
 +        const Context c(base,manager); game::ModelWriteLock lock(manager); release(c); s.generations.clear(); return true;
 +    } catch(const std::exception& e) { logging::log(logging::Level::warning,logging::Channel::ui,"1-Up native menu cleanup: {}",e.what()); return false; }
 +}
@@ -24180,7 +24604,7 @@ index 0000000..f01d74b
 +    s.next_tick=now+200;
 +        const auto ui=read<Address>(base+build::engine::ui_manager); const auto manager=ui?read<Address>(ui+0x140):0; if(!manager)return;
 +        const Context c(base,manager); game::ModelWriteLock lock(manager);
-+        if(s.manager && s.manager!=manager) { s.owned.manager_replaced(); s.hud_active_budget.manager_replaced(); s.hud_surfaces.clear(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear(); s.displayed.clear(); s.generations.clear(); s.details=false; }
++        if(s.manager && s.manager!=manager) { s.owned.manager_replaced(); s.hud_active_budget.manager_replaced(); s.hud_surfaces.clear(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.interaction_branding={};{std::lock_guard interaction_lock(s.interaction_mutex);s.interaction={};}s.join_cards.clear();s.join_mmid.store(0);s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0;s.stock_waiting_slots.clear();s.stock_waiting_generation=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear();s.anchor_asset=0;s.primary_input=0; s.displayed.clear(); s.generations.clear(); s.details=false; }
 +        s.manager=manager; s.base=base;
 +        // The native menu lifetime releases models BEFORE a level unload and
 +        // rebuilds each new page below. Multiplayer world/session rebinding is
@@ -24236,10 +24660,9 @@ index 0000000..f01d74b
 +                    if(generic) {
 +                        if(start) {
 +                            if(mode.leading)modes::request_native_start(mode.world,mode.game);
-+                            else modes::request_native_ready(mode.world,mode.game);
 +                        }
 +                        else modes::request_native_quit(mode.world,mode.game);
-+                    } else one_up::queue(start?"start":"leave");
++                    } else if(!start || v.state.leader==v.local)one_up::queue(start?"start":"leave");
 +                }
 +                else if(action.command=="oneup")one_up::queue(action.argument);
 +                else if(action.command=="mode-wait-start" || action.command=="mode-wait-leave") {
@@ -24247,7 +24670,6 @@ index 0000000..f01d74b
 +                    if(mode.active && mode.waiting && action.argument==std::to_string(mode.game)) {
 +                        if(action.command=="mode-wait-start") {
 +                            if(mode.leading)modes::request_native_start(mode.world,mode.game);
-+                            else modes::request_native_ready(mode.world,mode.game);
 +                        }
 +                        else modes::request_native_quit(mode.world,mode.game);
 +                    }
@@ -24412,10 +24834,10 @@ index 0000000..f01d74b
 +
 diff --git a/Extension/UI/NativeMenu/one_up_menu.h b/Extension/UI/NativeMenu/one_up_menu.h
 new file mode 100644
-index 0000000..800f047
+index 0000000..0321399
 --- /dev/null
 +++ b/Extension/UI/NativeMenu/one_up_menu.h
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,16 @@
 +#pragma once
 +#include <cstdint>
 +namespace dingosdk::multiplayer {
@@ -24429,13 +24851,15 @@ index 0000000..800f047
 +// Prepare an owned request at native page publication or its client/UI tick.
 +// Presentation is independent of the native flow's camera/input confirmation.
 +void prepare_native_one_up_match_panel() noexcept;
++void observe_native_custom_join_details(std::uintptr_t vm) noexcept;
++void observe_native_flag_interaction(std::uintptr_t vm) noexcept;
 +}
 diff --git a/Extension/UI/NativeMenu/throwdown_map_identity.inl b/Extension/UI/NativeMenu/throwdown_map_identity.inl
 new file mode 100644
-index 0000000..d503f04
+index 0000000..680dc03
 --- /dev/null
 +++ b/Extension/UI/NativeMenu/throwdown_map_identity.inl
-@@ -0,0 +1,231 @@
+@@ -0,0 +1,321 @@
 +// MapObjectData.DataContext carries the registration's native MMID. The map's
 +// focused object is a POI handle, not a StackItem ID (the latter is allocated
 +// separately when the details card opens). Never identify a custom card by its
@@ -24522,6 +24946,59 @@ index 0000000..d503f04
 +    plain_label(c,c.field(heading,0x44688629),title);
 +    plain_label(c,c.field(labeled,0xda386ad6),value);
 +}
++void restore_join_branding(const Context& c) {
++    for(auto& [handle,card]:state().join_cards)restore_branding_presenters(c,card.presenters);
++    state().join_cards.clear();
++}
++void custom_join_details(const Context& c) {
++    auto& s=state();const auto mmid=s.join_mmid.load(std::memory_order_acquire);
++    const auto remote=custom_throwdown_flag_info(mmid);
++    const auto* definition=remote?(remote->key=="oneup"?throwdowns::registry().find("native.oneup"):
++        (modes::parse_mode(remote->key)?throwdowns::registry().mode(static_cast<unsigned>(*modes::parse_mode(remote->key))):nullptr)):nullptr;
++    if(!definition || (!s.in_menu && !s.join_cards.empty())) {
++        restore_join_branding(c);s.join_mmid.store(0);return;
++    }
++    for(const auto& root:c.roots({panel_schema.hash})) {
++        const auto buttons=ui_models(c,c.field(root.model,0xbfc64535),button.hash);
++        const bool enroll=std::any_of(buttons.begin(),buttons.end(),[&](const auto b){
++            const auto text=c.text(c.path(b,{0x58c9d354,text_field}));return text=="ID_ENROLL_LABEL" || text=="ENROLL";
++        });
++        if(!enroll)continue;
++        auto& card=s.join_cards[root.model.handle];
++        if(std::any_of(card.presenters.begin(),card.presenters.end(),[&](const auto& p){return !branding_presenter_attached(c,p);}))
++            restore_branding_presenters(c,card.presenters);
++        if(card.presenters.empty()) {
++            const auto body=c.path(root.model,{0x43967ece,items});unsigned count{},stride{};c.array(body,8,count,stride);
++            if(count<2)continue;
++            // Finish detached copies before publishing any borrowed presenter.
++            std::array<Value,3> slots{c.field(root.model,0xc0f1b449),c.field(c.element(body,0),content),c.field(c.element(body,1),content)};
++            PrivateUiGraph graph{c};std::vector<BrandingPresenter> copies;
++            for(const auto slot:slots) {
++                const auto saved=make(c,presenter);c.copy(saved,c.address(slot));
++                copies.push_back({slot,saved,graph.clone(read<Widget>(c.address(slot)).data)});
++            }
++            card.presenters=std::move(copies);
++            for(const auto& p:card.presenters) {auto display=read<Widget>(c.address(p.slot));display.data={0,p.model.handle};c.set(p.slot,display);}
++        }
++        const auto header=card.presenters[0].model;
++        plain_label(c,c.field(header,0x00f3b15e),definition->name);
++        for(const auto notice:ui_models(c,card.presenters[1].model,notice_schema.hash))
++            plain_label(c,c.field(notice,0x94703efc),definition->description);
++        const auto rows=c.field(card.presenters[2].model,0x345b75b1);unsigned count{},stride{};c.array(rows,8,count,stride);
++        if(count==3) {
++            brand_map_stat(c,c.element(rows,0),"Players",std::to_string(remote->players));
++            brand_map_stat(c,c.element(rows,1),remote->key=="race"?"Required Gates":remote->key=="oneup"?"Penalties":"Duration",
++                remote->key=="race"?std::to_string(remote->required_gates):remote->key=="oneup"?"3":std::to_string(remote->duration_s)+"s");
++            brand_map_stat(c,c.element(rows,2),remote->key=="oneup"?"Turn Timer":"Finish Deadline",
++                remote->key=="oneup"?std::to_string(remote->duration_s)+"s":native_hud_race_time(static_cast<std::uint64_t>(remote->duration_s)*1000));
++        }
++        if(!card.badge.handle) {
++            card.badge=make(c,texture_schema);c.set(c.field(card.badge,0xf524c836),288.f);c.set(c.field(card.badge,0x6fbd254e),288.f);
++        }
++        mode_art(c,std::array{c.field(card.badge,0x6e469d2a)},definition->logo);
++        c.set_if_changed(c.field(header,content),Widget{asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget"),{0,card.badge.handle}});
++    }
++}
 +void throwdown_map_identity(const Context& c) {
 +    auto& b=state().map_branding;
 +    namespace party=game::build::v20260929::native_party;
@@ -24539,6 +25016,7 @@ index 0000000..d503f04
 +    const auto definition_for=[&](std::uint32_t mmid) -> const throwdowns::Definition* {
 +        if(one_up::owns_flag_registration(mmid))return own_definition;
 +        const auto key=custom_throwdown_flag_key(mmid);
++        if(key=="oneup")return throwdowns::registry().find("native.oneup");
 +        if(const auto value=modes::parse_mode(key))return throwdowns::registry().mode(static_cast<unsigned>(*value));
 +        return nullptr;
 +    };
@@ -24667,12 +25145,48 @@ index 0000000..d503f04
 +        brand_map_stat(c,c.element(rows,2),race?"Finish deadline":"Turn Timer",race?std::to_string(v.settings.duration_s)+"s (last 30s visible)":std::to_string(v.settings.turn_s)+"s");
 +    }
 +}
++
++void restore_interaction_branding(const Context& c) {
++    auto& b=state().interaction_branding;
++    if(b.model.handle && c.type_of(b.model.handle)==b.model.type) {
++        const auto title=c.field(b.model,0x44688629),icon=c.field(b.model,0xd4f0f044);
++        if(c.text(title)==b.applied)c.copy(title,c.address(b.title));
++        if(read<Widget>(c.address(icon)).data.handle==b.badge.handle)c.copy(icon,c.address(b.icon));
++    }
++    b={};
++}
++void custom_flag_interaction(const Context& c) {
++    auto& s=state();menu_data::NativeFlagInteraction interaction;
++    {std::lock_guard lock(s.interaction_mutex);interaction=s.interaction;}
++    const auto* definition=one_up::owns_flag_registration(interaction.mmid)?
++        (one_up::native_flag_mode_game()?throwdowns::registry().mode(static_cast<unsigned>(modes::native_view().settings.mode)):
++         throwdowns::registry().find("native.oneup")):nullptr;
++    if(!definition)if(const auto remote=custom_throwdown_flag_info(interaction.mmid))
++        definition=remote->key=="oneup"?throwdowns::registry().find("native.oneup"):
++            (modes::parse_mode(remote->key)?throwdowns::registry().mode(static_cast<unsigned>(*modes::parse_mode(remote->key))):nullptr);
++    const Value model{interaction.model,c.type_of(interaction.model)};
++    auto& b=s.interaction_branding;
++    if(!definition || !model.type || read<std::uint32_t>(read<Address>(model.type))!=4086246921U) {
++        restore_interaction_branding(c);return;
++    }
++    if(b.model.handle!=model.handle)restore_interaction_branding(c);
++    const auto title=c.field(model,0x44688629),icon=c.field(model,0xd4f0f044);
++    require(kind(title.type)==7 && size(icon.type)==sizeof(Widget),"Native flag interaction schema differs.");
++    if(!b.model.handle) {
++        b.model=model;b.title=make(c,{read<std::uint32_t>(read<Address>(title.type)),static_cast<std::uint16_t>(size(title.type))},title.type);
++        c.copy(b.title,c.address(title));b.icon=make(c,presenter,icon.type);c.copy(b.icon,c.address(icon));
++        b.badge=make(c,texture_schema);c.set(c.field(b.badge,0xf524c836),144.f);c.set(c.field(b.badge,0x6fbd254e),144.f);
++    }
++    b.applied=definition->name;c.text(title,b.applied);
++    mode_art(c,std::array{c.field(b.badge,0x6e469d2a)},definition->logo);
++    c.set_if_changed(icon,Widget{asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget"),{0,b.badge.handle}});
++}
 diff --git a/Extension/UI/NativeMenu/throwdown_modes_ui.inl b/Extension/UI/NativeMenu/throwdown_modes_ui.inl
 new file mode 100644
-index 0000000..36c9611
+index 0000000..6eac4aa
 --- /dev/null
 +++ b/Extension/UI/NativeMenu/throwdown_modes_ui.inl
-@@ -0,0 +1,1041 @@
+@@ -0,0 +1,1044 @@
 +// Included inside one_up_menu's private namespace. All views are native Rime
 +// models, with the same checked ownership/publication helpers as 1-Up.
 +constexpr std::int32_t mode_hud_id=0x4d4f4400;
@@ -25415,20 +25929,23 @@ index 0000000..36c9611
 +    const auto label_widget=asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget");
 +    const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
 +    const bool race=v.settings.mode==modes::Mode::race;
-+    mode_gate_compass(c,v,feed);
-+    if(!h.title.handle) {
-+        h.title=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");label_styles(c,h.title,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-+        h.status=make(c,label_schema);c.copy(h.status,c.address(h.title));
-+        h.score=make(c,linear_list);
-+        h.target=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-+        h.current=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-+        for(const auto value:{h.target,h.current}) {
-+            c.set_if_changed(c.field(value,0x13be0d51),std::array<float,2>{480.f,72.f});
-+            const auto label=c.field(value,0x94703efc);label_styles(c,label,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-+            c.set_if_changed(c.field(label,0x3d8639d0),0);c.set_if_changed(c.field(label,0x87ad624c),2);c.set_if_changed(c.field(label,0xc13ba637),false);
-+        }
-+        h.clock=record_model(c,"Activities_HudElementData_ContentResource/A_ActivityCountdown");
++    // An optional marker must never prevent the scoreboard/title from
++    // mounting while a new map's native resources are still arriving.
++    try {mode_gate_compass(c,v,feed);}catch(const std::exception&) {h.gate_compass_visible=false;}
++    // Retry every missing piece independently. A late countdown/style asset
++    // previously left title non-null and skipped all remaining initialization.
++    if(!h.title.handle)h.title=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
++    label_styles(c,h.title,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
++    if(!h.status.handle) {h.status=make(c,label_schema);c.copy(h.status,c.address(h.title));}
++    if(!h.score.handle)h.score=make(c,linear_list);
++    if(!h.target.handle)h.target=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
++    if(!h.current.handle)h.current=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
++    for(const auto value:{h.target,h.current}) {
++        c.set_if_changed(c.field(value,0x13be0d51),std::array<float,2>{480.f,72.f});
++        const auto label=c.field(value,0x94703efc);label_styles(c,label,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
++        c.set_if_changed(c.field(label,0x3d8639d0),0);c.set_if_changed(c.field(label,0x87ad624c),2);c.set_if_changed(c.field(label,0xc13ba637),false);
 +    }
++    if(!h.clock.handle)h.clock=record_model(c,"Activities_HudElementData_ContentResource/A_ActivityCountdown");
 +    plain_label(c,h.title,race?"DEATHRACE":d->name);
 +    const auto title_style="TextStylesList/H64-XBold_White";
 +    label_styles(c,h.title,title_style,title_style);

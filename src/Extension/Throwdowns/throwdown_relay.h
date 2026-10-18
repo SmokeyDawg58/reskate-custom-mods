@@ -47,6 +47,15 @@ std::vector<std::vector<std::uint8_t>> tick_throwdown_relay(std::uintptr_t base,
 // One message from another player, as relayed by the session (game thread).
 void receive_throwdown_relay(std::uint64_t sender, std::span<const std::uint8_t> message);
 std::string throwdown_relay_status();
+// Native queue notice lifetime. A queue's long host-controlled timer is not
+// proof that its waiting notice should survive an activity start/leave/end.
+struct NativeQueueHudState {
+    std::uint64_t generation{};
+    bool waiting{};
+};
+NativeQueueHudState native_queue_hud_state() noexcept;
+void retire_native_queue_hud() noexcept;
+
 // Custom offer registrations use the same native physical flag/POI as retail.
 // The local MMID identifies its mode for map/bubble branding before joining.
 std::string custom_throwdown_flag_key(std::uint32_t mmid);

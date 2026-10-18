@@ -2,16 +2,16 @@
   "upstream": "https://github.com/Dingo-Shenanigans/ReSkate",
   "upstream_commit": "ba1245a5af51892e90f2be8637dd69a7e20f5b77",
   "version": "2.1.0",
-  "variant": "custom-20261017",
-  "release_tag": "v2.1.0-custom-20261017",
+  "variant": "enrollment-playtest-20261018",
+  "release_tag": "v2.1.0-custom-20261018-enrollment-playtest",
   "tests_passed": 90,
   "multiplayer_protocol_version": 52,
   "mode_wire_version": 16,
   "one_up_wire_version": 5,
   "integration_merge_commit": "9f86aadfdaeab5d31093a5df40a0ce5b71121b76",
   "integration_source_tree": "2b7cbc8a992147d31f03f9b960b0329ff8154fe8",
-  "release_dll_sha256": "84ed58c2d76ba8cddea915927dd042cec25f48e8c9a891bee582b05fe9b3d056",
-  "release_launcher_sha256": "8eb3ece0d8b164ee0d1df9c5c0a5fdfc18bbad4122cc414fb0f43e2320b32afc",
+  "release_dll_sha256": "3e6340bdb010f2d27ba6269c18678e62d635465e8e8e72a81d8a7ab766786f95",
+  "release_launcher_sha256": "5a070063a705adde8ffdf4afc57254b1f720b39760a014fc5d9475e91189f3d1",
   "native_assets_sha256": "7924e680c569f9575c151c4761736979e7a328a4ee2af936c871f2eeee8e8905",
   "native_assets_bytes": 484304275,
   "files": [
@@ -19,81 +19,6 @@
       "path": ".gitignore",
       "bytes": 700,
       "sha256": "ac93c522c22cea3deba39c24a9a9c21accd80cec55ed561f78f2ac56058cdf7e"
-    },
-    {
-      "path": "assets/one_up/native_assets.sha256",
-      "bytes": 65,
-      "sha256": "32772d0d7f30ab580a30fa1ab963e157d638f33987798a0bbe09221bba1f6ac7"
-    },
-    {
-      "path": "assets/throwdowns/audio/gate-required.wav",
-      "bytes": 131568,
-      "sha256": "91cd788b631c01ccf343a6835343e9ec71c12f7abbd00a60416e264d10c3bf6d"
-    },
-    {
-      "path": "assets/throwdowns/audio/race-finish.wav",
-      "bytes": 363040,
-      "sha256": "e1625c1fc3d40f706848f9463f8940f92fdc206de7ece55bb890d1f336dae51c"
-    },
-    {
-      "path": "assets/throwdowns/audio/README.txt",
-      "bytes": 316,
-      "sha256": "2ffd123755020494b86650b964f21e1c3f61bf89236da872781f91210cf79c94"
-    },
-    {
-      "path": "assets/throwdowns/gate-compass.png",
-      "bytes": 31163,
-      "sha256": "e9cec1e7f611776da5ea65d41c5b7c6b63a8de51bc7f557c1ca9c86cf282cd84"
-    },
-    {
-      "path": "assets/throwdowns/gate-compass.svg",
-      "bytes": 545,
-      "sha256": "e0d939ab7c489a5ff6bdd43b9b346c0d9cac9ec1c576badbeef2bd72fc010d47"
-    },
-    {
-      "path": "assets/throwdowns/placeholder-badges.png",
-      "bytes": 1875671,
-      "sha256": "86bd526178d30c9b72dbe426fc6e819ae64339affc3d3fb1dac84bd428d63e05"
-    },
-    {
-      "path": "assets/throwdowns/reskate-logo-original.png",
-      "bytes": 1858341,
-      "sha256": "6a9f12e28525ef65de9f426b45ecf798d64aa8da2c22b56cfad4906b207ddc49"
-    },
-    {
-      "path": "assets/throwdowns/runtime-audio/race-recovery.wav",
-      "bytes": 53932,
-      "sha256": "0f27a73b224102e211229d6281f1b060f6e1a1ccb8c6e78bf1dd7fa203018d59"
-    },
-    {
-      "path": "assets/throwdowns/runtime-audio/README.txt",
-      "bytes": 358,
-      "sha256": "e63b0472989afb3949c2b36cf37ef06524d7c4e050afb37343144b7dd6cb5316"
-    },
-    {
-      "path": "cmake/Core.cmake",
-      "bytes": 6316,
-      "sha256": "fdf4e1ca9af314d51259592b1a08f6da031b238d5e158c56d8ac535f4833731b"
-    },
-    {
-      "path": "cmake/CrashReport.cmake",
-      "bytes": 4344,
-      "sha256": "c09ba9384afce39ddc6f5e2c54bd7027947be66d0d5e7c6fb283854c6f66bfd2"
-    },
-    {
-      "path": "cmake/ProjectOptions.cmake",
-      "bytes": 4033,
-      "sha256": "fe74f95746190ebc243edb48782e128d9f9ce6a7277fa6536f2d772c99315e12"
-    },
-    {
-      "path": "cmake/Runtime.cmake",
-      "bytes": 22945,
-      "sha256": "11876f0a0b729b0d294556f464649031dc46b68858c2c1d3f0d939f2285a75f2"
-    },
-    {
-      "path": "cmake/UI.cmake",
-      "bytes": 2829,
-      "sha256": "0eb8a29444087db6b63ad5874b338f4743b3baf9eabeada31a41428024f79485"
     },
     {
       "path": "CMakeLists.txt",
@@ -106,104 +31,14 @@
       "sha256": "a729827bcb89e8bc3b444ba20cf0d9e7330210f7750db41eebdfcb4428c5e72e"
     },
     {
-      "path": "contrib/throwdown-flags/ASSET_PACK_1_0_6.md",
-      "bytes": 3891,
-      "sha256": "09892849224adfe959d9deb548b5a9bf015109f3c237597084ee7af4eac32750"
-    },
-    {
-      "path": "contrib/throwdown-flags/build_oneup_native_bundle.py",
-      "bytes": 1613,
-      "sha256": "58adc916eee2ffa81cfc9df30959a09ed1fd8315f61b87dab65553313718edb6"
-    },
-    {
-      "path": "contrib/throwdown-flags/deathrace_builder_assets.cpp",
-      "bytes": 17644,
-      "sha256": "77b1850b776b79908fcda242c33014a58b238166faae5c9eb8065e801dde2991"
-    },
-    {
-      "path": "contrib/throwdown-flags/deathrace_compass_texture.cpp",
-      "bytes": 4464,
-      "sha256": "207b05b61254555f3fa1dbc649b579c83d349369db46bb369c6e3508d243ff1d"
-    },
-    {
-      "path": "contrib/throwdown-flags/deathrace_fixed_markers.cpp",
-      "bytes": 15972,
-      "sha256": "a9e71015af554134b309383709ce4f670bd301d4e6c5f4e31468eff4d72cad60"
-    },
-    {
-      "path": "contrib/throwdown-flags/deathrace_guide_assets.inl",
-      "bytes": 6310,
-      "sha256": "fa0d3d40c07e2602035e37aca9156660625e39463e640f56db843274086d101e"
-    },
-    {
-      "path": "contrib/throwdown-flags/deathrace_hud_assets.inl",
-      "bytes": 36364,
-      "sha256": "e99d44051672fee79cda97361855fd3dd0d2d9d3c0b7134a4da6db3f66241db6"
-    },
-    {
-      "path": "contrib/throwdown-flags/deathrace_navigation_assets.cpp",
-      "bytes": 7848,
-      "sha256": "196795ee58dd5bc8eb7c90cce947f6e512798cfeb7c944cd3f246d8217d6ca38"
-    },
-    {
-      "path": "contrib/throwdown-flags/deathrace_visual_assets.inl",
-      "bytes": 4695,
-      "sha256": "a005f4c1af91416626a604cee78fde1539f73e69ee671708f95dceb60b9b2ae9"
-    },
-    {
-      "path": "contrib/throwdown-flags/native_throwdown_flags.inl",
-      "bytes": 35858,
-      "sha256": "1096ce37712086ceb69d1fd58e93a302a247041242202851bdede6bd8e8ae722"
-    },
-    {
-      "path": "contrib/throwdown-flags/package_asset_mod.py",
-      "bytes": 6153,
-      "sha256": "61563878370649046f73db4c8e93e402d7a5a54cea9f3f2143bbaa47fee5d62a"
-    },
-    {
-      "path": "contrib/throwdown-flags/README-fixed-markers.md",
-      "bytes": 1330,
-      "sha256": "e880481614dd872a155e178bc44a85ca6fee9cff434d999db65f22bebd2402fe"
-    },
-    {
-      "path": "contrib/throwdown-flags/README.md",
-      "bytes": 25640,
-      "sha256": "807ea8952d4805e02b01b8b520f66ff32dc87b39cf69317d8d9330bdb4acac78"
-    },
-    {
-      "path": "contrib/throwdown-flags/reskate_asset_refresh.cpp",
-      "bytes": 46175,
-      "sha256": "4c4c29bedd43950abe5529bed27d35bc6b9f5f04dd0578658a75526d1844366f"
-    },
-    {
-      "path": "contrib/throwdown-flags/RESKATE_ASSET_REFRESH.md",
-      "bytes": 2904,
-      "sha256": "bd6b6ff17826ff58b19f9bbf0e3e50189518e9be8592edbd8befe8d1614f0c7d"
-    },
-    {
-      "path": "contrib/throwdown-flags/reskate_logo_swap.cpp",
-      "bytes": 6408,
-      "sha256": "eaeaeaf991e1f84e2d9b543fd48c85837e9d86aec1fda50a3c91026e5db8a8d9"
-    },
-    {
-      "path": "contrib/throwdown-flags/shader_depot.cpp",
-      "bytes": 32545,
-      "sha256": "2b1c07a26842d154f375ed5115a72c109beab234bd0b73c479c548a970d1eeef"
-    },
-    {
-      "path": "contrib/throwdown-flags/shader_depot.h",
-      "bytes": 5628,
-      "sha256": "772ba4a883e2021facfee33fb418245c682de41278c8a5ca9d0bd4fb0cc4a51a"
-    },
-    {
-      "path": "contrib/throwdown-flags/throwdown_menu_residency.inl",
-      "bytes": 6951,
-      "sha256": "12efc269a1674706ea0827fe7792135591e406b55f45f3344bdb405bbf4558a7"
-    },
-    {
       "path": "Engine/Core/Debug/disabled.cpp",
       "bytes": 906,
       "sha256": "79670460f03d6a49658f404c6ce2fb1f37951eba31412e17a74d9cf6c60e71ca"
+    },
+    {
+      "path": "Engine/Core/Log/Test/disabled_diagnostics_tests.cpp",
+      "bytes": 2937,
+      "sha256": "2f947bfb1b9aa1f02261a0d28b1f6bab08aa7384ecde7b4b8c4394b45ef7848c"
     },
     {
       "path": "Engine/Core/Log/disabled.cpp",
@@ -219,11 +54,6 @@
       "path": "Engine/Core/Log/logging.h",
       "bytes": 3265,
       "sha256": "5fcb5c2440548ab499efcf20528004cf5e2f4a5c4a9bb03f0700861d79022363"
-    },
-    {
-      "path": "Engine/Core/Log/Test/disabled_diagnostics_tests.cpp",
-      "bytes": 2937,
-      "sha256": "2f947bfb1b9aa1f02261a0d28b1f6bab08aa7384ecde7b4b8c4394b45ef7848c"
     },
     {
       "path": "Engine/Core/Profiling/disabled.cpp",
@@ -286,6 +116,21 @@
       "sha256": "2a143dbb2e42a88d3c9b0293b5f486c0536d0e9fd6adb8ce0c9db7c49420553f"
     },
     {
+      "path": "Engine/Vfs/Test/mod_merge_added_assets_tests.cpp",
+      "bytes": 54041,
+      "sha256": "2bfc0195463ddbd02eb70ff1fdbb3034c99a2240d525c1d96e886e4c846675bf"
+    },
+    {
+      "path": "Engine/Vfs/Test/mod_merge_audit_tests.cpp",
+      "bytes": 66114,
+      "sha256": "9fff954e3a2f12b9c6b4864124c5d63c2bb8ffe8a7aa3fdffdaba81129249a86"
+    },
+    {
+      "path": "Engine/Vfs/Test/native_asset_package_tests.cpp",
+      "bytes": 5964,
+      "sha256": "b9a8b7a1d619f955322c7a975764ee91d9bba98db2dfba865bf4d8627d52347e"
+    },
+    {
       "path": "Engine/Vfs/mod_catalog.cpp",
       "bytes": 34275,
       "sha256": "434b21c9718ee23972f4d10647a5bdd8dd874ba19796db4a2ecdde3513e3383a"
@@ -336,21 +181,6 @@
       "sha256": "29858d8388130ce630adb7eb4d572d1137a5023b50144a0a9878f6aa230f59a0"
     },
     {
-      "path": "Engine/Vfs/Test/mod_merge_added_assets_tests.cpp",
-      "bytes": 54041,
-      "sha256": "2bfc0195463ddbd02eb70ff1fdbb3034c99a2240d525c1d96e886e4c846675bf"
-    },
-    {
-      "path": "Engine/Vfs/Test/mod_merge_audit_tests.cpp",
-      "bytes": 66114,
-      "sha256": "9fff954e3a2f12b9c6b4864124c5d63c2bb8ffe8a7aa3fdffdaba81129249a86"
-    },
-    {
-      "path": "Engine/Vfs/Test/native_asset_package_tests.cpp",
-      "bytes": 5964,
-      "sha256": "b9a8b7a1d619f955322c7a975764ee91d9bba98db2dfba865bf4d8627d52347e"
-    },
-    {
       "path": "Extension/Console/commands.cpp",
       "bytes": 11140,
       "sha256": "da0e542f991d49dec32caa7e80ef5ada6b2e07ca80ae074e17d0ae65da3fe110"
@@ -396,6 +226,21 @@
       "sha256": "0e7a26a401308c2b576859b3c893400046f3a47e223af48c6fad8333b3cb1e57"
     },
     {
+      "path": "Extension/Modes/Test/mode_rules_tests.cpp",
+      "bytes": 97616,
+      "sha256": "714da35d3c496537227a2c5e757470e7f0a2540d52799de7324f33613f41257f"
+    },
+    {
+      "path": "Extension/Modes/Test/race_asset_contract_tests.cpp",
+      "bytes": 10810,
+      "sha256": "09c7ad4ba80f3c92fc5084552dd0c9ba76c23fc5c2111a68b40e9cdaec57d387"
+    },
+    {
+      "path": "Extension/Modes/Test/trick_gesture_tests.cpp",
+      "bytes": 2173,
+      "sha256": "9ef17a983d60159fbae838522748c51457e7ec6500369906a455ee959e7925f9"
+    },
+    {
       "path": "Extension/Modes/bone_cam.cpp",
       "bytes": 36365,
       "sha256": "d803a45c274cdf5fafee859580086b299b34170dad55663233c729a3982ff56d"
@@ -417,13 +262,13 @@
     },
     {
       "path": "Extension/Modes/game_modes.cpp",
-      "bytes": 165014,
-      "sha256": "69d41860e5ea20ba5d2907eb4959d7bf42bcf288e7aced16f3e2dea7c4c9319d"
+      "bytes": 163921,
+      "sha256": "de95151873ee3b0e818fc3a3f195e09554477ede5b549f53ecd894d6a941f48a"
     },
     {
       "path": "Extension/Modes/game_modes.h",
-      "bytes": 4945,
-      "sha256": "d45dbde1d8eb4e37a2b531a84f2698c3e9adffa954ee9ce6b037e390b5103c08"
+      "bytes": 4961,
+      "sha256": "18df43a807af0547b399a26732df29e19f5e9644f124cf753da7ee7186d8c8a7"
     },
     {
       "path": "Extension/Modes/mode_announcements.h",
@@ -432,8 +277,8 @@
     },
     {
       "path": "Extension/Modes/mode_lobby.h",
-      "bytes": 1313,
-      "sha256": "735733ab2b66c265358d53394e7aa7c5dc5430945115e84211004a31738359d9"
+      "bytes": 953,
+      "sha256": "af18a9fdc4cd874295453792a3e9d4d3b99aad20cad969e8c36b54f3edc1f46b"
     },
     {
       "path": "Extension/Modes/mode_participation.h",
@@ -487,8 +332,8 @@
     },
     {
       "path": "Extension/Modes/race_momentum.h",
-      "bytes": 4960,
-      "sha256": "a75102735f1a96db6cf40f0baf2260fb8ee881ddbcc31277a91752f1474c9507"
+      "bytes": 6194,
+      "sha256": "05dc898ab95aac8bc5f0ba6063c27d026922bd6597f32494262e7e4daedcedeb"
     },
     {
       "path": "Extension/Modes/race_navigation.h",
@@ -526,21 +371,6 @@
       "sha256": "6dc971bd815bd5371d4d0d2c73fb8c3c4e4bf4c4cf8fe67e49e3c4e2ba5bf52d"
     },
     {
-      "path": "Extension/Modes/Test/mode_rules_tests.cpp",
-      "bytes": 97062,
-      "sha256": "a9648bec74e273e7b268cd6264af7e28ad9c4bf7436adba3c725cc008d512f2e"
-    },
-    {
-      "path": "Extension/Modes/Test/race_asset_contract_tests.cpp",
-      "bytes": 10810,
-      "sha256": "09c7ad4ba80f3c92fc5084552dd0c9ba76c23fc5c2111a68b40e9cdaec57d387"
-    },
-    {
-      "path": "Extension/Modes/Test/trick_gesture_tests.cpp",
-      "bytes": 2173,
-      "sha256": "9ef17a983d60159fbae838522748c51457e7ec6500369906a455ee959e7925f9"
-    },
-    {
       "path": "Extension/Modes/trick_gestures.cpp",
       "bytes": 7895,
       "sha256": "d0a99a7c764f93ee06fcc968f8b00ca6448163b855d1b478c4b0ecb073d54665"
@@ -549,11 +379,6 @@
       "path": "Extension/Modes/trick_gestures.h",
       "bytes": 1250,
       "sha256": "2cb4cd6b433bcfd75b97067494bc969c771b3940065d9427d60979681c05bf2d"
-    },
-    {
-      "path": "Extension/Multiplayer/console_commands.cpp",
-      "bytes": 19490,
-      "sha256": "44aea22902725ded2cbd998a766ff7e39cf37b635aa35f6a50a6f56eb526a423"
     },
     {
       "path": "Extension/Multiplayer/Hud/native_party.cpp",
@@ -611,14 +436,14 @@
       "sha256": "7d4c9727165740157f6dbc69ddd26018ca1586d48c878682e55adb73883e4fb6"
     },
     {
-      "path": "Extension/Objects/local_placements_runtime.cpp",
-      "bytes": 38649,
-      "sha256": "7ca41d9cc71d454efbb83947f282033328ab9e2ef607990aec8e728c4087efb2"
+      "path": "Extension/Multiplayer/console_commands.cpp",
+      "bytes": 19490,
+      "sha256": "44aea22902725ded2cbd998a766ff7e39cf37b635aa35f6a50a6f56eb526a423"
     },
     {
-      "path": "Extension/Objects/local_placements_runtime.h",
-      "bytes": 7991,
-      "sha256": "06d7f175b810279c5ed5341660d4597fb7ca96976ef98e69c8712026ef2b97b4"
+      "path": "Extension/Objects/ParkEditor/Test/park_editor_transaction_tests.cpp",
+      "bytes": 65061,
+      "sha256": "78de25a125cc0b7b32132c311aca6bdb44e8169405639a30cb7e7d6b407c37ab"
     },
     {
       "path": "Extension/Objects/ParkEditor/park_editor_runtime.cpp",
@@ -631,9 +456,14 @@
       "sha256": "b2857c0d2ec42fa3649913fa8f4cdb6f2dda9e2d3f5830ddd06a07b7a9e3504d"
     },
     {
-      "path": "Extension/Objects/ParkEditor/Test/park_editor_transaction_tests.cpp",
-      "bytes": 65061,
-      "sha256": "78de25a125cc0b7b32132c311aca6bdb44e8169405639a30cb7e7d6b407c37ab"
+      "path": "Extension/Objects/local_placements_runtime.cpp",
+      "bytes": 38649,
+      "sha256": "7ca41d9cc71d454efbb83947f282033328ab9e2ef607990aec8e728c4087efb2"
+    },
+    {
+      "path": "Extension/Objects/local_placements_runtime.h",
+      "bytes": 7991,
+      "sha256": "06d7f175b810279c5ed5341660d4597fb7ca96976ef98e69c8712026ef2b97b4"
     },
     {
       "path": "Extension/Profile/local_profile_objects.cpp",
@@ -659,6 +489,11 @@
       "path": "Extension/Settings/named_settings.cpp",
       "bytes": 32794,
       "sha256": "daf15c8dc2edbaca709b1a2cf41e747a78b75422fb4f1d628bbb84dccebef11a"
+    },
+    {
+      "path": "Extension/Skater/Test/client_camera_activation_tests.cpp",
+      "bytes": 6075,
+      "sha256": "d963b316a81d1ccca657eb84d87977127fa832f894f85d3544fb42e9b9c844d2"
     },
     {
       "path": "Extension/Skater/client_camera_activation.h",
@@ -691,9 +526,34 @@
       "sha256": "da5c81c946d34058c37fc39567b8bd1d07b279bbca54226214a364b6313024f7"
     },
     {
-      "path": "Extension/Skater/Test/client_camera_activation_tests.cpp",
-      "bytes": 6075,
-      "sha256": "d963b316a81d1ccca657eb84d87977127fa832f894f85d3544fb42e9b9c844d2"
+      "path": "Extension/Throwdowns/Test/challenge_registry_tests.cpp",
+      "bytes": 3768,
+      "sha256": "45d617814ddfbe92de7acc9787f543cde687cd25dd2ec6fa369bf37aaf61323a"
+    },
+    {
+      "path": "Extension/Throwdowns/Test/native_throwdown_lifetime_tests.cpp",
+      "bytes": 15296,
+      "sha256": "1481004e196ea0957d803336c5da6b1ab8b20b8f9ee469842a38981b86d236a8"
+    },
+    {
+      "path": "Extension/Throwdowns/Test/one_up_placement_tests.cpp",
+      "bytes": 41045,
+      "sha256": "2692f97beb72b1e88d50b084cbf1f73cbd4537d6709cd26521267ecbb3e09707"
+    },
+    {
+      "path": "Extension/Throwdowns/Test/one_up_runtime_tests.cpp",
+      "bytes": 22170,
+      "sha256": "f993addbcb1e0f12e54c50b14bb312f797a7d687e9c0fce46a290469fe5c6f48"
+    },
+    {
+      "path": "Extension/Throwdowns/Test/one_up_tests.cpp",
+      "bytes": 12308,
+      "sha256": "2e260ad70ca925512b02a0df74e1cfc8444e06d702afe1f7aec66e7ca5971b96"
+    },
+    {
+      "path": "Extension/Throwdowns/Test/throwdown_relay_tests.cpp",
+      "bytes": 47041,
+      "sha256": "ea1eaafc3efc4bcffef42d7cb0317f0e2b0febd5dd87374e18e96acd99fd9a3c"
     },
     {
       "path": "Extension/Throwdowns/challenge_registry.cpp",
@@ -722,8 +582,8 @@
     },
     {
       "path": "Extension/Throwdowns/native_throwdowns.cpp",
-      "bytes": 65021,
-      "sha256": "7f0144ab8547f55b5deba4a3da28ae115e1c135846123ab8deb33011fa1b90d8"
+      "bytes": 65540,
+      "sha256": "d6388f4ab701f00a34162fe9f18a02af77694222d21f28b3e59cf79ea7cee1f4"
     },
     {
       "path": "Extension/Throwdowns/native_throwdowns.h",
@@ -742,8 +602,8 @@
     },
     {
       "path": "Extension/Throwdowns/one_up_match.cpp",
-      "bytes": 9812,
-      "sha256": "f7796fc0369a268890db507c1f913c492b377a19ea0f35129c9336d83270937b"
+      "bytes": 9793,
+      "sha256": "c535cbda080dfbd77cda56b4baf052c9bc30a8dd8d279a6dae90fec0f8ca6177"
     },
     {
       "path": "Extension/Throwdowns/one_up_match.h",
@@ -762,23 +622,23 @@
     },
     {
       "path": "Extension/Throwdowns/one_up_placement.cpp",
-      "bytes": 26272,
-      "sha256": "1cfdd725f67a6a33dda25bf90efad19d4af46ebb01975b769d4211193c19a908"
+      "bytes": 26824,
+      "sha256": "a5482c97b508d2338412e336f0ce0ca631637d1ba1e6725a827ffe5c9da31924"
     },
     {
       "path": "Extension/Throwdowns/one_up_placement.h",
-      "bytes": 3990,
-      "sha256": "990672829af3737f183b46dd6217f9d4c3e1bbd5cb6e2038d922dc6ad4466d6f"
+      "bytes": 4149,
+      "sha256": "bf7711e46850a381e182afc57850dbd2cd1f8d1b0c59376d2c6a25e6d9b62d29"
     },
     {
       "path": "Extension/Throwdowns/one_up_runtime.cpp",
-      "bytes": 24558,
-      "sha256": "579a343418b42a87998bc04f3fc34cc1927f562795c6d42d3d9ee0f87c18311d"
+      "bytes": 22857,
+      "sha256": "4c91ca33c773c4d1b8741c5df360205659f068d2ceb1ef5101b519cc8d3ffe3e"
     },
     {
       "path": "Extension/Throwdowns/one_up_runtime.h",
-      "bytes": 1491,
-      "sha256": "4c7a13d19cc058b6840d50dd9438892e3ffad5778541613e4ac62df821bd782b"
+      "bytes": 1611,
+      "sha256": "6d6fd0792b32bdf7040635520c640ab0a0a3a172e184eee7fb3e9443f740670e"
     },
     {
       "path": "Extension/Throwdowns/one_up_skating_score.h",
@@ -801,39 +661,9 @@
       "sha256": "2419af547148c831295ab945ecb652d6a185846295a9eb0a0110a83584fc56e5"
     },
     {
-      "path": "Extension/Throwdowns/Test/challenge_registry_tests.cpp",
-      "bytes": 3768,
-      "sha256": "45d617814ddfbe92de7acc9787f543cde687cd25dd2ec6fa369bf37aaf61323a"
-    },
-    {
-      "path": "Extension/Throwdowns/Test/native_throwdown_lifetime_tests.cpp",
-      "bytes": 15296,
-      "sha256": "1481004e196ea0957d803336c5da6b1ab8b20b8f9ee469842a38981b86d236a8"
-    },
-    {
-      "path": "Extension/Throwdowns/Test/one_up_placement_tests.cpp",
-      "bytes": 40301,
-      "sha256": "2aa3e0d4e77e79891ccaba27d1ab628249ca1bb3504ace9d4f96c5b3fa3dc634"
-    },
-    {
-      "path": "Extension/Throwdowns/Test/one_up_runtime_tests.cpp",
-      "bytes": 22138,
-      "sha256": "cff3ffc43e74726a9113cc32b774bd4a8e835537c95aed4a1b87ec196ce0b325"
-    },
-    {
-      "path": "Extension/Throwdowns/Test/one_up_tests.cpp",
-      "bytes": 12110,
-      "sha256": "b3c47af2b88e3fde1fa2834797c31d076a0c3481a0ae6260d22fedcc28727e3c"
-    },
-    {
-      "path": "Extension/Throwdowns/Test/throwdown_relay_tests.cpp",
-      "bytes": 43786,
-      "sha256": "e8ec146875b911f31c1cefdf5b315bdc622fd973e1c93aa5bc9e30f3ced0f25e"
-    },
-    {
       "path": "Extension/Throwdowns/throwdown_lab.cpp",
-      "bytes": 163016,
-      "sha256": "191332af298a19a521624a6e1b53e5ece1e1c6af5f9236bcfc314d28b82a4418"
+      "bytes": 163018,
+      "sha256": "0e89ca0c4c61fd5e472f45f30a19442d64d78e95f77d97463564ee8802a1f1a2"
     },
     {
       "path": "Extension/Throwdowns/throwdown_lab.h",
@@ -842,13 +672,13 @@
     },
     {
       "path": "Extension/Throwdowns/throwdown_relay.cpp",
-      "bytes": 84037,
-      "sha256": "ec0bd82ba428b3f9d849f753a6820181fbc9b790645a318de3abd72b5f5a6eef"
+      "bytes": 86353,
+      "sha256": "997954ca999819a9f47a12d0b34561e9018a7c289ec53a252e2fe1023d5b4c5e"
     },
     {
       "path": "Extension/Throwdowns/throwdown_relay.h",
-      "bytes": 9641,
-      "sha256": "80eb0984601850ab08c9967f558c395c3baa307b6c9475dc8eb3b612e53ace3d"
+      "bytes": 9976,
+      "sha256": "5abe26bc1b3e9c44dcf796bcf883987acf824b3bebad35d946a7c3d20233fb02"
     },
     {
       "path": "Extension/Throwdowns/throwdown_wire.cpp",
@@ -876,9 +706,19 @@
       "sha256": "0827c9d226cafec14956b044a1258c695db61f5963925925de63377d944b4140"
     },
     {
+      "path": "Extension/UI/NativeMenu/Test/native_menu_lifetime_tests.cpp",
+      "bytes": 109190,
+      "sha256": "67f928a1c7efe9d2a1f0c060fc6b14e8024d5fb7cbec6d178ac4469c5084b6e4"
+    },
+    {
       "path": "Extension/UI/NativeMenu/native_array_publication.h",
       "bytes": 1234,
       "sha256": "67f4358b345a91a941651fd8c05318d67b55665dbdca9086e8a04913e645ba75"
+    },
+    {
+      "path": "Extension/UI/NativeMenu/native_flag_interaction.h",
+      "bytes": 2857,
+      "sha256": "04c7f9b71a298ca900e8ee4e15385652ac53831be7e23405930dca8cb3a183c0"
     },
     {
       "path": "Extension/UI/NativeMenu/native_hub.cpp",
@@ -887,13 +727,18 @@
     },
     {
       "path": "Extension/UI/NativeMenu/native_hud_selection.h",
-      "bytes": 7489,
-      "sha256": "24a4957e0cd433a2a3b7ee34b6eefde04be1f9337a60ab2e6255f51ba68d8ba7"
+      "bytes": 8052,
+      "sha256": "b960e7a4461978bbf8198298c3d48d6b93719a918b02276385de094cc81f9067"
     },
     {
       "path": "Extension/UI/NativeMenu/native_hud_values.h",
       "bytes": 6397,
       "sha256": "14471c1c4fcc6245dc56fcbc91558baba7d7dde8e80b9ee9183189e96929e62e"
+    },
+    {
+      "path": "Extension/UI/NativeMenu/native_join_context.h",
+      "bytes": 2015,
+      "sha256": "0a35a11e250b0bf7ab0b3bf7be435ac90d0cf48c61ff77b808cacc7b5cd198da"
     },
     {
       "path": "Extension/UI/NativeMenu/native_menu.cpp",
@@ -937,28 +782,23 @@
     },
     {
       "path": "Extension/UI/NativeMenu/one_up_menu.cpp",
-      "bytes": 202620,
-      "sha256": "60f6abe88860468e3dfe22d0426051df5fe0af3c249664741e2c2d8350d2a4a6"
+      "bytes": 209276,
+      "sha256": "2eddcdefa7766fe8c7398ca7b16fd5ed1c2ec3b885f153a73bc5c121550c40f6"
     },
     {
       "path": "Extension/UI/NativeMenu/one_up_menu.h",
-      "bytes": 659,
-      "sha256": "840a6636e69690d9d45627d29e166394486a80e395d410105e874c9f9cb14de0"
-    },
-    {
-      "path": "Extension/UI/NativeMenu/Test/native_menu_lifetime_tests.cpp",
-      "bytes": 103537,
-      "sha256": "b81ea5dd9c7856441e2a7fd6af8b2464da28fba0842d833f9af8f2a8eeefde15"
+      "bytes": 794,
+      "sha256": "e73ea98d7a31c881a6c1c5799c29a176d9445061caa1749f34615a7b0e965145"
     },
     {
       "path": "Extension/UI/NativeMenu/throwdown_map_identity.inl",
-      "bytes": 14266,
-      "sha256": "43100a8d142758d4d955dc0651a00b7acb6d9fcc27167c62309775ff48b6094a"
+      "bytes": 20493,
+      "sha256": "e956cc41f21c832162eb6b255635ac8372a4dc5b9cc2e53ca686edcebb33bb7b"
     },
     {
       "path": "Extension/UI/NativeMenu/throwdown_modes_ui.inl",
-      "bytes": 81420,
-      "sha256": "5d7ff0b28c04556842ea282721b4b6da3520c62f8532360587f2571e7bf0aacd"
+      "bytes": 81835,
+      "sha256": "80622d7bc260f60f8c67bec39df1e68026c031e1516eff5b6f605984670f9814"
     },
     {
       "path": "Extension/UI/NativeMenu/ui_sound.cpp",
@@ -1076,6 +916,11 @@
       "sha256": "c4b86e10cad09176561b966efa44efa1aca2767410fb38a4e6eee3a73b063564"
     },
     {
+      "path": "SOLO-PENDING-QUEUE-VALIDATION.txt",
+      "bytes": 2873,
+      "sha256": "b4c5e9a9554f063c1bec1520df84b039e889bf700803bffdad74523fb0367e19"
+    },
+    {
       "path": "Server/GUI/server_gui.h",
       "bytes": 2058,
       "sha256": "64bfa00aec7e30c963098a9799eecebcade5befd1ebe7423ed25eb196c59945b"
@@ -1091,11 +936,6 @@
       "sha256": "b444d16c9991d206a280ef99aa50199de2c2d2b68e2d753a8774a60b03f666af"
     },
     {
-      "path": "Server/server_activity.cpp",
-      "bytes": 11632,
-      "sha256": "0e02600db43aea3f5d39f2def93369852e049dbba6ee2d933207539b80bfd712"
-    },
-    {
       "path": "Server/Test/server_activity_tests.cpp",
       "bytes": 6794,
       "sha256": "64f8e23c2b745788f649de118e301d5d6f60a0f42d3915beda528ebdba7f8528"
@@ -1106,9 +946,9 @@
       "sha256": "362e267e7a788dcc9485a361a2f6c4752ac1f94ca9cb6a6d1609029890f111c6"
     },
     {
-      "path": "SOLO-PENDING-QUEUE-VALIDATION.txt",
-      "bytes": 2873,
-      "sha256": "b4c5e9a9554f063c1bec1520df84b039e889bf700803bffdad74523fb0367e19"
+      "path": "Server/server_activity.cpp",
+      "bytes": 11632,
+      "sha256": "0e02600db43aea3f5d39f2def93369852e049dbba6ee2d933207539b80bfd712"
     },
     {
       "path": "THROWDOWN-INTEGRATION.md",
@@ -1119,9 +959,186 @@
       "path": "UPSTREAM-UPDATE.md",
       "bytes": 42412,
       "sha256": "9982cdb647b2a05b0369e7c54dc65687196c638b3d993d7751cbc430193e7ca0"
+    },
+    {
+      "path": "assets/one_up/native_assets.sha256",
+      "bytes": 65,
+      "sha256": "32772d0d7f30ab580a30fa1ab963e157d638f33987798a0bbe09221bba1f6ac7"
+    },
+    {
+      "path": "assets/throwdowns/audio/README.txt",
+      "bytes": 316,
+      "sha256": "2ffd123755020494b86650b964f21e1c3f61bf89236da872781f91210cf79c94"
+    },
+    {
+      "path": "assets/throwdowns/audio/gate-required.wav",
+      "bytes": 131568,
+      "sha256": "91cd788b631c01ccf343a6835343e9ec71c12f7abbd00a60416e264d10c3bf6d"
+    },
+    {
+      "path": "assets/throwdowns/audio/race-finish.wav",
+      "bytes": 363040,
+      "sha256": "e1625c1fc3d40f706848f9463f8940f92fdc206de7ece55bb890d1f336dae51c"
+    },
+    {
+      "path": "assets/throwdowns/gate-compass.png",
+      "bytes": 31163,
+      "sha256": "e9cec1e7f611776da5ea65d41c5b7c6b63a8de51bc7f557c1ca9c86cf282cd84"
+    },
+    {
+      "path": "assets/throwdowns/gate-compass.svg",
+      "bytes": 545,
+      "sha256": "e0d939ab7c489a5ff6bdd43b9b346c0d9cac9ec1c576badbeef2bd72fc010d47"
+    },
+    {
+      "path": "assets/throwdowns/placeholder-badges.png",
+      "bytes": 1875671,
+      "sha256": "86bd526178d30c9b72dbe426fc6e819ae64339affc3d3fb1dac84bd428d63e05"
+    },
+    {
+      "path": "assets/throwdowns/reskate-logo-original.png",
+      "bytes": 1858341,
+      "sha256": "6a9f12e28525ef65de9f426b45ecf798d64aa8da2c22b56cfad4906b207ddc49"
+    },
+    {
+      "path": "assets/throwdowns/runtime-audio/README.txt",
+      "bytes": 358,
+      "sha256": "e63b0472989afb3949c2b36cf37ef06524d7c4e050afb37343144b7dd6cb5316"
+    },
+    {
+      "path": "assets/throwdowns/runtime-audio/race-recovery.wav",
+      "bytes": 53932,
+      "sha256": "0f27a73b224102e211229d6281f1b060f6e1a1ccb8c6e78bf1dd7fa203018d59"
+    },
+    {
+      "path": "cmake/Core.cmake",
+      "bytes": 6316,
+      "sha256": "fdf4e1ca9af314d51259592b1a08f6da031b238d5e158c56d8ac535f4833731b"
+    },
+    {
+      "path": "cmake/CrashReport.cmake",
+      "bytes": 4344,
+      "sha256": "c09ba9384afce39ddc6f5e2c54bd7027947be66d0d5e7c6fb283854c6f66bfd2"
+    },
+    {
+      "path": "cmake/ProjectOptions.cmake",
+      "bytes": 4033,
+      "sha256": "fe74f95746190ebc243edb48782e128d9f9ce6a7277fa6536f2d772c99315e12"
+    },
+    {
+      "path": "cmake/Runtime.cmake",
+      "bytes": 22945,
+      "sha256": "11876f0a0b729b0d294556f464649031dc46b68858c2c1d3f0d939f2285a75f2"
+    },
+    {
+      "path": "cmake/UI.cmake",
+      "bytes": 2829,
+      "sha256": "0eb8a29444087db6b63ad5874b338f4743b3baf9eabeada31a41428024f79485"
+    },
+    {
+      "path": "contrib/throwdown-flags/ASSET_PACK_1_0_6.md",
+      "bytes": 3891,
+      "sha256": "09892849224adfe959d9deb548b5a9bf015109f3c237597084ee7af4eac32750"
+    },
+    {
+      "path": "contrib/throwdown-flags/README-fixed-markers.md",
+      "bytes": 1330,
+      "sha256": "e880481614dd872a155e178bc44a85ca6fee9cff434d999db65f22bebd2402fe"
+    },
+    {
+      "path": "contrib/throwdown-flags/README.md",
+      "bytes": 25640,
+      "sha256": "807ea8952d4805e02b01b8b520f66ff32dc87b39cf69317d8d9330bdb4acac78"
+    },
+    {
+      "path": "contrib/throwdown-flags/RESKATE_ASSET_REFRESH.md",
+      "bytes": 2904,
+      "sha256": "bd6b6ff17826ff58b19f9bbf0e3e50189518e9be8592edbd8befe8d1614f0c7d"
+    },
+    {
+      "path": "contrib/throwdown-flags/build_oneup_native_bundle.py",
+      "bytes": 1613,
+      "sha256": "58adc916eee2ffa81cfc9df30959a09ed1fd8315f61b87dab65553313718edb6"
+    },
+    {
+      "path": "contrib/throwdown-flags/deathrace_builder_assets.cpp",
+      "bytes": 17644,
+      "sha256": "77b1850b776b79908fcda242c33014a58b238166faae5c9eb8065e801dde2991"
+    },
+    {
+      "path": "contrib/throwdown-flags/deathrace_compass_texture.cpp",
+      "bytes": 4464,
+      "sha256": "207b05b61254555f3fa1dbc649b579c83d349369db46bb369c6e3508d243ff1d"
+    },
+    {
+      "path": "contrib/throwdown-flags/deathrace_fixed_markers.cpp",
+      "bytes": 15972,
+      "sha256": "a9e71015af554134b309383709ce4f670bd301d4e6c5f4e31468eff4d72cad60"
+    },
+    {
+      "path": "contrib/throwdown-flags/deathrace_guide_assets.inl",
+      "bytes": 6310,
+      "sha256": "fa0d3d40c07e2602035e37aca9156660625e39463e640f56db843274086d101e"
+    },
+    {
+      "path": "contrib/throwdown-flags/deathrace_hud_assets.inl",
+      "bytes": 36364,
+      "sha256": "e99d44051672fee79cda97361855fd3dd0d2d9d3c0b7134a4da6db3f66241db6"
+    },
+    {
+      "path": "contrib/throwdown-flags/deathrace_navigation_assets.cpp",
+      "bytes": 7848,
+      "sha256": "196795ee58dd5bc8eb7c90cce947f6e512798cfeb7c944cd3f246d8217d6ca38"
+    },
+    {
+      "path": "contrib/throwdown-flags/deathrace_visual_assets.inl",
+      "bytes": 4695,
+      "sha256": "a005f4c1af91416626a604cee78fde1539f73e69ee671708f95dceb60b9b2ae9"
+    },
+    {
+      "path": "contrib/throwdown-flags/native_throwdown_flags.inl",
+      "bytes": 35858,
+      "sha256": "1096ce37712086ceb69d1fd58e93a302a247041242202851bdede6bd8e8ae722"
+    },
+    {
+      "path": "contrib/throwdown-flags/package_asset_mod.py",
+      "bytes": 6153,
+      "sha256": "61563878370649046f73db4c8e93e402d7a5a54cea9f3f2143bbaa47fee5d62a"
+    },
+    {
+      "path": "contrib/throwdown-flags/reskate_asset_refresh.cpp",
+      "bytes": 46175,
+      "sha256": "4c4c29bedd43950abe5529bed27d35bc6b9f5f04dd0578658a75526d1844366f"
+    },
+    {
+      "path": "contrib/throwdown-flags/reskate_logo_swap.cpp",
+      "bytes": 6408,
+      "sha256": "eaeaeaf991e1f84e2d9b543fd48c85837e9d86aec1fda50a3c91026e5db8a8d9"
+    },
+    {
+      "path": "contrib/throwdown-flags/shader_depot.cpp",
+      "bytes": 32545,
+      "sha256": "2b1c07a26842d154f375ed5115a72c109beab234bd0b73c479c548a970d1eeef"
+    },
+    {
+      "path": "contrib/throwdown-flags/shader_depot.h",
+      "bytes": 5628,
+      "sha256": "772ba4a883e2021facfee33fb418245c682de41278c8a5ca9d0bd4fb0cc4a51a"
+    },
+    {
+      "path": "contrib/throwdown-flags/throwdown_menu_residency.inl",
+      "bytes": 6951,
+      "sha256": "12efc269a1674706ea0827fe7792135591e406b55f45f3344bdb405bbf4558a7"
     }
   ],
   "deleted_files": [],
-  "live_map_switches": "HUMAN_CONFIRMED",
-  "wider_multiplayer": "PENDING"
+  "wider_multiplayer": "PENDING",
+  "prerelease": true,
+  "source_commit": "82e0c34c2fe167dffe387ec10501f772a48530e2",
+  "source_tree": "d8a2e0eefce34cb7dc3ae8f0b762fec748e3aa7f",
+  "live_validation": "KNOWN_ISSUES_REPORTED",
+  "known_issues": [
+    "The challenge HUD can still disappear on custom maps after map travel.",
+    "Nearby flag banners and map details can still show Spot Battle for a Deathrace."
+  ]
 }

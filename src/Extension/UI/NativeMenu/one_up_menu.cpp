@@ -17,6 +17,7 @@
 #include "Extension/Throwdowns/native_flag_bubble.h"
 #include "Extension/Throwdowns/one_up_placement.h"
 #include "Extension/Throwdowns/throwdown_lab.h"
+#include "Extension/Throwdowns/throwdown_relay.h"
 #include "Extension/Multiplayer/Session/session.h"
 #include "Extension/Multiplayer/Hud/native_party.h"
 #include "Extension/Customization/local_player_card_runtime.h"
@@ -24,6 +25,8 @@
 #include "Engine/Game/Build/20260929/engine.h"
 #include "Engine/Game/Build/20260929/native_menu.h"
 #include "Engine/Game/Build/20260929/native_party.h"
+#include "native_join_context.h"
+#include "native_flag_interaction.h"
 #include <Windows.h>
 #include <algorithm>
 #include <array>
@@ -90,6 +93,7 @@ struct MapBranding {
     std::vector<BrandingPresenter> card;
     std::uint32_t card_mmid{};
 };
+struct JoinCard {std::vector<BrandingPresenter> presenters;Value badge;};
 struct ModeMarker { Value notice, anchor, item; };
 struct RaceHudPlayer { Value list, rank, name, timer, background; unsigned place=~0U; bool crown=false; };
 struct NativeSetupRows {
@@ -178,6 +182,8 @@ struct State {
     ModeHud mode_hud,oneup_result_hud;
     HudResultsWindow oneup_result_window;
     MapBranding map_branding;
+    std::atomic<std::uint32_t> join_mmid{};
+    std::map<Handle,JoinCard> join_cards;
     MatchPanel match_panel;
     std::atomic<bool> match_panel_open{};
     std::mutex panel_input_mutex;
@@ -217,7 +223,15 @@ struct State {
     std::uint64_t waiting_diagnostic{};
     std::set<Handle> waiting_widgets;
     std::set<Handle> waiting_retired_notifications;
+    std::mutex interaction_mutex;
+    menu_data::NativeFlagInteraction interaction;
+    struct InteractionBranding {Value model,title,icon,badge;std::string applied;};
+    InteractionBranding interaction_branding;
     std::uint64_t waiting_stock_revision{};
+    struct StockWaitingSlot {Value slot,saved;Handle notification{};};
+    std::map<Handle,StockWaitingSlot> stock_waiting_slots;
+    std::uint64_t stock_waiting_generation{};
+
     std::set<Handle> waiting_backups;
     std::set<Handle> waiting_hidden_slots;
     std::map<Handle,Value> waiting_originals;
@@ -269,12 +283,16 @@ void mode_hud(const Context& c);
 void mode_hud_transients(const Context& c,const modes::NativeView& view,std::uint64_t now);
 void mode_action(const Context& c,const Action& a);
 void mode_art(const Context& c,std::span<const Value> fields,const std::string& logo);
+void restore_interaction_branding(const Context& c);
+void custom_flag_interaction(const Context& c);
 void mode_hud_publish(const Context& c,bool show,bool countdown=false,bool intro=false,bool blind=false,bool results=false,bool race=false);
 void mode_results(const Context&,const modes::NativeView&,const overlay::ModesHud&,const throwdowns::Definition&,ModeHud*);
 void match_panel_notice_width(const Context&,Value,float);
 void challenge_header(const Context&,ChallengeHeader&,std::string_view,const std::string&,const std::string&,Value,std::int32_t,std::int32_t);
 void restore_match_panel(const Context& c);
 void restore_map_branding(const Context& c);
+void restore_join_branding(const Context& c);
+void custom_join_details(const Context& c);
 void throwdown_map_identity(const Context& c);
 bool request_menu_toggle(const Context& c);
 bool discard_mode_setup() {
@@ -373,7 +391,18 @@ Address asset(const Context& c, const char* name) {
     std::vector<Address> anchors;
     std::set<unsigned> domains;
     const auto add_anchor=[&](Address anchor) {
-        if(anchor && domains.insert(read<std::uint16_t>(anchor+0x16)).second)anchors.push_back(anchor);
+        // A prior map's raw blueprint is not an asset-domain lease. Discard
+        // expired anchors locally so they cannot abort resident-domain lookup.
+        try {
+            if(!anchor)return;
+            const auto type=read<Address>(anchor+8);
+            if(type!=c.base+build::native_menu::widget_blueprint_type &&
+               type!=c.base+build::native_menu::texture_asset_type &&
+               type!=c.base+build::native_menu::image_asset_type)return;
+            const auto domain=read<std::uint16_t>(anchor+0x16);
+            if(domain<0xbbf && read<Address>(c.base+build::engine::domain_owners+domain*8ULL) &&
+               domains.insert(domain).second)anchors.push_back(anchor);
+        } catch(const std::exception&) { /* The native level retired this anchor. */ }
     };
     // CategoryTile_Widget is a shared foundation asset. Its parent domain
     // cannot find the Throwdown resources in the child domain. The retained
@@ -1199,6 +1228,9 @@ void release(const Context& c,bool preserve_match_input=false) {
             "Throwdowns: picker generation retired; active gameplay HUD, native panel and delegates retained.");
         return;
     }
+    restore_interaction_branding(c);
+    {std::lock_guard interaction_lock(s.interaction_mutex);s.interaction={};}
+    restore_join_branding(c);s.join_mmid.store(0);
     restore_map_branding(c);
     restore_match_panel(c);
     session_marker_controls(c,true);
@@ -1217,7 +1249,7 @@ void release(const Context& c,bool preserve_match_input=false) {
             if(owned)c.set(presentation.first,Widget{});
         }
     s.waiting_presentations.clear();
-    s.waiting_hidden_slots.clear();
+    s.waiting_hidden_slots.clear();s.stock_waiting_slots.clear();s.stock_waiting_generation=0;
     { std::lock_guard lock(s.mutex);
       std::erase_if(s.pending,[](const Action& a){return a.command!="oneup" && a.command!="mode-setup-area" && a.command!="mode-setup-join" && a.command!="panel-quit" && a.command!="throwdown-panel" && a.command!="mode-panel-quit" && a.command!="mode-throwdown-panel" && a.command!="mode-wait-start" && a.command!="mode-wait-leave";}); }
     s.owned.release([&] {
@@ -1248,7 +1280,7 @@ void release(const Context& c,bool preserve_match_input=false) {
     },[&](Value value){c.destroy(value);});
     s.page={}; s.cards={}; s.card={}; s.panel={}; s.panel_anchor={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.body_items={}; s.confirm_action={}; s.original_actions={};
     s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={};
-    s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.details_list={};s.rows.clear(); s.originals.clear(); s.assets.clear(); s.displayed.clear(); s.duration_choices.clear(); s.details=false;
+    s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.interaction_branding={};{std::lock_guard interaction_lock(s.interaction_mutex);s.interaction={};}s.join_cards.clear();s.join_mmid.store(0);s.details_list={};s.rows.clear(); s.originals.clear(); s.assets.clear();s.anchor_asset=0;s.primary_input=0; s.displayed.clear(); s.duration_choices.clear(); s.details=false;
     clear_hud_state(preserve_match_input);
     s.setup_open.store(false,std::memory_order_release);
 }
@@ -2042,9 +2074,20 @@ void waiting_hud(const Context& c) {
         s.waiting_presentations.clear();s.waiting_counts.clear();s.waiting_hidden_slots.clear();
         s.waiting_stock_revision=stock_revision;
     }
+    const auto stock=native_queue_hud_state();
+    if(s.stock_waiting_generation!=stock.generation) {
+        for(const auto& [handle,slot]:s.stock_waiting_slots) {
+            if(c.type_of(handle)!=slot.slot.type)continue;
+            const auto at=game::native_data().models.value(c.manager,handle,0,1);
+            if(at && !read<Widget>(at).data.handle && !read<Widget>(at).blueprint)
+                c.copy(slot.slot,c.address(slot.saved));
+        }
+        s.stock_waiting_slots.clear();s.stock_waiting_generation=stock.generation;
+    }
     const auto mode=modes::native_view();
     const auto flag_game=one_up::native_flag_mode_game();
     const bool generic=flag_game && mode.active && mode.game==flag_game;
+    const bool waiting_guest=generic?!mode.leading:(v.state.match && v.state.leader!=v.local);
     const auto* definition=generic?throwdowns::registry().mode(static_cast<unsigned>(mode.settings.mode)):nullptr;
     const bool registration_owned=one_up::flag_registration_owned();
     const bool retiring=one_up::flag_registration_retiring() ||
@@ -2058,17 +2101,14 @@ void waiting_hud(const Context& c) {
     // The live HUD is in the gameplay asset domain, which need not be a parent
     // of the card's domain. Resolve its registered type directly.
     constexpr std::uint32_t hash=273922540U; // NotificationViewModel
-    const auto count=generic?(mode.state?modes::lobby_ready_count(*mode.state):(mode.leading?1U:0U)):awaiting_lobby?1:
-        std::count_if(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.connected && p.ready;});
-    const auto joined=generic?(mode.state?std::max<std::size_t>(1,mode.state->standings.size()):1U):0U;
+    const auto count=generic?(mode.state?modes::lobby_enrolled_count(*mode.state):1U):awaiting_lobby?1:
+        std::count_if(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.connected;});
     const auto selected=one_up::native_flag_options();
     const auto capacity=generic?mode.capacity:awaiting_lobby?selected.players:v.state.config.max_players;
     const std::string name=definition?definition->name:"1-UP";
     std::string message;
     if(generic && !mode.waiting_status.empty())message=mode.waiting_status;
-    else if(lobby && generic) message=std::to_string(count)+"/"+std::to_string(joined)+" ready"+
-        (mode.leading?"  |  Host starts":"  |  Waiting for host");
-    else if(lobby) message="Waiting for players  "+std::to_string(count)+" / "+std::to_string(capacity)+" ready";
+    else if(lobby) message=waiting_guest?"Enrolled  |  Waiting for host":"Enrolled skaters  |  Host starts";
     else if(generic) message=mode.waiting_status;
     else if(v.state.phase==one_up::Phase::countdown) message="Starting in "+std::to_string((v.remaining+999)/1000);
     else if(v.state.phase==one_up::Phase::finished) message=v.name(v.state.winner)+" wins!";
@@ -2101,6 +2141,12 @@ void waiting_hud(const Context& c) {
                         s.waiting_presentations.erase(saved);
                     }
                 }
+                if(const auto stock_slot=s.stock_waiting_slots.find(handle);stock_slot!=s.stock_waiting_slots.end()) {
+                    const auto original=read<Widget>(c.address(stock_slot->second.saved));
+                    if(!current.data.handle && !current.blueprint)current=original;
+                    else if(current.data.handle!=original.data.handle || current.blueprint!=original.blueprint)
+                        s.stock_waiting_slots.erase(stock_slot); // Native remount owns this slot now.
+                }
                 current.data.handle=waiting_notification_source(current.data.handle,s.waiting_originals);
                 const auto type=current.data.handle?c.type_of(current.data.handle):0;
                 if(!type)return NotificationMountNode{};
@@ -2113,6 +2159,30 @@ void waiting_hud(const Context& c) {
                 if(std::none_of(slots.begin(),slots.end(),[&](const auto& slot){return slot.handle==mounted->presentation;}))
                     slots.push_back({mounted->presentation,c.type_of(mounted->presentation)});
             }
+        }
+    }
+    // Retire only exact mounted stock queue notices, preserving unrelated
+    // notifications and every live waiting queue. The server/relay events own
+    // this lifetime; no timer or "still registered" heuristic keeps it alive.
+    if(stock.generation)for(const auto& [handle,presentations]:mounted_notifications) {
+        const Value source{handle,c.type_of(handle)};
+        if(!source.type || s.waiting_widgets.contains(handle))continue;
+        const auto title=c.text(c.path(source,{0x1c1d36ea,0x44688629,text_field}));
+        const bool queue_title=title=="Skate Jam" || title=="SKATE JAM" || title=="ID_ACTIVITY_JAMSESSION_TITLE" ||
+            title=="Spot Battle" || title=="SPOT BATTLE" || title=="ID_ACTIVITY_SPOTBATTLE_TITLE" ||
+            title=="S.K.A.T.E." || title=="ID_ACTIVITY_THROWDOWNSKATE_TITLE";
+        if(!queue_title || c.text(c.path(source,{0xc13bcfcd,0x58c9d354,text_field}))!="ID_LEAVE")continue;
+        for(const auto slot:presentations) {
+            auto found=s.stock_waiting_slots.find(slot.handle);
+            if(found==s.stock_waiting_slots.end()) {
+                const auto saved=make(c,presenter,slot.type);c.copy(saved,c.address(slot));
+                found=s.stock_waiting_slots.emplace(slot.handle,State::StockWaitingSlot{slot,saved,handle}).first;
+            }
+            const auto current=read<Widget>(c.address(slot));
+            const auto original=read<Widget>(c.address(found->second.saved));
+            if(!stock.waiting && (current.data.handle==handle || (!current.data.handle && !current.blueprint))) {
+                if(current.blueprint || current.data.handle)c.set(slot,Widget{});
+            } else if(stock.waiting && !current.data.handle && !current.blueprint)c.set(slot,original);
         }
     }
     const auto candidates=c.roots({hash});
@@ -2154,6 +2224,15 @@ void waiting_hud(const Context& c) {
         const auto model=s.waiting_originals.at(source.handle);
         const auto start=c.field(model,0xd31e2918),leave=c.field(model,0xc13bcfcd);
         clear_value(c,c.field(start,0x67212c85));
+        c.set_if_changed(c.field(start,0x659db23e),false);
+        // The authored notification hides SecondaryButton when its label is
+        // empty. Clear its action too: a guest has only Leave, including after
+        // this model was previously mounted for a host.
+        const auto start_action=c.path(start,{0x0fb0d794,0xa704272a,0xc52416ef,0xa704272a,0xa2b71c93});
+        const bool can_start=lobby && !waiting_guest;
+        const auto start_input=can_start?asset(c,"Configurations/Input/UI/UI_ActivityNotificationSecondaryInteract"):0;
+        c.set_if_changed(c.field(start_action,0x3d00de27),start_input);
+        c.set_if_changed(c.field(start_action,0x0169c2db),start_input);
         const auto heading=c.field(model,0x1c1d36ea);
         plain_label(c,c.field(heading,0x44688629),name);
         plain_label(c,c.field(heading,0x00f3b15e),message);
@@ -2162,7 +2241,12 @@ void waiting_hud(const Context& c) {
         // for Deathrace -> 1-UP. Its live flag selects the rules at dispatch;
         // a retired/hidden card or a real Spot Battle fails the owner check.
         footer_action(c,leave,"LEAVE","flag-wait-leave",std::to_string(source.handle));
-        footer_action(c,start,lobby?(generic && !mode.leading?"READY":"START"):name,"flag-wait-start",std::to_string(source.handle));
+        if(can_start)footer_action(c,start,"START","flag-wait-start",std::to_string(source.handle));
+        else {
+            plain_label(c,c.field(start,0x58c9d354),"");
+            clear_value(c,c.field(start_action,0x9c76b86c));
+            c.text(c.field(start_action,0xb1e14cd6),"");
+        }
         if(!s.waiting_badge.handle) {
             s.waiting_badge=make(c,texture_schema);
             c.set(c.field(s.waiting_badge,0xf524c836),96.f);
@@ -2182,8 +2266,7 @@ void waiting_hud(const Context& c) {
             c.set(decorator,participant_widget);
         }
         const auto connected=generic || awaiting_lobby?count:std::count_if(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.connected;});
-        plain_label(c,c.field(participants,0x58c9d354),generic?std::to_string(count)+"/"+std::to_string(joined)+" ready":
-            std::to_string(connected)+"/"+std::to_string(capacity));
+        plain_label(c,c.field(participants,0x58c9d354),std::to_string(connected)+"/"+std::to_string(capacity));
         // CountdownViewModel explicitly supports an outside time source when
         // DoCountdown is false. Keep the authored timer artwork/animation and
         // feed the synchronized match clock, never the native S.K.A.T.E. clock.
@@ -2228,8 +2311,14 @@ void waiting_hud(const Context& c) {
 void mount_hud(const Context& c,Value model,Address blueprint,Value& anchor,Value& item,int id,bool center) {
     auto& s=state();
     const auto roots=c.roots({0xe4c44873}); // HudViewModel, including authored defaults
+    // ModelManager's name lookup resolves this alias to the authored default,
+    // not the instance mounted by the game. Compare typed storage rather than
+    // assuming anything about handle generations or optional Compass/D-Pad.
+    const auto defaults=c.type_of(0xe4c44873)?game::native_data().models.value(c.manager,0xe4c44873,0,1):0;
+    Handle authored{};
     std::vector<HudRootCandidate> candidates;
     for(const auto& root:roots) {
+        if(defaults && root.value==defaults)authored=root.model.handle;
         const auto stack=c.field(root.model,0x44736c13); // FullAspectRatioStack
         const bool active=read<bool>(c.address(c.field(stack,0x369babfe)));
         unsigned populated{};
@@ -2242,7 +2331,7 @@ void mount_hud(const Context& c,Value model,Address blueprint,Value& anchor,Valu
         }
         candidates.push_back({root.model.handle,active,populated});
     }
-    const auto selected=mounted_hud_root(candidates,s.hud_root.handle);
+    const auto selected=mounted_hud_root(candidates,s.hud_root.handle,authored);
     require(selected!=0,"Native gameplay HUD is not mounted.");
     if(selected!=s.hud_root.handle || !s.hud_stack.handle) {
         publish_hud_items(c,false,false); // Detach from a retired root before rebinding.
@@ -2549,6 +2638,7 @@ void trace_official_panel_models(const Context& c,std::uint64_t now) noexcept {
 #endif
 void gameplay_hud(const Context& c,std::uint64_t now) {
     auto& s=state();
+    try {custom_join_details(c);}catch(const std::exception&) { /* Retry only this native card, preserving its controls. */ }
     // Retire expired countdown/intro before any optional HUD builder can fail.
     try {mode_hud_transients(c,modes::native_view(),now);}
     catch(const std::exception&) { /* Retired native parents are retried safely. */ }
@@ -2567,7 +2657,7 @@ void gameplay_hud(const Context& c,std::uint64_t now) {
         }
         return;
     }
-    try {throwdown_map_identity(c);}
+    try {throwdown_map_identity(c);custom_flag_interaction(c);}
     catch(const std::exception& e) {
         static std::uint64_t report{};
         if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"Custom Throwdown map identity: {}",e.what());}
@@ -2628,21 +2718,18 @@ void render(const Context& c) {
         setting_row(c,shown,"players-setting","Players","",true);
         setting_row(c,shown,"turn-setting","Turn","",true);
         penalty_row(c,shown);
-        footer_action(c,s.footer_confirm,s.place_until?"CONNECTING...":"READY UP","place");
+        footer_action(c,s.footer_confirm,s.place_until?"CONNECTING...":"PLACE FLAG","place");
         for(const auto& offer:v.offers) action(("offer-"+std::to_string(offer.leader)).c_str(),std::string(offer.started?"Watch ":"Join ")+offer.name+"'s 1-Up","oneup","join "+std::to_string(offer.leader)+" "+std::to_string(offer.match));
     } else {
         if(v.state.phase==one_up::Phase::lobby) {
-            const auto ready_count=std::count_if(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.ready && p.connected;});
             setting_row(c,shown,"session-type","Session Type","1-Up");
             setting_row(c,shown,"lobby-players","Players",std::to_string(v.state.players.size())+" / "+std::to_string(v.state.config.max_players));
             setting_row(c,shown,"lobby-duration","Duration",std::to_string(v.state.config.turn_ms/1000)+" sec");
             penalty_row(c,shown);
-            const auto me=std::find_if(v.state.players.begin(),v.state.players.end(),[&](const auto& p){return p.id==v.local;});
-            const bool ready=me!=v.state.players.end() && me->ready;
-            if(v.state.leader==v.local && ready) footer_action(c,s.footer_confirm,"START 1-UP","oneup","start");
-            else if(v.participant) footer_action(c,s.footer_confirm,ready?"READY":"READY UP","oneup","ready");
-            else footer_action(c,s.footer_confirm,"JOIN","oneup","enroll");
-            note("lobby-help",ready_count<2?"Waiting for skaters to ready up.":"Everyone is ready!");
+            if(v.state.leader==v.local)footer_action(c,s.footer_confirm,"START 1-UP","oneup","start");
+            else if(v.participant)footer_action(c,s.footer_confirm,"","","");
+            else footer_action(c,s.footer_confirm,"ENROLL","oneup","enroll");
+            note("lobby-help",v.state.leader==v.local?"Start when your skaters have enrolled.":"Enrolled. Waiting for the host to start.");
         }
         else if(v.state.phase==one_up::Phase::finished) {
             note("winner",v.name(v.state.winner)+" WINS!");
@@ -2690,6 +2777,19 @@ void render(const Context& c) {
 #include "throwdown_map_identity.inl"
 } // namespace
 bool native_one_up_setup_open() noexcept { return state().setup_open.load(std::memory_order_acquire); }
+void observe_native_custom_join_details(std::uintptr_t vm) noexcept {
+    try {
+        const auto mmid=menu_data::native_join_mmid(vm,[](Address at,void* out,std::size_t count){return memory::peek_bytes(at,out,count);});
+        if(mmid)state().join_mmid.store(*mmid,std::memory_order_release);
+    } catch(...) {}
+}
+void observe_native_flag_interaction(std::uintptr_t vm) noexcept {
+    try {
+        if(const auto interaction=menu_data::native_flag_interaction(vm,[](Address at,void* out,std::size_t n){return memory::peek_bytes(at,out,n);})) {
+            auto& s=state();std::lock_guard interaction_lock(s.interaction_mutex);s.interaction=*interaction;
+        }
+    } catch(...) {}
+}
 bool native_one_up_hud_ready() noexcept { return state().hud_ready.load(std::memory_order_acquire); }
 bool native_one_up_match_panel_open() noexcept { return state().match_panel_open.load(std::memory_order_acquire); }
 bool native_throwdown_gameplay_input_allowed() noexcept {
@@ -2723,7 +2823,7 @@ bool release_native_one_up_menu(std::uintptr_t base) noexcept {
     auto& s=state(); if(s.owned.empty()) { s.owner.store(0); s.setup_open.store(false); return true; }
     try { const auto ui=read<Address>(base+build::engine::ui_manager); const auto manager=ui?read<Address>(ui+0x140):0;
         require(manager!=0,"1-Up UI manager unavailable during cleanup.");
-        if(manager!=s.manager) { s.owned.manager_replaced(); s.hud_active_budget.manager_replaced(); s.hud_surfaces.clear(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear(); s.displayed.clear(); s.generations.clear(); s.details=false; return true; }
+        if(manager!=s.manager) { s.owned.manager_replaced(); s.hud_active_budget.manager_replaced(); s.hud_surfaces.clear(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.interaction_branding={};{std::lock_guard interaction_lock(s.interaction_mutex);s.interaction={};}s.join_cards.clear();s.join_mmid.store(0);s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0;s.stock_waiting_slots.clear();s.stock_waiting_generation=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear();s.anchor_asset=0;s.primary_input=0; s.displayed.clear(); s.generations.clear(); s.details=false; return true; }
         const Context c(base,manager); game::ModelWriteLock lock(manager); release(c); s.generations.clear(); return true;
     } catch(const std::exception& e) { logging::log(logging::Level::warning,logging::Channel::ui,"1-Up native menu cleanup: {}",e.what()); return false; }
 }
@@ -2801,7 +2901,7 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
     s.next_tick=now+200;
         const auto ui=read<Address>(base+build::engine::ui_manager); const auto manager=ui?read<Address>(ui+0x140):0; if(!manager)return;
         const Context c(base,manager); game::ModelWriteLock lock(manager);
-        if(s.manager && s.manager!=manager) { s.owned.manager_replaced(); s.hud_active_budget.manager_replaced(); s.hud_surfaces.clear(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear(); s.displayed.clear(); s.generations.clear(); s.details=false; }
+        if(s.manager && s.manager!=manager) { s.owned.manager_replaced(); s.hud_active_budget.manager_replaced(); s.hud_surfaces.clear(); s.picker_grid={};s.picker_anchor={};s.oneup_logo={};s.picker_stock={};s.picker_stock_logos={}; s.mode_cards.clear();s.selected_mode.clear();s.mode_hud={};s.map_branding={};s.interaction_branding={};{std::lock_guard interaction_lock(s.interaction_mutex);s.interaction={};}s.join_cards.clear();s.join_mmid.store(0);s.details_list={};s.marker_originals.clear(); clear_hud_state(); s.official_originals.clear(); s.official_panels.clear(); s.official_headers.clear(); s.official_contents.clear(); s.official_slot_panels.clear(); s.official_sliders.clear();s.official_setup_rows.clear();s.official_page_actions.clear(); s.solo_sliders.clear(); s.waiting_originals.clear(); s.waiting_widgets.clear(); s.waiting_backups.clear(); s.waiting_presentations.clear(); s.waiting_counts.clear(); s.waiting_retired_notifications.clear(); s.waiting_hidden_slots.clear(); s.waiting_stock_revision=0;s.stock_waiting_slots.clear();s.stock_waiting_generation=0; s.waiting_label={}; s.waiting_countdown={}; s.waiting_badge={}; s.waiting_diagnostic=0; s.owner.store(0); s.setup_open.store(false); s.page={}; s.cards={}; s.panel={}; s.badge={}; s.official_badge={};s.official_race_badge={};s.official_race=0; s.duration_selector={}; s.originals.clear(); s.rows.clear(); s.assets.clear();s.anchor_asset=0;s.primary_input=0; s.displayed.clear(); s.generations.clear(); s.details=false; }
         s.manager=manager; s.base=base;
         // The native menu lifetime releases models BEFORE a level unload and
         // rebuilds each new page below. Multiplayer world/session rebinding is
@@ -2857,10 +2957,9 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
                     if(generic) {
                         if(start) {
                             if(mode.leading)modes::request_native_start(mode.world,mode.game);
-                            else modes::request_native_ready(mode.world,mode.game);
                         }
                         else modes::request_native_quit(mode.world,mode.game);
-                    } else one_up::queue(start?"start":"leave");
+                    } else if(!start || v.state.leader==v.local)one_up::queue(start?"start":"leave");
                 }
                 else if(action.command=="oneup")one_up::queue(action.argument);
                 else if(action.command=="mode-wait-start" || action.command=="mode-wait-leave") {
@@ -2868,7 +2967,6 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
                     if(mode.active && mode.waiting && action.argument==std::to_string(mode.game)) {
                         if(action.command=="mode-wait-start") {
                             if(mode.leading)modes::request_native_start(mode.world,mode.game);
-                            else modes::request_native_ready(mode.world,mode.game);
                         }
                         else modes::request_native_quit(mode.world,mode.game);
                     }

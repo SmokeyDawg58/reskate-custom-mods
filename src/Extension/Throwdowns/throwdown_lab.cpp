@@ -2411,7 +2411,7 @@ bool queue_throwdown_spawn(std::uint64_t token, std::uint32_t host, const std::s
 }
 bool queue_custom_throwdown_flag(std::uint64_t token,std::uint32_t host,const std::string& key,
     const std::array<float,3>& at,float yaw) noexcept {
-    if(!token || !host || !modes::parse_mode(key) || key=="oneup" || !std::isfinite(yaw) ||
+    if(!token || !host || (key!="oneup" && !modes::parse_mode(key)) || !std::isfinite(yaw) ||
        !std::all_of(at.begin(),at.end(),[](float n){return std::isfinite(n) && std::abs(n)<100000.f;}))return false;
     try {
         Job job{Job::Kind::spawn,host};job.token=token;job.series="SpotBattle";

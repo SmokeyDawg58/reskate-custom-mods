@@ -8,6 +8,7 @@
 #include "Extension/Multiplayer/Hud/native_party.h"
 #include "Extension/Settings/named_settings.h"
 #include "Extension/Modes/game_modes.h"
+#include "Extension/Throwdowns/one_up_runtime.h"
 #include <Windows.h>
 #include <chrono>
 #include <cmath>
@@ -31,6 +32,15 @@ std::uint64_t last_token{};
 std::vector<dingosdk::modes::NativeFlagOffer> custom_offers;
 std::vector<std::pair<dingosdk::modes::NativeFlagOffer,std::uint32_t>> custom_joins;
 bool accept_custom_join=true;
+dingosdk::multiplayer::one_up::View oneup_view;
+std::vector<std::string> oneup_commands;
+}
+namespace dingosdk::multiplayer::one_up {
+View view() {return oneup_view;}
+void queue(std::string_view command) {oneup_commands.emplace_back(command);}
+bool adopt_native_one_up_flag(std::uint64_t world,std::uint32_t mmid,const std::array<float,3>&,float,unsigned,unsigned) noexcept {
+    return world==777 && mmid!=0;
+}
 }
 namespace dingosdk::modes {
 std::vector<NativeFlagOffer> native_flag_offers(std::uint64_t) {return custom_offers;}
@@ -168,6 +178,24 @@ const ThrowdownRelayInput no_session{0, {}, true, 0};
 void end_session() {
     tick(no_session);
     calls.clear();
+}
+
+void native_queue_banner_lifetime() {
+    const auto before=native_queue_hud_state().generation;
+    local(Local::created,501);auto queue=native_queue_hud_state();
+    check(queue.generation>before && queue.waiting,"Creating a native queue enables its waiting notice");
+    local(Local::force_started,501);check(native_queue_hud_state().waiting,"A Start request alone does not assume the event successfully began");
+    local(Local::entered,501);check(!native_queue_hud_state().waiting,"Actual activity entry retires the long-timer waiting banner");
+    local(Local::ended,501);check(!native_queue_hud_state().waiting,"A completed Skate Jam cannot resurrect its waiting banner");
+    local(Local::joined,502);auto rejoined=native_queue_hud_state();
+    check(rejoined.generation>queue.generation && rejoined.waiting,"A new enrollment gets a fresh waiting notice");
+    local(Local::left,502);check(!native_queue_hud_state().waiting,"Leave retires the queue notice immediately");
+    local(Local::joined,503);local(Local::quit,503);
+    check(!native_queue_hud_state().waiting,"Quit cannot leave a stock waiting banner alive");
+    local(Local::created,504);retire_native_queue_hud();
+    check(!native_queue_hud_state().waiting,"A real level teardown retires its waiting notice");
+    local(Local::created,505);check(native_queue_hud_state().waiting,"The next map's fresh queue is visible");
+    end_session();
 }
 
 // Another player's drop: shown, joined natively, started by its leader, scored.
@@ -831,6 +859,23 @@ void custom_flag_flow() {
     throwdown_relay_spawned(same_tick,504,10);local(Local::joined,504);tick(in);
     check(custom_joins.back().second==504 && count("destroy")==0,"native Join in the spawn callback's tick resolves the correct mode");
     custom_offers.clear();end_session();
+    calls.clear();oneup_view={};oneup_view.world=777;oneup_view.can_create=true;
+    oneup_view.offers.push_back({leader,0x1234567800000021ULL,"Host",false,{11,2,33},dingosdk::multiplayer::one_up::default_facing,1,30,6});
+    tick(in);
+    check(count("custom flag")==1 && find("custom flag")->series=="oneup","1-UP lobby snapshots create their own native branded flag");
+    throwdown_relay_spawned(last_token,601,10);tick(in);
+    check(custom_throwdown_flag_key(601)=="oneup","1-UP flag has its own identity before enrollment");
+    local(Local::joined,601);tick(in);
+    check(!oneup_commands.empty() && oneup_commands.back()=="join "+std::to_string(leader)+" 1311768464867721249" && count("start")==0,
+        "1-UP enrollment keeps the full 64-bit match ID and never starts the donor Spot Battle");
+    oneup_view.state.match=oneup_view.offers.front().match;tick(in);
+    check(count("custom flag")==1,"a participant must not respawn another invitation while already joined");
+    oneup_view.state={};tick(in);
+    check(count("custom flag")==2,"leaving an open 1-UP lobby restores its joinable flag");
+    oneup_view.offers.front().started=true;
+    throwdown_relay_spawned(last_token,602,10);tick(in);
+    check(custom_throwdown_flag_key(602).empty(),"late 1-UP flags retire when the lobby starts");
+    oneup_view={};end_session();
 }
 } // namespace
 
@@ -856,6 +901,7 @@ void grouped_number_checks() {
 }
 int main() {
     try {
+        native_queue_banner_lifetime();
         guest_flow();
         leader_flow();
         removal_flow();

@@ -49,7 +49,6 @@ overlay::ModesMenu menu_view();
 struct NativeView {
     bool active{}, leading{}, placing{};
     bool pending_flag{}, flag_placed{}, waiting{};
-    bool local_ready{};
     std::uint64_t local{}, leader{}, world{};
     std::uint64_t state_sampled_ms{};
     std::uint32_t game{};
@@ -74,9 +73,10 @@ struct NativeFlagOffer {
     Vec3 at{};
     float yaw{};
     unsigned players=1,duration_s=120,required_gates{};
+    std::uint64_t native_match{}; // Full 1-UP identity; mode IDs remain 32 bit.
     bool operator==(const NativeFlagOffer&) const=default;
     bool same_registration(const NativeFlagOffer& other) const {
-        return leader==other.leader && game==other.game && key==other.key && at==other.at && yaw==other.yaw;
+        return leader==other.leader && game==other.game && native_match==other.native_match && key==other.key && at==other.at && yaw==other.yaw;
     }
 };
 // Game-thread bridge: the existing mode invitation owns the race; a native
@@ -88,7 +88,6 @@ void accept_race_start(std::uint64_t world, std::uint32_t game, const Vec3& at, 
 // stays an explicit waiting-HUD hold action, dispatched on the client tick.
 void accept_native_start_flag(std::uint64_t world, std::uint32_t game, const Vec3& at, float yaw);
 bool request_native_start(std::uint64_t world, std::uint32_t game) noexcept;
-bool request_native_ready(std::uint64_t world, std::uint32_t game) noexcept;
 bool request_native_quit(std::uint64_t world, std::uint32_t game) noexcept;
 bool active() noexcept;
 std::optional<Vec3> peek_race_recovery_velocity() noexcept;

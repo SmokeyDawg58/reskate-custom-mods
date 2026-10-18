@@ -104,7 +104,7 @@ int main() {
         create_selected_spawn(r,picked,7202);
         check(r.hosted && r.spot==picked.position && r.spot!=*r.input.position);
         check(r.facing==picked.facing);
-        check(r.selected.config.max_players==6 && r.selected.config.turn_ms==50000 && r.ready_pending);
+        check(r.selected.config.max_players==6 && r.selected.config.turn_ms==50000 && r.selected.phase==Phase::lobby);
         const auto placed_match=r.selected.match;
         create_selected_spawn(r,SpawnRequest{{0,0,0},10,a,30,4},7203);
         check(r.selected.match==placed_match && r.spot==picked.position);
@@ -149,7 +149,7 @@ int main() {
         };
         deliver(guest); guest.action = Action::ready; guest.sequence = 2; guest.flag = true; deliver(guest);
         queue("ready"); test_now = 1001; tick(0, input);
-        check(view().state.players.size() == 2 && view().state.players[0].ready && view().state.players[1].ready);
+        check(view().state.players.size() == 2 && !view().state.players[0].ready && view().state.players[1].ready);
         queue("start"); test_now = 1002; tick(0, input); check(view().state.phase == Phase::countdown && !waits_offboard());
         check(countdown_locks_input());
         check(view().state.config.countdown_ms==6000);
@@ -190,7 +190,7 @@ int main() {
         input.peers.push_back(peer); test_now=58611; tick(0,input);
         check(!view().state.match && !view().solo_test && !waits_offboard());
         current.players=1;create_at_spawn(current);test_now=58612;tick(0,input);
-        check(view().state.config.max_players==1 && view().state.players[0].ready);
+        check(view().state.config.max_players==1 && view().state.phase==Phase::lobby);
         queue("start");test_now=58613;tick(0,input);
         check(view().solo_test && view().state.phase==Phase::countdown && countdown_locks_input());
         test_now=64613;tick(0,input);
@@ -203,7 +203,7 @@ int main() {
         create_at_spawn(SpawnRequest{{1,2,3},12,7,30,1});test_now=65000;check(tick(0,offline).empty());
         check(view().state.match && !view().state.players.front().ready);
         queue("start");test_now=65001;tick(0,offline);
-        check(view().state.phase==Phase::lobby && runtime().start_pending); // Fast Start waits for flag arrival.
+        check(view().state.phase==Phase::countdown && view().positioning); // Start arms the countdown; arrival still holds its clock.
         offline.position=std::array<float,3>{1,2,3};test_now=65501;tick(0,offline);
         test_now=65502;tick(0,offline);
         check(view().solo_test && view().state.phase==Phase::countdown && countdown_locks_input());
@@ -217,7 +217,7 @@ int main() {
         offline.world=13;tick(0,offline);check(!view().state.match && !countdown_locks_input());
         offline.position=std::array<float,3>{1,2,3};
         create_at_spawn(SpawnRequest{{1,2,3},13,7,30,1});test_now=72000;tick(0,offline);
-        test_now=72001;tick(0,offline);check(view().state.players.front().ready);
+        test_now=72001;tick(0,offline);check(view().state.phase==Phase::lobby);
         test_teleport_pending=true;
         queue("start");test_now=72002;tick(0,offline);
         check(view().positioning && countdown_locks_input());
@@ -236,7 +236,7 @@ int main() {
         const auto flag=std::array<float,3>{1,2,3};offline.position=flag;
         const Facing turn_facing{0,0,-1,0,1,0,1,0,0};
         create_at_spawn(SpawnRequest{flag,13,7,10,1,turn_facing});tick(0,offline);
-        ++test_now;tick(0,offline);check(view().state.players.front().ready);
+        ++test_now;tick(0,offline);check(view().state.phase==Phase::lobby);
         queue("start");++test_now;tick(0,offline);
         test_now+=6000;tick(0,offline);
         for(unsigned turn=1;turn<=4;++turn) {
@@ -273,7 +273,7 @@ int main() {
         clear(runtime());test_now=200000;
         offline=local_input(disconnected,7,14,flag);
         tick(0,offline);create_at_spawn(SpawnRequest{flag,14,7,30,1});tick(0,offline);
-        ++test_now;tick(0,offline);check(view().state.players.front().ready);
+        ++test_now;tick(0,offline);check(view().state.phase==Phase::lobby);
         const auto retained_match=view().state.match;
         offline=local_input(disconnected,7,14,std::nullopt);
         for(unsigned frame=0;frame<120;++frame) {test_now+=16;tick(0,offline);}
@@ -284,7 +284,7 @@ int main() {
         // On return, the same loaded world can start another accepted flag.
         offline=local_input(disconnected,7,14,flag);
         tick(0,offline);create_at_spawn(SpawnRequest{flag,14,7,30,1});tick(0,offline);
-        ++test_now;tick(0,offline);check(view().state.players.front().ready);
+        ++test_now;tick(0,offline);check(view().state.phase==Phase::lobby);
         offline=local_input(disconnected,7,14,std::nullopt);
         test_now+=1000;tick(0,offline);check(view().state.phase==Phase::lobby);
         offline=local_input(disconnected,7,14,flag);

@@ -13,7 +13,7 @@ bool Config::valid() const noexcept {
 Match::Match(std::uint64_t identity, std::uint64_t world, PlayerId leader, Config config) {
     if (!identity || !world || !leader || !config.valid()) throw std::invalid_argument("Invalid 1-Up match");
     state_.match = identity; state_.world = world; state_.leader = leader; state_.config = config;
-    state_.players.push_back({leader}); state_.notice = "Choose Ready when you are at the spot."; changed();
+    state_.players.push_back({leader}); state_.notice = "Enrolled. Waiting for the host to start."; changed();
 }
 void Match::changed() { ++state_.revision; }
 Player* Match::player(PlayerId id) {
@@ -35,13 +35,13 @@ bool Match::ready(PlayerId id, bool value) {
 bool Match::start(Time now) {
     if (state_.config.max_players == 1) return start_solo_test(now);
     if (state_.phase != Phase::lobby || state_.players.size() < 2 ||
-        std::any_of(state_.players.begin(), state_.players.end(), [](const Player& p) { return !p.connected || !p.ready; })) return false;
+        std::any_of(state_.players.begin(), state_.players.end(), [](const Player& p) { return !p.connected; })) return false;
     cursor_ = 0; state_.target = 0; state_.winner = 0;
     countdown(now); return true;
 }
 bool Match::start_solo_test(Time now) {
     if(state_.phase!=Phase::lobby || state_.players.size()!=1 ||
-       !state_.players.front().connected || !state_.players.front().ready) return false;
+       !state_.players.front().connected) return false;
     solo_test_=true; cursor_=0; state_.target=0; state_.winner=0;
     countdown(now); return true;
 }
@@ -54,7 +54,7 @@ bool Match::rematch(Time) {
     std::erase_if(state_.players, [](const Player& p) { return !p.connected; });
     for (auto& p : state_.players) { p.penalties = 0; p.ready = false; }
     state_.phase = Phase::lobby; state_.target = state_.best = 0; state_.winner = state_.active = 0;
-    state_.judged_player = 0; state_.notice = "Rematch: choose Ready."; changed(); return true;
+    state_.judged_player = 0; state_.notice = "Rematch opened. Waiting for the host to start."; changed(); return true;
 }
 void Match::cancel(std::string reason) {
     if (state_.phase == Phase::cancelled) return;

@@ -29,27 +29,17 @@ void check(bool condition, const std::string &what) {
 constexpr std::uint64_t a = 76561198000000001ULL, b = 76561198000000002ULL, c = 76561198000000003ULL;
 const std::vector<Vec3> square{{0, 0, 0}, {40, 0, 0}, {40, 0, 40}, {0, 0, 40}};
 
-void lobby_readiness_flow() {
-    LobbyReadiness lobby;
-    std::vector<std::uint64_t> guests{b,c};
-    check(!lobby.all(guests),"joined guests must explicitly ready before the host starts");
-    check(!lobby.mark(a,guests) && !lobby.mark(0,guests),"only a joined guest can ready their own place");
-    check(lobby.mark(b,guests) && !lobby.mark(b,guests),"retransmitted Ready is idempotent");
-    check(!lobby.all(guests) && lobby.mark(c,guests) && lobby.all(guests),"all joined guests ready unlocks host start");
+void lobby_enrollment_flow() {
     Message state;state.kind=Message::Kind::state;state.leader=a;state.game=11;
-    state.standings={{.player=a,.up=true},{.player=b,.up=lobby.ready(b)},{.player=c,.up=lobby.ready(c)}};
+    state.standings={{.player=a},{.player=b},{.player=c,.out=true}};
     const auto echoed=decode(encode(state));
-    check(echoed && lobby_ready_count(*echoed)==3,"authoritative setup state carries the ready count to every PC");
-    Message ready;ready.kind=Message::Kind::ready;ready.leader=a;ready.game=11;
-    check(decode(encode(ready))==ready,"explicit guest Ready roundtrips on the wire");
-    auto old=encode(ready);old[1]=12;check(!decode(old),"old mode versions cannot silently mix incompatible readiness rules");
-    auto truncated=encode(ready);truncated.pop_back();check(!decode(truncated),"truncated Ready is rejected");
-    lobby.remove(b);check(!lobby.ready(b),"a departing guest loses their ready state");
-    guests={c};lobby.retain(guests);check(lobby.all(guests),"remaining ready players can still start after a guest leaves");
-    guests.push_back(b);check(!lobby.all(guests),"a rejoining guest must ready again");
-    lobby.reset();check(!lobby.all(guests),"editing the course or settings clears guest readiness");
-    check(lobby.all({}),"solo host can start without nonexistent guests");
-    state.phase=Phase::playing;check(lobby_ready_count(state)==0,"turn indicators in gameplay are not lobby readiness");
+    check(echoed && lobby_enrolled_count(*echoed)==2,"enrolled players count without any Ready inputs; departed players do not");
+    state.standings.erase(state.standings.begin()+1);
+    check(lobby_enrolled_count(state)==1,"leaving the lobby immediately removes the guest");
+    state.standings.push_back({.player=b});
+    check(lobby_enrolled_count(state)==2,"re-enrollment needs no additional confirmation");
+    state.phase=Phase::playing;
+    check(lobby_enrolled_count(state)==0,"gameplay standings are not a lobby count");
 }
 
 void placement_camera_flow() {
@@ -1071,6 +1061,24 @@ void race_momentum_recovery_flow() {
     camera[0]=0;camera[2]=-1;camera[8]=1;camera[10]=0;
     check(race_compass_offset({-10,0,0},camera)==0,"compass bearing follows camera rotation independently of skating direction");
     RaceRecoveryGrace grace;
+    RaceHippyJump hippy;
+    check(!hippy.observe(true,100,100,0,false,500),"riding alone is not a hippy jump");
+    grace.observe(false,true,510);
+    check(!hippy.observe(true,504,100,0,false,510) && hippy.observe(true,504,100,3.f,false,550),
+        "riding-to-offboard becomes a hippy jump only when upward motion confirms the takeoff");
+    grace.cancel_runout();check(!grace.pending(),"confirmed hippy takeoff cancels a pending false runout");
+    check(hippy.observe(true,504,100,-2.f,false,900),"descending part of a hippy jump remains intentional");
+    check(!hippy.observe(true,504,100,-2.f,true,910),"a real collision during a hippy jump still recovers");
+    grace.observe(true,false,920);grace.cancel_runout();check(grace.pending(),"hippy filtering never cancels a full bail");
+    grace.reset();
+    RaceHippyJump board_loss;board_loss.observe(true,100,100,0,false,100);
+    check(!board_loss.observe(true,504,100,-1.f,false,110) && !board_loss.observe(true,504,100,0,false,400),
+        "accidental board loss and deliberate grounded dismount are not classified as jumps");
+    check(!lobby_departure_blocks_rejoin(Phase::setup) && lobby_departure_blocks_rejoin(Phase::playing),
+        "leaving before a race starts permits another explicit join without replaying an in-progress race");
+    Settings draft;draft.mode=Mode::race;draft.race_finish=true;draft.points={{0,0,0},{0,0,10},{0,0,20}};
+    check(!advertised_lobby_settings(draft,true).race_finish && advertised_lobby_settings(draft,false).race_finish && draft.race_finish,
+        "unsaved routes withdraw their invitations, and saving publishes the finish without mutating the draft");
     check(grace.observe(true,false,1000) && grace.waiting(2999) && !grace.ready(2999) && grace.ready(3000),
         "a full bail always receives two complete seconds before recovery");
     grace.observe(true,false,1800);check(grace.ready(3000),"repeated bail samples do not extend recovery indefinitely");
@@ -1313,7 +1321,7 @@ void race_checkpoint_back_flow() {
 int main() {
     try {
         area_flow();
-        lobby_readiness_flow();
+        lobby_enrollment_flow();
         placement_camera_flow();
         scoring_flow();
         wire_flow();

@@ -11,4 +11,6 @@ bool native_one_up_match_active() noexcept;
 // Prepare an owned request at native page publication or its client/UI tick.
 // Presentation is independent of the native flow's camera/input confirmation.
 void prepare_native_one_up_match_panel() noexcept;
+void observe_native_custom_join_details(std::uintptr_t vm) noexcept;
+void observe_native_flag_interaction(std::uintptr_t vm) noexcept;
 }

@@ -3,6 +3,8 @@
 #include "Extension/UI/NativeMenu/native_menu_ownership.h"
 #include "Extension/UI/NativeMenu/native_setup_roles.h"
 #include "Extension/UI/NativeMenu/native_hud_selection.h"
+#include "Extension/UI/NativeMenu/native_join_context.h"
+#include "Extension/UI/NativeMenu/native_flag_interaction.h"
 #include "Extension/UI/NativeMenu/native_hud_values.h"
 #include "Engine/Game/Input/owned_menu_input.h"
 #include "Extension/Throwdowns/native_flag_preview.h"
@@ -539,6 +541,71 @@ void live_hud_binding() {
           "A newly mounted populated root supersedes an empty previous root");
     roots[0].active=false;roots[1].active=false;
     check(mounted_hud_root(roots,roots[1].handle)==0,"Never retain a retired inactive HUD");
+    std::array hidden{HudRootCandidate{0x30001025e0000ULL,true,0},HudRootCandidate{0x200018f380000ULL,true,0}};
+    check(mounted_hud_root(hidden,0,hidden[0].handle)==hidden[1].handle,
+        "Compass and D-Pad both hidden still bind the unique live HUD, excluding the native authored alias");
+    const auto old=hidden[1].handle;hidden[1].active=false;
+    std::array next_map{hidden[0],hidden[1],HudRootCandidate{0x300018f380000ULL,true,0}};
+    check(mounted_hud_root(next_map,old,hidden[0].handle)==next_map[2].handle,
+        "Map travel rebinds a new empty live HUD even when its handle has advanced generation bits");
+    next_map[1].active=true;
+    check(mounted_hud_root(next_map,0,hidden[0].handle)==0,"Ambiguous empty HUD instances wait for ownership evidence");
+    next_map[1].active=false;next_map[2].active=false;
+    check(mounted_hud_root(next_map,old,hidden[0].handle)==0,"A lone active authored default never receives gameplay overlays");
+}
+void selected_native_join_context() {
+    using dingosdk::multiplayer::menu_data::native_join_mmid;
+    std::map<std::uintptr_t,std::byte> memory;
+    const auto put=[&]<class T>(std::uintptr_t at,const T& value) {
+        const auto bytes=std::as_bytes(std::span(&value,1));for(std::size_t i=0;i<bytes.size();++i)memory[at+i]=bytes[i];
+    };
+    const auto read=[&](std::uintptr_t at,void* target,std::size_t n) {
+        for(std::size_t i=0;i<n;++i){const auto found=memory.find(at+i);if(found==memory.end())return false;static_cast<std::byte*>(target)[i]=found->second;}return true;
+    };
+    using P=std::uintptr_t;
+    put(0x1038,P{0x2000});put(0x1030,P{0x3000});put(0x3000,P{0x2000});put(0x2010,std::uint32_t{0xebb4ab69});
+    put(0x2020,std::array<std::uint32_t,10>{624,40656,76600,21866,312,0,292,8520953,54067355,17437442});
+    put(0x3000+624,P{0x10000});put(0x3000+632,P{0x20000});put(0x10000+27912,P{0x4000});put(0x4000,P{0x5000});
+    put(0x5000,std::uint32_t{1847693693});put(0x5004,std::uint16_t{99});put(0x5006,std::uint16_t{352});put(0x502a,std::uint16_t{4});put(0x5038,P{0x6000});
+    for(unsigned i=0;i<4;++i)put(0x6000+i*24,std::uint32_t{});
+    put(0x6018,std::uint32_t{0x66ba7ea4});put(0x6020,std::uint16_t{0x150});
+    put(0x20000+168,P{0x7000});put(0x7000,P{0x8000});put(0x8000,P{0x4000});put(0x8150,std::uint32_t{501});
+    check(native_join_mmid(0x1000,read)==501U,"Native Details uses its exact selected MMId through a borrowed class reference");
+    put(0x8150,std::uint32_t{502});check(native_join_mmid(0x1000,read)==502U,"A new flag selection cannot inherit the previous Deathrace identity");
+    put(0x6020,std::uint16_t{0x154});check(!native_join_mmid(0x1000,read),"Reject mismatched class fields instead of guessing another flag");
+    put(0x6020,std::uint16_t{0x150});put(0x8000,P{0x9000});put(0x8008,P{0x4000});
+    check(native_join_mmid(0x1000,read)==502U,"Native class headers with a separate vtable retain their typed selection");
+    put(0x5000,std::uint32_t{1});check(!native_join_mmid(0x1000,read),"A stock or unrelated rule class cannot authorize custom join-page branding");
+}
+void native_flag_interaction_owner() {
+    using dingosdk::multiplayer::menu_data::native_flag_interaction;
+    std::map<std::uintptr_t,std::byte> bytes;
+    const auto put=[&]<class T>(std::uintptr_t at,const T& value) {
+        const auto data=std::as_bytes(std::span(&value,1));for(std::size_t i=0;i<data.size();++i)bytes[at+i]=data[i];
+    };
+    const auto read=[&](std::uintptr_t at,void* out,std::size_t n) {
+        for(std::size_t i=0;i<n;++i){const auto b=bytes.find(at+i);if(b==bytes.end())return false;static_cast<std::byte*>(out)[i]=b->second;}return true;
+    };
+    using P=std::uintptr_t;
+    put(0x1038,P{0x2000});put(0x1030,P{0x3000});put(0x3000,P{0x2000});put(0x2010,std::uint32_t{0x627382a6});
+    put(0x2020,std::array<std::uint32_t,10>{80,1392,3539,760,7,0,8,3604513,6160395,1});
+    put(0x3050,P{0x4000});put(0x3058,P{0x5000});put(0x4000+1056,P{0x6000});put(0x6000,P{0x7000});
+    put(0x7000,std::uint32_t{3388528466U});put(0x7004,std::uint16_t{99});put(0x7006,std::uint16_t{512});
+    put(0x702a,std::uint16_t{1});put(0x7038,P{0x8000});put(0x7030,P{0x9000});put(0x9000,P{0xa000});
+    put(0xa000,std::uint32_t{2454258579U});put(0xa004,std::uint16_t{99});put(0xa006,std::uint16_t{480});
+    put(0xa02a,std::uint16_t{1});put(0xa038,P{0xb000});
+    put(0x8000,std::uint32_t{936281207});put(0x8008,std::uint16_t{0x1e8});put(0x8010,P{0xc000});
+    put(0xc000,P{0xd000});put(0xd006,std::uint16_t{8});
+    put(0xb000,std::uint32_t{0x66ba7ea4});put(0xb008,std::uint16_t{0x120});put(0xb010,P{0xe000});
+    put(0xe000,P{0xf000});put(0xf006,std::uint16_t{4});
+    put(0x5008,P{0x10000});put(0x10000,P{0x6000});put(0x10120,std::uint32_t{123});put(0x101e8,P{0xface});
+    auto owner=native_flag_interaction(0x1000,read);
+    check(owner && owner->mmid==123 && owner->model==0xface,"Focused flag resolves its own native interaction model");
+    put(0x10120,std::uint32_t{456});owner=native_flag_interaction(0x1000,read);
+    check(owner && owner->mmid==456,"Switching flags updates the banner owner instead of borrowing the nearest donor title");
+    put(0xb000,std::uint32_t{1});check(!native_flag_interaction(0x1000,read),"Missing MMID reflection cannot authorize a banner replacement");
+    put(0xb000,std::uint32_t{0x66ba7ea4});put(0x2010,std::uint32_t{1});
+    check(!native_flag_interaction(0x1000,read),"An unrelated native graph cannot rebrand a stock interaction");
 }
 void native_hud_clock_and_penalties() {
     using dingosdk::multiplayer::menu_data::native_hud_seconds;
@@ -1541,7 +1608,7 @@ int main() {
         native_activity_stack_selection();
         native_activity_page_identity_cleanup();native_activity_foreign_page_replacement();
         native_activity_first_frame_presentation();
-        map_transition(); interrupted_cleanup(); partial_build_rollback(); interrupted_build_rollback(); window_close(); native_transition_without_load_request(); action_slots(); live_hud_binding(); native_hud_clock_and_penalties(); native_one_up_slider_values(); wrapped_waiting_notification(); private_throwdown_graphs(); native_setup_body_reentry(); native_setup_capability_rows(); native_setup_action_ownership(); native_setup_owned_tiles(); native_array_source_retention(); native_store_and_hub_snapshot_lifetimes();
+        map_transition(); interrupted_cleanup(); partial_build_rollback(); interrupted_build_rollback(); window_close(); native_transition_without_load_request(); action_slots(); live_hud_binding(); selected_native_join_context(); native_flag_interaction_owner(); native_hud_clock_and_penalties(); native_one_up_slider_values(); wrapped_waiting_notification(); private_throwdown_graphs(); native_setup_body_reentry(); native_setup_capability_rows(); native_setup_action_ownership(); native_setup_owned_tiles(); native_array_source_retention(); native_store_and_hub_snapshot_lifetimes();
         std::puts("Native menu lifetime: transitions, cleanup, rollback, action slots, HUD binding, setup presenter reentry, and native array source retention passed.");
         return 0;
     } catch (const std::exception& e) {

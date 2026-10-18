@@ -1,6 +1,7 @@
 {
-  "version": "2.1.0",
-  "release_tag": "v2.1.0-custom-20261017",
+  "release_tag": "v2.1.0-custom-20261018-enrollment-playtest",
+  "prerelease": true,
+  "source_commit": "82e0c34c2fe167dffe387ec10501f772a48530e2",
   "automated_tests": {
     "passed": 90,
     "failed": 0,
@@ -8,20 +9,25 @@
   },
   "runtime_files": {
     "ReSkate.dll": {
-      "bytes": 30261248,
-      "sha256": "84ed58c2d76ba8cddea915927dd042cec25f48e8c9a891bee582b05fe9b3d056"
+      "bytes": 30278656,
+      "sha256": "3e6340bdb010f2d27ba6269c18678e62d635465e8e8e72a81d8a7ab766786f95"
     },
     "ReSkateLauncher.exe": {
       "bytes": 5293056,
-      "sha256": "8eb3ece0d8b164ee0d1df9c5c0a5fdfc18bbad4122cc414fb0f43e2320b32afc"
+      "sha256": "5a070063a705adde8ffdf4afc57254b1f720b39760a014fc5d9475e91189f3d1"
     }
   },
   "assets_version": "1.0.6",
-  "native_payload_unchanged": true,
-  "map_fixture": "PASS",
-  "live_map_switches": "HUMAN_CONFIRMED",
-  "evidence": "user-validation.json",
-  "wider_multiplayer": "PENDING",
+  "native_audio_payloads_unchanged": true,
+  "live_validation": "KNOWN_ISSUES_REPORTED",
+  "known_issues": [
+    "The challenge HUD can still disappear on custom maps after map travel.",
+    "Nearby flag banners and map details can still show Spot Battle for a Deathrace."
+  ],
+  "enrollment_and_banner_live_confirmation": "PENDING",
+  "historical_map_success_applies_to_previous_build": true,
+  "source_reconstruction": "PASS",
+  "installer_fixture": "PASS",
   "diagnostic_logging": false,
   "profiling": false,
   "crash_reporting": false,

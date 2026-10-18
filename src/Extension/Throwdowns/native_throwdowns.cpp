@@ -736,6 +736,7 @@ void native_throwdown_participant_left(Address activity, std::uint32_t player) n
     } catch (...) {}
 }
 void native_throwdown_level_left() noexcept {
+    retire_native_queue_hud();
     set_custom_activity_menu_request(0);
     sync_custom_activity_ui_presence(false);
     try {
@@ -774,6 +775,9 @@ void complete_native_throwdown_parameters(Address vm) noexcept {
             if(active() && realm()==client_realm)complete_solo_client_exit();
             complete_one_up_controls(vm);
             complete_custom_details_presence(vm);
+            const auto join_resource=vm?read<Address>(vm+0x38):0;
+            if(join_resource && read<std::uint32_t>(join_resource+0x10)==0xebb4ab69 && active() && realm()==client_realm)
+                observe_native_custom_join_details(vm);
             // Replace presentation at the native publication boundary, rather
             // than waiting for the next throttled UI/camera confirmation tick.
             // Real activities, other realms/threads and unarmed requests keep
@@ -789,6 +793,11 @@ void complete_native_throwdown_parameters(Address vm) noexcept {
             }
         } catch(...) {}
     }
+    try {
+        const auto resource=vm?read<Address>(vm+0x38):0;
+        if(resource && read<std::uint32_t>(resource+0x10)==0x627382a6 && active() && realm()==client_realm)
+            observe_native_flag_interaction(vm);
+    } catch(...) {}
     const bool one_up_queue=one_up::flag_registration_owned();
     const bool solo_queue=!one_up_queue && native_solo_throwdown_waiting();
     if(one_up_queue || solo_queue) {

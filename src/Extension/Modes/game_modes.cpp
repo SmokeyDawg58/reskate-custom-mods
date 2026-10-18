@@ -90,9 +90,6 @@ struct Game {
     std::size_t tags_sent{};              // leading: shapes already sent
     std::uint64_t tags_resent{};          // leading: when all were last sent again, for late arrivals
     std::vector<std::uint64_t> joiners; // leading, before the start: who answered the setup
-    LobbyReadiness lobby_readiness;
-    bool ready_requested{};
-    std::uint64_t ready_sent{};
     std::optional<Referee> referee;     // leading, from the start
     std::optional<Message> state;       // the latest state (the leader's own when leading)
     std::uint64_t heard{}, setup_sent{}, state_sent{}, join_sent{};
@@ -146,7 +143,7 @@ struct State {
     std::uint64_t invite_at{}, invite_leader{};
     std::uint32_t invite_game{};
     std::optional<std::pair<std::uint64_t, std::uint32_t>> join_target; // what the join button would join now
-    std::set<std::pair<std::uint64_t, std::uint32_t>> sat_out; // games the local player left, or seen end: not offered again
+    std::set<std::pair<std::uint64_t, std::uint32_t>> sat_out; // finished or already-started games we left
     std::uint64_t local{}, world{};
     bool barred{}, session{};
     std::string local_name;
@@ -166,6 +163,7 @@ struct State {
     Bail bail;
     RagdollBailEdge ragdoll_bail;
     RaceRunoutWatch race_runouts;
+    RaceHippyJump race_hippy;
     std::optional<Vec3> last_inside;
     std::uint64_t outside_since{};
     std::string popup;
@@ -211,7 +209,7 @@ struct State {
     struct RaceStart {std::uint64_t world{};std::uint32_t game{};Vec3 at{};float yaw{};};
     std::optional<RaceStart> race_start;
     std::optional<RaceStart> native_flag;
-    struct NativeStart {std::uint64_t world{};std::uint32_t game{};bool ready{};};
+    struct NativeStart {std::uint64_t world{};std::uint32_t game{};};
     std::optional<NativeStart> native_start;
     std::optional<NativeStart> native_quit;
     // Where the next thing goes, like skate.'s quick drop: with `free_place` the free camera flies
@@ -471,7 +469,7 @@ Message setup_state(const State &s, const Game &g) {
     auto m = header(g, Message::Kind::state);
     m.phase = Phase::setup;
     m.standings.push_back({.player=self_id(s),.up=true});
-    for (const auto id : g.joiners) m.standings.push_back({.player=id,.up=g.lobby_readiness.ready(id)});
+    for (const auto id : g.joiners) m.standings.push_back({.player=id,.up=true});
     return m;
 }
 std::uint32_t default_duration(Mode mode) {
@@ -669,7 +667,7 @@ void track_bail(State &s, std::uint32_t physics, float vertical, std::uint64_t n
     // A wipeout loses the line and starts measuring the bail: the counter the trainer keeps for
     // state 300, any other wipeout state (300-399), or a hard fall straight off the board.
     bool bailed = s.ragdoll_bail.observe(watch.ragdoll_known,watch.ragdoll);
-    const bool runout=s.race_runouts.observe(watch.valid,watch.runouts);
+    const bool runout_edge=s.race_runouts.observe(watch.valid,watch.runouts);
     if (watch.valid || s.wipeouts_known) {
         if (!s.wipeouts_known) {
             s.wipeouts = watch.wipeouts;
@@ -717,6 +715,9 @@ void track_bail(State &s, std::uint32_t physics, float vertical, std::uint64_t n
         }
         s.fall_peak = 0;
     }
+    const bool hippy=s.race_hippy.observe(watch.valid,physics,watch.previous,vertical,bailed,now);
+    const bool runout=runout_edge && !hippy;
+    if(hippy && s.game && s.game->settings.mode==Mode::race)s.game->recovery_grace.cancel_runout();
     // Checkpoint recovery is independent of the 3.5-second Meat measurement.
     // A second fall after a quick recovery must not be ignored by that timer.
     if(bailed || runout) {
@@ -1150,7 +1151,6 @@ void track_game(State &s, std::uint64_t now) {
 // The leader changed the settings before the start: everyone gets them at once.
 void settings_changed(Game &g) {
     g.setup_sent = 0;
-    g.lobby_readiness.reset();
     g.state_sent=0;
     // Every Deathrace gate has a facing: one placed without (the console) looks along the route.
     auto &s = g.settings;
@@ -1482,7 +1482,7 @@ void run_placing(State &s, std::uint64_t now) {
             if(!issue.empty()) {
                 s.editor_save_blocked=true;popup(s,std::string(issue));
                 overlay::notify(overlay::NoticeLevel::warning,"Deathrace route not saved",std::string(issue));
-            } else {s.editor_save_blocked=false;s.placing=State::Placing::none;popup(s,"Deathrace route saved.");}
+            } else {s.editor_save_blocked=false;s.placing=State::Placing::none;settings_changed(g);popup(s,"Deathrace route saved.");}
         }
         return;
     }
@@ -1545,10 +1545,10 @@ void run_leader(State &s, Game &g, std::uint64_t now) {
     if (!g.referee) {
         // Setting up: players who left are dropped from the ones who answered.
         if (s.session) std::erase_if(g.joiners, [&](std::uint64_t id) { return !s.present.contains(id); });
-        g.lobby_readiness.retain(g.joiners);
         if (now - g.setup_sent >= setup_every_ms) {
             auto m = header(g, Message::Kind::setup);
-            m.settings = g.settings;
+            m.settings = advertised_lobby_settings(g.settings,s.placing!=State::Placing::none ||
+                (g.native_lobby && !g.native_flag_placed));
             send(s, m);
             g.setup_sent = now;
         }
@@ -1614,11 +1614,7 @@ void run_player(State &s, Game &g, std::uint64_t now) {
         send(s, header(g, Message::Kind::join));
         g.join_sent = now;
     }
-    const auto* me=standing(g,self_id(s));
-    if(g.ready_requested && (!g.state || g.state->phase==Phase::setup) && (!me || !me->up) &&
-       !s.barred && now-g.ready_sent>=join_every_ms) {
-        send(s,header(g,Message::Kind::ready));g.ready_sent=now;
-    }
+
 }
 
 // R.E.S.K.A.T.E.: the local player's turn. skate.'s trick list is read from the moment it is theirs: each
@@ -2080,7 +2076,6 @@ void build_hud(State &s, std::uint64_t now) {
         native.settings=g.settings;native.state=g.state;native.capacity=g.capacity;native.placing=s.placing!=State::Placing::none;
         native.state_sampled_ms=g.state_sampled_ms;
         native.flag_placed=g.native_flag_placed;
-        native.local_ready=g.leading || g.ready_requested;
         native.pending_flag=g.native_lobby && !g.native_flag_placed && !g.referee;
         native.waiting=g.native_lobby && g.native_flag_placed && !g.referee && !native.placing &&
             (!g.state || g.state->phase==Phase::setup);
@@ -2206,9 +2201,9 @@ std::vector<std::vector<std::uint8_t>> tick(const SessionInput &input) {
             settings_changed(g);
         }
         if(native_start && s.game && s.game->native_lobby && s.game->native_flag_placed &&
-           s.game->leading!=native_start->ready &&
+           s.game->leading &&
            !s.game->referee && s.placing==State::Placing::none && s.game->id==native_start->game && s.world==native_start->world) {
-            const auto result=command(native_start->ready?"ready":"start",{});
+            const auto result=command("start",{});
             if(result.starts_with("error:"))popup(s,result.substr(7));
         }
         run_placing(s, now);
@@ -2322,7 +2317,6 @@ bool receive(std::uint64_t sender, std::span<const std::uint8_t> bytes) {
         if (ours) {
             if (!s.game->leading && s.game->settings != m.settings) {
                 s.game->settings = m.settings;
-                s.game->ready_requested=false;s.game->ready_sent=0;
             }
             s.game->heard = now;
             break;
@@ -2375,6 +2369,7 @@ bool receive(std::uint64_t sender, std::span<const std::uint8_t> bytes) {
         break;
     case Message::Kind::join:
         if (ours && s.game->leading && sender != self_id(s)) {
+            if(s.game->settings.mode==Mode::race && s.placing!=State::Placing::none)break;
             if (s.game->referee) {
                 s.game->referee->add_player(sender); // until the countdown ends
             } else if (std::find(s.game->joiners.begin(), s.game->joiners.end(), sender) == s.game->joiners.end() &&
@@ -2386,12 +2381,10 @@ bool receive(std::uint64_t sender, std::span<const std::uint8_t> bytes) {
     case Message::Kind::leave:
         if (ours && s.game->leading) {
             if (s.game->referee) s.game->referee->remove_player(sender, now);
-            else {std::erase(s.game->joiners, sender);s.game->lobby_readiness.remove(sender);s.game->state_sent=0;}
+            else {std::erase(s.game->joiners, sender);s.game->state_sent=0;}
         }
         break;
-    case Message::Kind::ready:
-        if(ours && s.game->leading && !s.game->referee && sender!=self_id(s) &&
-           s.game->lobby_readiness.mark(sender,s.game->joiners))s.game->state_sent=0;
+    case Message::Kind::ready: // Reserved legacy wire action; enrollment is sufficient.
         break;
     case Message::Kind::end:
         if (ours && !s.game->leading && sender == m.leader)
@@ -2560,24 +2553,16 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
         // Quit leaves immediately; Stop deliberately presents match results.
         // Followers also suppress the same host's still-advertised match.
         send(s,header(g,local_quit_kind(g.leading)));
-        if(!g.leading)s.sat_out.insert({g.leader,g.id});
+        if(!g.leading && lobby_departure_blocks_rejoin(g.state?g.state->phase:Phase::setup))s.sat_out.insert({g.leader,g.id});
         end_game(s,{});
         return "You quit the Throwdown.";
     }
     if (v == "leave") {
         if (g.leading) return "error: you lead this game: `mode stop` ends it for everyone.";
         send(s, header(g, Message::Kind::leave));
-        s.sat_out.insert({g.leader, g.id});
+        if(lobby_departure_blocks_rejoin(g.state?g.state->phase:Phase::setup))s.sat_out.insert({g.leader,g.id});
         end_game(s, {});
         return "You left the game.";
-    }
-    if(v=="ready") {
-        if(g.leading)return "You host this Throwdown. Start when everyone is ready.";
-        if(g.state && g.state->phase!=Phase::setup)return "error: this Throwdown has already started.";
-        if(s.barred)return "error: this session's competition rules prevent joining.";
-        g.ready_requested=true;g.ready_sent=now;
-        send(s,header(g,Message::Kind::ready));
-        return "Ready. Waiting for the host to start.";
     }
     if (!g.leading) return "error: only " + name_of(s, g.leader) + " (the leader) can change or start this game.";
     if (v == "stop") {
@@ -2620,6 +2605,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
                 }
             }
             s.placing = State::Placing::none;
+            settings_changed(g);
             return "Placing stopped.";
         }
         if (what == "freecam") {
@@ -2735,7 +2721,6 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
             s.draft_width = half;
         }, "Radius (m)");
     if (v == "start") {
-        if(!g.lobby_readiness.all(g.joiners))return "error: waiting for joined players to press Ready.";
         if(g.native_lobby && !g.native_flag_placed)return "error: place the native starting flag before starting this Throwdown.";
         if(g.native_lobby && s.placing!=State::Placing::none)return "error: finish placing the area or capture spots before starting this Throwdown.";
         if(g.settings.mode==Mode::race && (!race_route_ready(g.settings,g.race_finish_placed) || s.placing!=State::Placing::none ||
@@ -2819,13 +2804,6 @@ bool request_native_start(std::uint64_t world,std::uint32_t game) noexcept {
         const auto v=native_view();
         if(!world || !game || !v.active || !v.leading || !v.waiting || v.world!=world || v.game!=game)return false;
         auto& s=state();std::lock_guard lock(s.race_start_mutex);s.native_start=State::NativeStart{world,game};return true;
-    } catch(...) {return false;}
-}
-bool request_native_ready(std::uint64_t world,std::uint32_t game) noexcept {
-    try {
-        const auto v=native_view();
-        if(!world || !game || !v.active || v.leading || !v.waiting || v.world!=world || v.game!=game)return false;
-        auto& s=state();std::lock_guard lock(s.race_start_mutex);s.native_start=State::NativeStart{world,game,true};return true;
     } catch(...) {return false;}
 }
 bool request_native_quit(std::uint64_t world,std::uint32_t game) noexcept {

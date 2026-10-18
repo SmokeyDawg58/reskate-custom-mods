@@ -37,11 +37,11 @@ struct Runtime {
     std::map<std::pair<PlayerId, std::uint64_t>, std::uint64_t> sequences;
     std::map<PlayerId, std::string> names;
     ThrowdownRelayInput input;
-    Time snapshot_at{}, next_send{}, ready_until{}, ready_sent_at{}, position_until{}, turn_at{};
+    Time snapshot_at{}, next_send{}, position_until{}, turn_at{};
     std::uint64_t sequence{}, wire_revision{};
     std::uint32_t remaining{};
     Token placed, clock_token;
-    bool ready_pending{}, start_pending{}, positioned{};
+    bool positioned{};
     std::string status;
     std::atomic<bool> waiting{}, playing{}, countdown_input{}, markers_restricted{};
     std::atomic<PlayerId> active{};
@@ -99,7 +99,7 @@ void send_input(Runtime& r, Message m, Time now) {
 }
 void clear(Runtime& r) {
     r.hosted.reset(); r.selected = {}; r.inputs.clear(); r.sequence = r.wire_revision = 0;
-    r.ready_pending = r.start_pending = false; r.placed = {}; r.clock_token = {}; r.waiting.store(false); r.playing.store(false); r.countdown_input.store(false); r.markers_restricted.store(false); r.active.store(0);
+    r.placed = {}; r.clock_token = {}; r.waiting.store(false); r.playing.store(false); r.countdown_input.store(false); r.markers_restricted.store(false); r.active.store(0);
     arm_native_lines({}, false, 0); spectate_party_member(0);
 }
 void publish(Runtime& r, Time now) {
@@ -112,7 +112,10 @@ void publish(Runtime& r, Time now) {
     v.status = r.status; v.solo_test=r.hosted && r.hosted->solo_test();
     for (const auto& [id, offer] : r.offers)
         if (id != r.input.local && present(r, id) && now - offer.at < 4000 && offer.message.state.phase != Phase::finished && offer.message.state.phase != Phase::cancelled)
-            v.offers.push_back({id, offer.message.match, v.name(id), offer.message.state.phase != Phase::lobby});
+            v.offers.push_back({id,offer.message.match,v.name(id),offer.message.state.phase!=Phase::lobby,
+                offer.message.spot,offer.message.facing,
+                static_cast<unsigned>(std::count_if(offer.message.state.players.begin(),offer.message.state.players.end(),[](const auto& p){return p.connected;})),
+                offer.message.state.config.turn_ms/1000,offer.message.state.config.max_players});
     std::lock_guard lock(r.mutex); r.published = std::move(v);
 }
 void command(Runtime& r, std::string_view text, Time now) {
@@ -150,7 +153,7 @@ void command(Runtime& r, std::string_view text, Time now) {
         std::random_device random;
         auto identity = (std::uint64_t{random()} << 32) | random(); if (!identity) identity = now | 1;
         r.hosted.emplace(identity, r.input.world, r.input.local, config); r.selected = r.hosted->state(); r.spot = *r.input.position;r.facing=default_facing;
-        r.sequence = r.wire_revision = 0; r.next_send = 0; r.status = "Spot placed. Invite a nearby skater, then choose Ready.";
+        r.sequence = r.wire_revision = 0; r.next_send = 0; r.status = "Spot placed. Enrolled skaters wait for you to start.";
     } else if (action == "join") {
         PlayerId leader{}; std::uint64_t identity{}; if (!(args >> leader >> identity) || r.selected.match) return;
         const auto it = r.offers.find(leader);
@@ -162,27 +165,20 @@ void command(Runtime& r, std::string_view text, Time now) {
         else r.status = "Watching this match. Join the next lobby after the host chooses Rematch.";
     } else if (action == "enroll" && r.selected.phase == Phase::lobby && !member(r.selected, r.input.local)) {
         Message m; m.action = Action::join; send_input(r, m, now); r.status = "Joining the next match...";
-    } else if (action == "ready" && r.selected.phase == Phase::lobby && member(r.selected, r.input.local)) {
-        if (teleport_local_skater_transform(spawn_transform(r.spot,r.facing))) { r.ready_pending = true; r.ready_sent_at = 0; r.ready_until = now + 6000; r.status = "Moving to the starting spot..."; }
-        else r.status = "Could not move to the spot. Wait for the map to finish loading.";
     } else if (action == "start" && r.hosted) {
-        if(r.hosted->state().phase==Phase::lobby && r.ready_pending && !r.hosted->state().players.front().ready) {
-            r.start_pending=true;r.status="Moving to the flag. Starting when ready.";return;
-        }
-        r.start_pending=false;
         const bool solo=(r.hosted->state().config.max_players==1 || r.input.peers.empty()) && r.hosted->state().players.size()==1;
         const bool started=solo?r.hosted->start_solo_test(now):r.hosted->start(now);
         r.status=started?(solo?"Solo test started. Get ready!":"Get ready!"):
-            (solo?"Choose Ready at your flag before starting.":"At least two skaters must join and choose Ready.");
+            (solo?"Unable to start this lobby.":"At least two skaters must enroll.");
         logging::log(logging::Level::info,logging::Channel::ui,"1-Up: {}",r.status);
     } else if(action=="solo") {
-        if(!r.hosted) { r.status="Place a 1-Up flag and choose Ready before starting a solo test."; return; }
+        if(!r.hosted) { r.status="Place a 1-Up flag before starting a solo test."; return; }
         if(!r.input.peers.empty() && r.hosted->state().config.max_players!=1) { r.status="Select Players 1 to practice alone in a shared session."; return; }
         r.status=r.hosted->start_solo_test(now)?"Solo test started. Beat your previous line; three penalties end the test.":
-            "Solo testing needs exactly one ready skater in a waiting 1-Up lobby.";
+            "Solo testing needs exactly one enrolled skater in a waiting 1-Up lobby.";
         logging::log(logging::Level::info,logging::Channel::ui,"1-Up: {}",r.status);
     } else if (action == "rematch" && r.hosted) {
-        if (r.hosted->rematch(now)) { r.placed = {}; r.status = "Rematch opened. Everyone must choose Ready again."; }
+        if (r.hosted->rematch(now)) { r.placed = {}; r.status = "Rematch opened. Enrolled skaters are waiting for the host."; }
     }
 }
 void create_selected_spawn(Runtime& r, const SpawnRequest& request, Time now) {
@@ -197,9 +193,8 @@ void create_selected_spawn(Runtime& r, const SpawnRequest& request, Time now) {
         r.spot=request.position;
         r.facing=request.facing;
         logging::log(logging::Level::info,logging::Channel::ui,"1-Up: flag handed to elimination rules, Players {}, turn {} seconds.",request.players,request.seconds);
-        // Ready Up launches the native picker. After confirmation use the
+        // Flag placement uses the native picker. After confirmation use the
         // existing arrival check, then wait for the host's explicit Start.
-        command(r,"ready",now);
     }
 }
 }
@@ -260,24 +255,7 @@ std::vector<std::vector<std::uint8_t>> tick(std::uintptr_t base, const Throwdown
     { std::lock_guard lock(r.mutex); commands = std::exchange(r.commands, {}); spawn=std::exchange(r.spawn_request,{}); }
     if(spawn) create_selected_spawn(r,*spawn,now);
     for (const auto& text : commands) command(r, text, now);
-    if (r.hosted) r.selected = r.hosted->state();
-    if (r.ready_pending) {
-        const auto me = std::find_if(r.selected.players.begin(), r.selected.players.end(), [&](const Player& p) { return p.id == input.local; });
-        if (me != r.selected.players.end() && me->ready) { r.ready_pending = false; r.status = "Ready at the spot."; }
-        else if (input.position && distance(*input.position, r.spot) <= 2 && !local_skater_teleport_pending() && now - r.ready_sent_at >= 500) {
-            Message m; m.action = Action::ready; m.flag = true; send_input(r, m, now); r.ready_sent_at = now;
-        } else if (now >= r.ready_until) { r.ready_pending = false; r.status = "Could not reach the starting spot. Try Ready again."; }
-    }
-    if(r.start_pending && !r.ready_pending) {
-        r.start_pending=false;
-        if(r.hosted && r.hosted->state().phase==Phase::lobby) {
-            const auto& players=r.hosted->state().players;
-            if(std::all_of(players.begin(),players.end(),[](const auto& p){return p.ready && p.connected;}))
-                command(r,"start",now);
-        }
-    }
-    // Deferred Start can change the turn after the earlier snapshot refresh.
-    // Publish that turn before positioning and arming its countdown.
+    // Publish Start before positioning and arming its countdown.
     if (r.hosted) r.selected = r.hosted->state();
     const Token token{r.selected.match, r.selected.turn, r.selected.active};
     r.markers_restricted.store(r.selected.match && running(r.selected) && member(r.selected,input.local));

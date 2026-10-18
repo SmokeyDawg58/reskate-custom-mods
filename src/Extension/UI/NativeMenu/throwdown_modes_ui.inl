@@ -740,20 +740,23 @@ void mode_hud(const Context& c) {
     const auto label_widget=asset(c,"UI/Foundations/Components/Text/Label/Widget/Label_Widget");
     const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
     const bool race=v.settings.mode==modes::Mode::race;
-    mode_gate_compass(c,v,feed);
-    if(!h.title.handle) {
-        h.title=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");label_styles(c,h.title,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-        h.status=make(c,label_schema);c.copy(h.status,c.address(h.title));
-        h.score=make(c,linear_list);
-        h.target=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-        h.current=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
-        for(const auto value:{h.target,h.current}) {
-            c.set_if_changed(c.field(value,0x13be0d51),std::array<float,2>{480.f,72.f});
-            const auto label=c.field(value,0x94703efc);label_styles(c,label,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
-            c.set_if_changed(c.field(label,0x3d8639d0),0);c.set_if_changed(c.field(label,0x87ad624c),2);c.set_if_changed(c.field(label,0xc13ba637),false);
-        }
-        h.clock=record_model(c,"Activities_HudElementData_ContentResource/A_ActivityCountdown");
+    // An optional marker must never prevent the scoreboard/title from
+    // mounting while a new map's native resources are still arriving.
+    try {mode_gate_compass(c,v,feed);}catch(const std::exception&) {h.gate_compass_visible=false;}
+    // Retry every missing piece independently. A late countdown/style asset
+    // previously left title non-null and skipped all remaining initialization.
+    if(!h.title.handle)h.title=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
+    label_styles(c,h.title,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
+    if(!h.status.handle) {h.status=make(c,label_schema);c.copy(h.status,c.address(h.title));}
+    if(!h.score.handle)h.score=make(c,linear_list);
+    if(!h.target.handle)h.target=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+    if(!h.current.handle)h.current=record_model(c,"TD_Page_ContentResources/TD_Notice_MenuDescriptionTitle",notice_schema);
+    for(const auto value:{h.target,h.current}) {
+        c.set_if_changed(c.field(value,0x13be0d51),std::array<float,2>{480.f,72.f});
+        const auto label=c.field(value,0x94703efc);label_styles(c,label,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");
+        c.set_if_changed(c.field(label,0x3d8639d0),0);c.set_if_changed(c.field(label,0x87ad624c),2);c.set_if_changed(c.field(label,0xc13ba637),false);
     }
+    if(!h.clock.handle)h.clock=record_model(c,"Activities_HudElementData_ContentResource/A_ActivityCountdown");
     plain_label(c,h.title,race?"DEATHRACE":d->name);
     const auto title_style="TextStylesList/H64-XBold_White";
     label_styles(c,h.title,title_style,title_style);

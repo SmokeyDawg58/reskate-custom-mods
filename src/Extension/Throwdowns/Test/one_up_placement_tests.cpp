@@ -541,6 +541,17 @@ int main() {
         observe_flag_destroyed(5001);tick();check(!flag_registration_owned() && test_mode_active);
         current_mode_view.state->phase=dingosdk::modes::Phase::results;tick();check(native_flag_mode_game()==0);
         abandon_flag_placement();
+        current_mode_view={};test_mode_active=false;current_view.state={};
+        check(adopt_native_one_up_flag(901,6001,{10,20,30},90,30,6));
+        tick();check(flag_registration_waiting() && owns_flag_registration(6001) && native_flag_mode_game()==0);
+        current_view.state.match=0x1234567800000021ULL;current_view.state.phase=Phase::lobby;tick();
+        check(flag_registration_waiting());
+        flag_registration_left();tick();check(destroyed.back()==6001);
+        observe_flag_destroyed(6001);test_now+=501;tick();
+        current_view.state={};
+        check(adopt_native_one_up_flag(901,6002,{10,20,30},90,30,6));
+        check(flag_registration_waiting() && owns_flag_registration(6002));
+        abandon_flag_placement();
         std::cout<<count<<" flag bridge checks passed\n";
         return 0;
     } catch(const std::exception& e) { std::cerr<<e.what()<<'\n'; return 1; }

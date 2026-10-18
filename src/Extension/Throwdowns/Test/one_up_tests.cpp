@@ -43,14 +43,16 @@ int main() {
         check(!skating_sequence(2,true) && !skating_sequence(3,true),"on-foot and wipeout sequences do not score");
         check(!skating_trick_category(11) && !skating_trick_category(12),"bonus and challenge actions do not score");
         Match lobby(1, 2, a); check(!lobby.start(0), "two players required"); lobby.join(b);
-        check(!lobby.start(0), "all ready required"); check(!lobby.join(a), "no duplicate roster");
+        check(lobby.start(0), "host starts all enrolled skaters without any Ready inputs"); check(!lobby.join(a), "no duplicate roster");
+        Match rejoin(8,9,a);check(rejoin.join(b) && rejoin.leave(b,0) && rejoin.join(b),"pre-start Leave permits re-enrollment");
+        check(rejoin.start(0),"re-enrolled guest starts with the host without Ready");
+        check(!rejoin.start(1) && !rejoin.join(c),"Start cannot restart a running match or enroll late players");
         Config limit; limit.max_players = 2;
         Match pair(2, 3, a, limit);
         check(pair.join(b) && !pair.join(c), "selected player limit is enforced by the host");
         limit.max_players = 1; check(limit.valid(), "one-player selection accepted");
         Match selected_solo(5,6,a,limit);
-        check(!selected_solo.join(b) && !selected_solo.start(0), "one-player limit excludes guests and still requires readiness");
-        selected_solo.ready(a,true);
+        check(!selected_solo.join(b), "one-player limit excludes guests");
         check(selected_solo.start(0) && selected_solo.solo_test(), "Players 1 uses normal Start for solo play");
         Message solo_snapshot; solo_snapshot.match=selected_solo.state().match;solo_snapshot.world=selected_solo.state().world;
         solo_snapshot.leader=a;solo_snapshot.state=selected_solo.state();
@@ -60,9 +62,7 @@ int main() {
         Match partial(3,4,a); partial.join(b); partial.ready(a,true); partial.ready(b,true);
         check(partial.start(0), "host can start with two ready skaters and four open slots");
         Match solo(4,5,a);
-        check(!solo.start_solo_test(0),"solo test requires ready confirmation");
-        solo.ready(a,true);
-        check(!solo.start(0) && solo.start_solo_test(0),"normal start still requires two, explicit test accepts one");
+                check(!solo.start(0) && solo.start_solo_test(0),"normal start still requires two, solo test needs no Ready step");
         solo.tick(3000); finish_turn(solo,450);
         check(solo.state().phase==Phase::feedback && solo.state().target==450 && !solo.state().winner,"solo never immediately awards a win");
         next(solo); finish_turn(solo,450);
@@ -96,7 +96,7 @@ int main() {
         check(cutoff.state().players[0].penalties==1,"resolution applied once");
         auto out = match(); for (unsigned i = 0; i < 3; ++i) { finish_turn(out, 0); if (i < 2) { next(out); finish_turn(out, 100); next(out); } }
         check(out.state().players[0].penalties == 3 && out.state().winner == b && out.state().phase == Phase::finished, "three penalties eliminate and choose winner");
-        check(out.rematch(0) && !out.state().players[0].ready && out.state().players[0].penalties == 0, "rematch requires ready again");
+        check(out.rematch(0) && !out.state().players[0].ready && out.state().players[0].penalties == 0, "rematch clears penalties and reopens enrollment");
         auto quit = match(true); check(quit.leave(a, 4000) && quit.state().phase == Phase::cancelled, "host departure cancels");
         quit = match(true); finish_turn(quit, 200); next(quit); check(quit.leave(b, quit.turn_at()) && quit.state().active == c && quit.state().target == 0, "active disconnect skips and resets");
         check(quit.leave(c, quit.turn_at()) && quit.state().winner == a, "disconnect winner");

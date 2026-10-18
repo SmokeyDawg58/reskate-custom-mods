@@ -25,10 +25,38 @@ public:
         const bool changed=*seen!=count;seen=count;return changed;
     }
 };
+// Hippy jumps and walking share state 504. A clean riding -> offboard
+// transition followed by upward motion identifies the jump; state alone
+// cannot distinguish it from an accidental loss of the board.
+class RaceHippyJump {
+    std::uint64_t candidate_until{},jump_until{},landed_until{};
+    std::uint32_t last{};
+public:
+    bool observe(bool valid,std::uint32_t state,std::uint32_t previous,float vertical,
+                 bool bail,std::uint64_t now) noexcept {
+        if(!valid || !std::isfinite(vertical) || bail) {
+            candidate_until=jump_until=landed_until=0;last=state;return false;
+        }
+        if(state!=last) {
+            candidate_until=state==504 && previous==100?now+250:0;
+            if(state!=504) {
+                if(jump_until && now<jump_until && state<300)landed_until=now+250;
+                jump_until=0;
+            }
+            last=state;
+        }
+        if(state==504 && candidate_until && now<=candidate_until && vertical>.5f) {
+            jump_until=now+4000;candidate_until=0;
+        }
+        if(state!=504 || now>=jump_until)jump_until=0;
+        return jump_until!=0 || (state<300 && now<landed_until);
+    }
+};
 class RaceRecoveryGrace {
     std::uint64_t until{};bool full_bail{};
 public:
     void reset() noexcept {until=0;full_bail=false;}
+    void cancel_runout() noexcept {if(!full_bail)reset();}
     bool pending() const noexcept {return until!=0;}
     bool waiting(std::uint64_t now) const noexcept {return until && now<=until;}
     bool ready(std::uint64_t now) const noexcept {return until && now>=until;}

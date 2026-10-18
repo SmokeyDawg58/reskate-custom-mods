@@ -134,12 +134,23 @@ template<class Read> std::optional<NotificationMount> mounted_notification(
 // Authored defaults are registered as roots too. They have no game-owned
 // compass/scoring/notification items and are not connected to a HUD widget.
 inline std::uint64_t mounted_hud_root(std::span<const HudRootCandidate> roots,
-                                     std::uint64_t preferred = 0) {
+                                     std::uint64_t preferred = 0,
+                                     std::uint64_t authored = 0) {
+    // The native name alias identifies the authored default exactly. Once
+    // excluded, a unique active instance is live even with every optional
+    // stock HUD section hidden. Handles include generations, not type tags.
+    if(authored) {
+        std::uint64_t live{};unsigned count{};
+        for(const auto& root:roots)if(root.handle && root.handle!=authored && root.active) {
+            live=root.handle;++count;
+        }
+        if(count==1)return live;
+    }
     std::uint64_t selected{};
     std::uint64_t retained{};
     unsigned most{};
     for (const auto& root : roots) {
-        if (!root.handle || !root.active) continue;
+        if (!root.handle || !root.active || root.handle==authored) continue;
         // Native score/compass stacks briefly empty during activity changes.
         // Retain only a previously verified live identity, never a new default.
         if (!root.gameplay_stacks) {

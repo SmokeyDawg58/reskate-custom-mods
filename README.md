@@ -1,43 +1,32 @@
 # ReSkate custom Throwdowns
 
-Custom Deathrace, 1-UP and seven-letter R.E.S.K.A.T.E. for **ReSkate 2.1.0**.
+Custom Deathrace, 1-UP and seven-letter R.E.S.K.A.T.E. for ReSkate 2.1.0.
 
-## Download the current build
+## Latest work: enrollment and HUD playtest
 
-**[Latest release](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.1.0-custom-20261017) · [Full package](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261017/ReSkate-2.1.0-Custom-Full.zip) · [Required asset mod](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261017/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.6-For-2.1.0.zip)**
+**[Playtest release](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.1.0-custom-20261018-enrollment-playtest) · [Full package](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261018-enrollment-playtest/ReSkate-2.1.0-Enrollment-Playtest-Full.zip) · [Runtime Update](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261018-enrollment-playtest/ReSkate-2.1.0-Enrollment-Playtest-Runtime-Update.zip)**
 
-| Download | Use it for |
+This is the latest installed custom build, published for shared testing. **Known issues remain:** the challenge HUD can disappear after changing to a custom map, and Deathrace interaction/map cards can still display Spot Battle. It is a prerelease, not a claim that those reports are resolved.
+
+Enrollment now replaces the extra Ready step: guests enroll and wait for the host to start everyone. This follow-up also contains shared-flag/Leave/rejoin handling, selected-flag join details, HUD-root and asset-lifetime changes, hippy-jump filtering and native waiting-banner cleanup. **All 90 automated Release checks pass.** See [detailed changes and limits](docs/RELEASE_NOTES_20261018.md) and [DIAGNOSTICS.md](DIAGNOSTICS.md).
+
+| Download | Contents |
 | --- | --- |
-| **[Full package — recommended](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261017/ReSkate-2.1.0-Custom-Full.zip)** | New installations: matching runtime, launcher, all assets, backup installer and file checker |
-| [Runtime Update](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261017/ReSkate-2.1.0-Custom-Runtime-Update.zip) | Updating a setup that already has complete Assets 1.0.6 |
-| [Required Assets 1.0.6](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261017/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.6-For-2.1.0.zip) | Complete logos, flags, gates, Chevrons, compass and HUD mod folder; included in Full |
-| [DLL](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261017/ReSkate.dll) and [launcher](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261017/ReSkateLauncher.exe) | Individual matching runtime files |
-| [Asset authoring source](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261017/ReSkate-Throwdown-Asset-Source-1.0.6.zip) | Complete Studio project/FBMOD, artwork, selected sound inputs and author/export code |
+| [Full](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261018-enrollment-playtest/ReSkate-2.1.0-Enrollment-Playtest-Full.zip) | Matching runtime pair, complete Assets 1.0.6, backup installer and checker |
+| [Runtime Update](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261018-enrollment-playtest/ReSkate-2.1.0-Enrollment-Playtest-Runtime-Update.zip) | Matching runtime pair; requires complete Assets 1.0.6 already installed |
+| [Complete Assets 1.0.6](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261018-enrollment-playtest/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.6-For-2.1.0.zip) | Native logos, flags, gates, Chevrons, compass/HUD artwork and quiet audio |
+| [DLL](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261018-enrollment-playtest/ReSkate.dll) · [Launcher](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261018-enrollment-playtest/ReSkateLauncher.exe) | Individual matching runtime files |
+| [Source overlay](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261018-enrollment-playtest/ReSkate-2.1.0-Enrollment-Playtest-Source-Overlay.zip) · [Asset authoring source](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.0-custom-20261018-enrollment-playtest/ReSkate-Throwdown-Asset-Source-1.0.6.zip) | Source, exact reconstruction patch and unchanged asset project |
 
-**Map-change fix confirmed:** the owner repeated Skate3Improved ↔ Skate2Improved transitions on this exact build and reported “Every load works.” All **90 automated Release checks pass**. Wider multiplayer checks remain pending; see [DIAGNOSTICS.md](DIAGNOSTICS.md).
+Native/audio payloads remain Assets 1.0.6; the included asset instructions are refreshed. Every PC needs this matching custom runtime. Session 52, modes 16 and 1-UP 5 remain unchanged. Use [PLAYTEST.md](PLAYTEST.md) to install and check it. Keep the complete asset folder together, enable one copy, and close the game and launcher yourself before installation.
 
-This release merges the working custom challenges with official 2.1.0 and its shader/renderer crash fixes. Deathrace retains stationary stunt Chevrons, air/wall/floor placement, three-axis snapping, X rotation rings, Undo/Redo, checkpoint rewind, recovery speed protection, quiet cues, the gate compass and styled edge HUD. [Detailed release notes](docs/RELEASE_NOTES_20261017.md).
+The [previous public 2.1.0 release](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.1.0-custom-20261017) remains available. Its earlier Improved-map success report does not verify this changed build.
 
-## Install
+## Source and project guide
 
-1. Close ReSkate and its launcher yourself.
-2. Extract Full. Run its backup installer for your game folder, then the file checker. Follow [PLAYTEST.md](PLAYTEST.md).
-3. Keep `layout.toc`, `Win32` and `initfs_win32` directly inside the complete Throwdown Assets folder under `Mods`. The installer handles the active Mods/ModData location. Enable one copy only.
-4. Every player needs this matching custom 2.1.0 runtime and complete Assets 1.0.6. Older 2.0.7 runtime clients cannot join this session protocol.
+- [Build guide](docs/BUILD.md): pinned official base plus mods.patch.
+- [Asset-pack guide](docs/ASSET_PACK.md): complete player pack and authoring project.
+- [Changelog](CHANGELOG.md), [previous release notes](docs/RELEASE_NOTES_20261017.md) and [older releases](docs/ARCHIVED_RELEASES.md).
+- src/, mods.patch, SNAPSHOT.json and BUILD_SOURCES.json identify the exact source and runtime; tools/playtest/ contains the installer/checker.
 
-The DLL is **30.3 MB**; the native assets stay external. Logging, profiling, tracing, crash uploads and shipped debug symbols are disabled. Existing complete Assets 1.0.6 need no native/audio update. This distribution refreshes their 2.1.0 instructions.
-
-## Repository guide
-
-| Location | Purpose |
-| --- | --- |
-| [Release notes](docs/RELEASE_NOTES_20261017.md) | Changes, compatibility and validation scope |
-| [PLAYTEST.md](PLAYTEST.md) | Install steps and remaining gameplay checks |
-| [DIAGNOSTICS.md](DIAGNOSTICS.md) | Automated results and scoped human confirmation |
-| [Build guide](docs/BUILD.md) | Apply the verified overlay to official 2.1.0 and build |
-| [Asset-pack guide](docs/ASSET_PACK.md) | Find and rebuild the complete assets |
-| [Archived releases](docs/ARCHIVED_RELEASES.md) | Historical versions; use the current download for playing |
-| `src/`, `mods.patch`, `SNAPSHOT.json`, `BUILD_SOURCES.json` | Changed-source overlay and exact provenance |
-| `tools/playtest/` | Backup installer and file checker |
-
-Maintained by **SmokeyDawg58**, with substantial **OpenAI Codex AI assistance**. See [CONTRIBUTORS.md](CONTRIBUTORS.md). Based on [official ReSkate](https://github.com/Dingo-Shenanigans/ReSkate); GPL-3.0 attribution and [LICENSE](LICENSE) are retained. No game executable, personal settings, private captures or unrelated mods are distributed. No Thunderstore listing is created by this GitHub publication.
+Maintained by SmokeyDawg58 with substantial OpenAI Codex AI assistance. Based on [official ReSkate](https://github.com/Dingo-Shenanigans/ReSkate), with original authorship and [GPL-3.0 license](LICENSE) retained; see [CONTRIBUTORS.md](CONTRIBUTORS.md). No game executables, personal settings or private diagnostic evidence are distributed. No Thunderstore listing is created.

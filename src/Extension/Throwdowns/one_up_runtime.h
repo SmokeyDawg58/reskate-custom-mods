@@ -5,7 +5,12 @@
 #include <string_view>
 
 namespace dingosdk::multiplayer::one_up {
-struct Offer { PlayerId leader{}; std::uint64_t match{}; std::string name; bool started{}; };
+struct Offer {
+    PlayerId leader{}; std::uint64_t match{}; std::string name; bool started{};
+    std::array<float,3> spot{};
+    Facing facing=default_facing;
+    unsigned players{},turn_seconds{},capacity{};
+};
 struct View {
     State state;
     PlayerId local{};

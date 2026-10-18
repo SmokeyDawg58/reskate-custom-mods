@@ -2,6 +2,8 @@
 #include "throwdown_lab.h"
 #include "throwdown_wire.h"
 #include "native_throwdowns.h"
+#include "one_up_runtime.h"
+#include "one_up_placement.h"
 #include "Extension/Modes/game_modes.h"
 #include "Engine/Core/Log/logging.h"
 #include "Engine/Core/Platform/memory.h"
@@ -190,6 +192,7 @@ struct Relay {
     std::string timer, status_line; // status_line: under `mutex`
     std::uint64_t next_timer{}, next_status{};
     bool force_start_enabled{};
+    NativeQueueHudState queue_hud; // under mutex, including callbacks before the relay tick
     std::optional<Challenge> challenge;
     std::uint32_t next_challenge = 1;
     ChallengePlan plan;                 // under `mutex`
@@ -485,7 +488,18 @@ void on_local(Relay &r, ThrowdownLocalAction &a, std::uint64_t now) {
             // Native Join has already enrolled the local player in the flag's
             // registration. Hand that registration to the custom lobby so its
             // normal waiting/Leave flow and later teardown remain native.
-            if(modes::join_native_flag_offer(flag.offer,flag.mmid)) {
+            bool joined{};
+            if(flag.offer.key=="oneup") {
+                const auto v=one_up::view();
+                const auto offer=std::find_if(v.offers.begin(),v.offers.end(),[&](const auto& o){
+                    return !o.started && o.leader==flag.offer.leader && o.match==flag.offer.native_match;
+                });
+                if(v.can_create && !v.state.match && offer!=v.offers.end() &&
+                   one_up::adopt_native_one_up_flag(r.world,flag.mmid,flag.offer.at,flag.offer.yaw,offer->turn_seconds,offer->capacity)) {
+                    one_up::queue(std::format("join {} {}",offer->leader,offer->match));joined=true;
+                }
+            } else joined=modes::join_native_flag_offer(flag.offer,flag.mmid);
+            if(joined) {
                 close_hosted(r);leave_mirrors(r,a.mmid);flag.claimed=true;
             }
             else if(const auto local=local_native_player_id())queue_throwdown_remove(local);
@@ -1234,6 +1248,14 @@ void maintain_custom_flags(Relay& r,std::uint64_t now) {
     std::map<Key,modes::NativeFlagOffer> wanted;
     for(const auto& offer:modes::native_flag_offers(r.world))
         if(offer.leader!=r.local && r.peers.contains(offer.leader))wanted.try_emplace(Key{offer.leader,offer.game},offer);
+    const auto oneup=one_up::view();
+    if(oneup.world==r.world && oneup.can_create && !oneup.state.match)
+        for(const auto& offer:oneup.offers)if(!offer.started && offer.leader!=r.local && r.peers.contains(offer.leader)) {
+            modes::NativeFlagOffer flag{offer.leader,static_cast<std::uint32_t>(offer.match)|1U,"oneup",offer.spot,
+                std::atan2(offer.facing[6],offer.facing[8])*180.f/3.14159265f,
+                offer.players,offer.turn_seconds,0,offer.match};
+            wanted.try_emplace(Key{flag.leader,flag.game},flag);
+        }
     for(const auto& [key,offer]:wanted)
         if(!r.custom_flags.contains(key) && r.custom_flags.size()<64)r.custom_flags[key].offer=offer;
     for(auto it=r.custom_flags.begin();it!=r.custom_flags.end();) {
@@ -1527,8 +1549,30 @@ void throwdown_relay_local(ThrowdownLocalAction action) noexcept {
     try {
         auto &r = relay();
         std::lock_guard lock(r.mutex);
+        // Only local Create/Enroll owns a waiting notice. Offers for someone
+        // else's unjoined flag do not. Custom donor queues have their own UI.
+        switch(action.kind) {
+        case Local::created: case Local::joined:
+            ++r.queue_hud.generation;r.queue_hud.waiting=true;
+            break;
+        case Local::left: case Local::entered: case Local::ended: case Local::quit:
+            r.queue_hud.waiting=false;break;
+        case Local::exited:
+            if(action.cancelling)r.queue_hud.waiting=false;
+            break;
+        default:break;
+        }
         if (r.actions.size() < 256) r.actions.push_back(std::move(action));
     } catch (...) {}
+}
+
+NativeQueueHudState native_queue_hud_state() noexcept {
+    try {auto& r=relay();std::lock_guard lock(r.mutex);return r.queue_hud;}
+    catch(...) {return {};}
+}
+
+void retire_native_queue_hud() noexcept {
+    try {auto& r=relay();std::lock_guard lock(r.mutex);r.queue_hud.waiting=false;}catch(...) {}
 }
 
 void throwdown_relay_spawned(std::uint64_t token, std::uint32_t mmid, std::uint32_t capacity) noexcept {
