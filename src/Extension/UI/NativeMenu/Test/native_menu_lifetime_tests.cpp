@@ -44,6 +44,9 @@ void hud_physical_screen_edges() {
     const auto vertical=native_hud_translation(209.f);
     check(96.f-vertical[0]-vertical[1]==96.f && (vertical[0]-vertical[1])*.5f==209.f,
           "compass vertical placement translates to the strip without stretching the image");
+    using dingosdk::multiplayer::menu_data::custom_hud_slot_order;
+    const auto rank=[](int id){return std::find(custom_hud_slot_order.begin(),custom_hud_slot_order.end(),0x4d4f4400+id)-custom_hud_slot_order.begin();};
+    check(rank(54)<rank(53) && rank(55)<rank(3),"editor and intro backgrounds must paint behind text");
     using dingosdk::multiplayer::menu_data::native_hud_shortcut_edge;
     check((1.f-native_hud_shortcut_edge)*3840.f<8.f,
           "shortcut group keeps only a tiny physical right-edge margin at 4K");

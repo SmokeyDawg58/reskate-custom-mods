@@ -1,35 +1,22 @@
 {
-  "release_tag": "v2.1.0-custom-20261018-enrollment-playtest",
-  "prerelease": true,
-  "source_commit": "82e0c34c2fe167dffe387ec10501f772a48530e2",
-  "automated_tests": {
-    "passed": 90,
-    "failed": 0,
-    "skipped": 0
-  },
+  "result": "AUTOMATED_PASS_LIVE_PENDING",
+  "automated_tests": 91,
   "runtime_files": {
     "ReSkate.dll": {
-      "bytes": 30278656,
-      "sha256": "3e6340bdb010f2d27ba6269c18678e62d635465e8e8e72a81d8a7ab766786f95"
+      "bytes": 30487040,
+      "sha256": "c05a37156b97b80e82a7a207e53423cf856e1ae121ad97ccf40499e5baa1f0e6"
     },
     "ReSkateLauncher.exe": {
       "bytes": 5293056,
-      "sha256": "5a070063a705adde8ffdf4afc57254b1f720b39760a014fc5d9475e91189f3d1"
+      "sha256": "7ae6122f8d6e96a3efe532f600b0083dc4d29513effc36953b6f9bc5871c8b64"
     }
   },
-  "assets_version": "1.0.6",
-  "native_audio_payloads_unchanged": true,
-  "live_validation": "KNOWN_ISSUES_REPORTED",
-  "known_issues": [
-    "The challenge HUD can still disappear on custom maps after map travel.",
-    "Nearby flag banners and map details can still show Spot Battle for a Deathrace."
-  ],
-  "enrollment_and_banner_live_confirmation": "PENDING",
-  "historical_map_success_applies_to_previous_build": true,
-  "source_reconstruction": "PASS",
-  "installer_fixture": "PASS",
-  "diagnostic_logging": false,
-  "profiling": false,
-  "crash_reporting": false,
-  "debug_symbols_shipped": false
+  "base_game": "2.1.0",
+  "session_protocol": 52,
+  "assets_version": "1.0.7",
+  "incoming_commit": "00c5fa2b4dedebb8849cdb289d44ef20a25f78ea",
+  "publication": "LOCAL_ONLY",
+  "published": false,
+  "installed": false,
+  "live_validation": "PENDING"
 }

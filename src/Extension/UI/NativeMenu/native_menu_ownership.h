@@ -118,7 +118,7 @@ inline constexpr auto custom_hud_slot_order=[] {
         result[used++]=id;
     };
     // Keep background panels behind captions, objectives and confirmation.
-    for(const int id:{43,57,60,4,0,40,7,1,59,2,3,5,6,41,61,62,63,42,58,44,45})append(0x4d4f4400+id);
+    for(const int id:{43,54,55,57,60,4,0,40,7,1,59,2,3,5,6,41,61,62,63,42,58,44,45})append(0x4d4f4400+id);
     for(int id=8;id<40;++id)append(0x4d4f4400+id);
     for(int id=0;id<64;++id)append(0x4d4f4400+id);
     for(const int id:{0x31555071,0x31555075,0x31555077,0x31555078,0x31555072,0x31555073,0x31555074})append(id);

@@ -15,6 +15,8 @@
 #include <iostream>
 #include <thread>
 #include <map>
+#include <set>
+#include <algorithm>
 #include <stdexcept>
 
 namespace {
@@ -32,11 +34,13 @@ std::uint64_t last_token{};
 std::vector<dingosdk::modes::NativeFlagOffer> custom_offers;
 std::vector<std::pair<dingosdk::modes::NativeFlagOffer,std::uint32_t>> custom_joins;
 bool accept_custom_join=true;
+std::set<std::uint32_t> custom_queues;
 dingosdk::multiplayer::one_up::View oneup_view;
 std::vector<std::string> oneup_commands;
 }
 namespace dingosdk::multiplayer::one_up {
 View view() {return oneup_view;}
+bool known_custom_flag_queue(std::uint32_t mmid) noexcept {return custom_queues.contains(mmid);}
 void queue(std::string_view command) {oneup_commands.emplace_back(command);}
 bool adopt_native_one_up_flag(std::uint64_t world,std::uint32_t mmid,const std::array<float,3>&,float,unsigned,unsigned) noexcept {
     return world==777 && mmid!=0;
@@ -253,6 +257,15 @@ void guest_flow() {
 }
 
 // The local player's own drop: offered, joined by others, force-started, scored.
+void private_draft_relay_flow() {
+    const ThrowdownRelayInput in{me,{{other,4}},true,78};tick(in);
+    custom_queues.insert(0x999);
+    ThrowdownLocalAction exited{Local::exited};exited.series="SpotBattle";exited.mmid=0x999;
+    exited.placement={9};exited.settings={8};throwdown_relay_local(std::move(exited));
+    const auto out=tick(in);
+    check(std::none_of(out.begin(),out.end(),[](const auto& m){return m.kind==Kind::offer;}),"A custom draft leaked through the stock donor relay");
+    custom_queues.clear();end_session();
+}
 void leader_flow() {
     const ThrowdownRelayInput in{me, {{other, 4}}, true, 78};
     tick(in);
@@ -903,6 +916,7 @@ int main() {
     try {
         native_queue_banner_lifetime();
         guest_flow();
+        private_draft_relay_flow();
         leader_flow();
         removal_flow();
         spot_battle_flow();

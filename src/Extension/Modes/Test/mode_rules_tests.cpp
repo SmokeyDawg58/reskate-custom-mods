@@ -949,6 +949,31 @@ void skate_solo_flow() {
     r.event(a, Event::trick, 1, here, ++sa, t, {}, "Kickflip");
     check(r.phase() == Phase::results, "all the letters alone: the game is over");
 }
+void reskate_merge_scope_flow() {
+    Settings settings;settings.mode=Mode::skate;settings.strikes=max_strikes;settings.corners=square;
+    Message setup;setup.kind=Message::Kind::setup;setup.leader=a;setup.game=72;setup.settings=settings;
+    auto guest=decode(encode(setup));
+    check(guest && reskate_custom_zone(guest->settings),"a guest reconstructs the custom trick zone from the existing shared settings");
+    settings.corners.resize(2);
+    check(!reskate_custom_zone(settings) && reskate_custom_zone(settings,true),"unfinished cone placement is local until it has a polygon");
+    settings.corners.resize(1);settings.area_radius=10.f;
+    check(!reskate_custom_zone(settings),"a circular trick zone keeps its circle presentation");
+    for(const auto mode:all_modes) {
+        setup.settings={};setup.settings.mode=mode;
+        setup.settings.strikes=mode==Mode::skate?max_strikes:5;
+        const auto limit=decode(encode(setup));
+        check(limit && limit->settings.strikes==setup.settings.strikes,"the merge preserves each mode's previous valid letter/strike limit");
+        Message lobby; lobby.kind=Message::Kind::state;lobby.leader=a;lobby.game=73;lobby.settings.mode=mode;
+        lobby.standings={{.player=a},{.player=b}};
+        const auto enrolled=decode(encode(lobby));
+        check(enrolled && lobby_enrolled_count(*enrolled)==2,"every mode, including R.E.S.K.A.T.E., counts enrollment without Ready");
+        if(mode==Mode::skate)continue;
+        check(!reskate_custom_zone(setup.settings,true),"other modes never become a R.E.S.K.A.T.E. cone editor");
+        setup.settings.strikes=6;bool rejected=false;
+        try {(void)encode(setup);}catch(const std::invalid_argument&){rejected=true;}
+        check(rejected,"R.E.S.K.A.T.E.'s seven letters do not relax the limits for other challenges");
+    }
+}
 void reskate_seven_letters_flow() {
     check(mode_name(Mode::skate)=="R.E.S.K.A.T.E." && parse_mode("R.E.S.K.A.T.E.")==Mode::skate &&
         parse_mode("skate")==Mode::skate,"new branding and existing command aliases resolve to the same mode");
@@ -1295,14 +1320,6 @@ void race_saved_course_and_recovery() {
     presses.update(0,9001);check(presses.update(8,9002)==8,"focus reset rearms only after release");
     presses.update(0,9003);check(presses.update(3,9004)==3,"opposing direction steps cancel symmetrically");
     alignment.points.push_back({0,0,20});alignment.yaws.push_back(0);alignment.widths.push_back(24);
-    bool pending=false;
-    check(!race_miss_recovery_ready(alignment,1,{23,0,18},{23,0,21},pending),"large mandatory gate counts within opening without recovery");
-    check(!race_miss_recovery_ready(alignment,1,{30,0,18},{30,0,20.5f},pending) && pending,"outside pass gives time to clear the plane");
-    check(race_miss_recovery_ready(alignment,1,{30,0,20.5f},{30,0,24},pending),"actual missed mandatory recovers beyond grace distance");
-    pending=false;check(!race_miss_recovery_ready(alignment,1,{30,0,22},{30,0,18},pending) && !pending,"backward approach cannot trigger mandatory recovery");
-    pending=true;check(!race_miss_recovery_ready(alignment,1,{30,0,20.5f},{30,0,19},pending) && !pending,"returning before grace cancels false recovery");
-    alignment.points.push_back({0,0,30});alignment.yaws.push_back(0);alignment.widths.push_back(40);
-    pending=false;check(!race_miss_recovery_ready(alignment,1,{0,0,15},{0,0,18},pending),"nearby oversized later gate never penalizes entry into required gate");
     RaceClearHold hold;
     check(!hold.update(true,true,100) && !hold.update(true,true,1599),"tap cannot clear course");
     check(hold.update(true,true,1600) && !hold.update(true,true,1700),"full hold clears once");
@@ -1380,6 +1397,46 @@ void race_checkpoint_back_flow() {
     press.update(false,false);check(!press.update(true,true),"unknown controller state while unfocused cannot trigger on returning with Up held");
     press.update(false,true);check(press.update(true,true),"a fresh release and press after focus loss works");
 }
+void deathrace_audit_regressions() {
+    Settings route;route.mode=Mode::race;route.has_spawn=true;route.spawn={0,0,0};route.race_finish=true;
+    route.points={{0,0,0},{0,0,10},{0,0,15},{0,0,20},{0,0,30}};
+    route.yaws.resize(5);route.widths.resize(5,6.f);route.arrow_rolls.resize(5);route.gate_pitches.resize(5);
+    route.gate_kinds={RaceGateKind::mandatory,RaceGateKind::mandatory,RaceGateKind::arrow,RaceGateKind::mandatory,RaceGateKind::mandatory};
+    RaceRoutePublication published;
+    check(!published.ready(route),"placing a finish does not publish a draft");
+    check(published.save(route) && published.ready(route),"explicit Save publishes a complete route");
+    auto timer=route;timer.duration_s+=30;check(published.ready(timer),"timer changes do not invalidate saved geometry");
+    auto changed=route;changed.points[1][1]+=2;check(!published.ready(changed),"any unsaved shape change withdraws the offer");
+    const auto draft=advertised_lobby_settings(route,true);
+    check(draft.points.empty() && draft.yaws.empty() && draft.widths.empty() && draft.gate_kinds.empty() && draft.arrow_rolls.empty() && draft.gate_pitches.empty() && !draft.has_spawn && !draft.race_finish,
+        "a draft does not transmit its geometry, spawn or a joinable finish");
+    published.begin_edit();check(!published.ready(route),"reopening editor withdraws even the previously saved offer");
+    auto incomplete=route;incomplete.race_finish=false;check(!published.save(incomplete),"invalid Save cannot publish");
+    RaceRouteHistory history;history.resume(route);bool finish=true;auto edited=route;
+    check(history.undo(edited,finish) && !finish && edited.points.size()==4,"restored saved route can undo its finish");
+    check(history.redo(edited,finish) && finish && edited==route,"restored route can redo the exact finish and poses");
+    auto preserved=history;preserved.resume(route);check(preserved.undo(edited,finish),"resuming does not discard existing history");
+    RaceCheckpointFallback rewind;
+    check(!race_gate_visible(route,1,4,true) && race_gate_visible(route,2,4,true),"cleared gates hide but arrows remain");
+    const auto back=rewind.step_back(route,4);check(back==1 && rewind.visible_from(4)==1,"Up reveals the selected prior checkpoint and later gates");
+    rewind.observe_crossings(route,4,{0,0,9},{0,0,11});check(rewind.visible_from(4)==2,"repassing a revealed gate hides it again");
+    rewind.advanced();check(rewind.visible_from(4)==4,"new authoritative progress clears rewind visibility");
+    check(!race_later_gate_crossed(route,1,{25,0,9},{25,0,12}),"missing the required opening alone never teleports");
+    check(!race_later_gate_crossed(route,1,{0,0,14},{0,0,16}),"a decorative arrow is not proof of a skipped checkpoint");
+    check(race_later_gate_crossed(route,1,{0,0,19},{0,0,21})==3,"crossing a later required gate detects the missing one");
+    check(!race_later_gate_crossed(route,1,{0,0,21},{0,0,19}),"reverse crossings do not penalize");
+    check(race_later_gate_crossed(route,1,{0,0,29},{0,0,31})==4,"a finish crossed too early detects the missed gate");
+    for(const unsigned offboard:{500u,504u,505u}) {
+        RaceHippyJump jump;jump.observe(true,200,100,1.f,false,100);
+        check(jump.observe(true,offboard,200,-.5f,false,125,true),"airborne board-to-offboard handoff recognizes a hippy without an upward sample");
+        check(jump.active(130) && jump.observe(true,offboard,offboard,-4.f,false,400,true),"hippy descent remains eligible for gate progress");
+        check(!jump.observe(true,300,offboard,-4.f,true,410,true) && !jump.active(411),"true native bail always wins over hippy immunity");
+    }
+    check(race_placement_label(4)=="CHEVRON" && race_placement_label(2)=="FINISH GATE","object names match selected tool");
+    check(race_object_label_alpha(100,200)==0 && race_object_label_alpha(200,200)==0 && race_object_label_alpha(290,200)==.5f &&
+        race_object_label_alpha(400,200)==1 && race_object_label_alpha(2350,200)==.5f && race_object_label_alpha(2500,200)==0,
+        "placement label fades in, holds briefly and fades out without clock underflow");
+}
 int main() {
     try {
         area_flow();
@@ -1390,6 +1447,7 @@ int main() {
         jam_flow();
         one_up_flow();
         race_flow();
+        deathrace_audit_regressions();
         race_builder_flow();
         race_floating_arrow_flow();
         race_checkpoint_back_flow();
@@ -1409,6 +1467,7 @@ int main() {
         graffiti_flow();
         skate_flow();
         skate_solo_flow();
+        reskate_merge_scope_flow();
         reskate_seven_letters_flow();
         infection_flow();
         hide_flow();

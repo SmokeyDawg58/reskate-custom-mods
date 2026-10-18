@@ -751,7 +751,7 @@ overlay::HubPage native_menu_page() noexcept {
     return {true, page_shown.load(std::memory_order_relaxed)};
 }
 void tick_native_menu(std::uintptr_t base, bool loading) noexcept {
-    const modes::OwnUiWrites own_writes; // not skate.'s trick list: R.E.S.K.A.T.E. ignores these
+    const modes::OwnUiWrites own_writes; // Custom labels are not the native trick list.
     run_pending_ui_dump(base);
     // The menu sounds the overlay's pages asked for (ui_sound.h).
     tick_ui_sounds(base, loading);

@@ -1,4 +1,5 @@
 #include "guid_table_guard.h"
+#include "guid_table_probe.h"
 #include "Engine/Core/Hooks/hooks.h"
 #include "Engine/Core/Log/logging.h"
 #include "Engine/Core/Platform/memory.h"
@@ -22,28 +23,20 @@ Record record{};
 std::atomic<bool> installed{};
 std::atomic<std::uint64_t> misses{};
 
-enum class Probe { found, missing, unreadable };
-// The game's probe, bounded: every slot at most once, and an empty slot is never a match.
+using detail::Probe;
+// Keep native reads under SEH; the same bounded traversal is exercised without
+// game pointers by the regression test. Present keys still use find_original.
 Probe probe(std::uintptr_t table, const std::uint32_t* key) noexcept {
     __try {
         const auto count = *reinterpret_cast<const std::uint32_t*>(table + gt::count);
-        std::uint32_t wanted = count / 2 + count;
-        if (wanted < 16) wanted = 16;
-        unsigned long top{};
-        const std::uint32_t mask = _BitScanReverse(&top, wanted - 1) ? (top >= 31 ? 0xffffffffu : (2u << top) - 1) : 0;
+        const auto size = detail::slot_count(count);
         const auto* const slots = *reinterpret_cast<const std::uint16_t* const*>(table + gt::slots);
         auto* const source = *reinterpret_cast<void* const*>(table + gt::source);
-        if (!slots || !source) return Probe::unreadable;
+        if (!size || !slots || !source) return Probe::unreadable;
         const auto key_of = reinterpret_cast<KeyOf>((*reinterpret_cast<std::uintptr_t* const*>(source))[gt::key_of / sizeof(std::uintptr_t)]);
-        const std::uint32_t step = (key[0] & 0x3e) | 1;
-        std::uint32_t at = key[0] & mask;
-        for (std::uint64_t tries = 0; tries <= mask; ++tries, at = (at + step) & mask) {
-            const auto index = slots[at];
-            if (index == gt::empty) continue;
-            const auto* const other = key_of(source, index);
-            if (other && std::memcmp(other, key, 16) == 0) return Probe::found;
-        }
-        return Probe::missing;
+        const std::array<std::uint32_t,4> wanted{key[0],key[1],key[2],key[3]};
+        return detail::probe_slots(std::span<const std::uint16_t>{slots,size},wanted,
+            [source,key_of](std::uint16_t index){return key_of(source,index);});
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return Probe::unreadable;
     }
@@ -73,7 +66,7 @@ bool matches(std::uintptr_t base, const game::build::Fingerprint& contract) noex
 bool install(std::uintptr_t base) noexcept {
     if (installed.exchange(true)) return find_original != nullptr;
     if (!base) return false;
-    if (!matches(base, gt::find)) {
+    if (!matches(base, gt::find) || !matches(base, gt::record_contract)) {
         logging::log(logging::Level::warning, logging::Channel::runtime, "GUID table guard: this build's lookup differs; it is left as it is.");
         return false;
     }

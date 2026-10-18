@@ -1,21 +1,12 @@
-# Install and check the playtest update
+# Later playtest
 
-This prerelease has known custom-map HUD and incorrect-card-branding issues. See DIAGNOSTICS.md before sharing it as a finished fix.
+Use matching 2.1.0 runtime and complete Assets 1.0.7 on both PCs. First check R.E.S.K.A.T.E. spectator lock, copied/failed/invalid callouts, one-second stable landing, combinations, spread return positions and Goofy setting diagrams. The Full package is recommended. Close the game/launcher yourself, run the backup installer and preflight, then launch yourself.
 
-## Install
+- Switch stock map -> Skate3Improved -> Skate2Improved -> stock and repeat. Start a challenge after each load. Repeat with stock Compass/D-Pad hidden; the custom gameplay HUD should remain available.
+- Build a Deathrace while the other player watches. No join flag/course should be advertised until Save. Cancel an unfinished draft, reopen, Save, enroll, Leave/re-enroll and host Start without any Ready step.
+- Cross checkpoints, rewind with Up and recross. Skip a checkpoint without crossing a later gate: no teleport. Cross a later Required/Finish: missed-gate warning and last-cleared-checkpoint recovery. Guides and Chevrons should not penalize.
+- Hippy jump through a gate and continue. Separately try a true bail and accidental board runout, including a finish during their grace.
+- Place air gates, floor/wall/air Chevrons, tilt/roll using X plus R3, Undo/Redo after reopening, and inspect Route Info/object labels. Check the taller flag and red Finish compass icon.
+- Check the compact themed intro and exact Deathrace nearby/map/details identity. Recheck 1-UP and R.E.S.K.A.T.E. enrollment, letters, trick zone and solo copy flow.
 
-1. Close ReSkate and its launcher yourself. Extract Full to a staging folder.
-2. Run ./Install-Playtest.ps1 -GameDirectory "YOUR_GAME_FOLDER", then ./Preflight-Playtest.ps1 -GameDirectory "YOUR_GAME_FOLDER". Replaced files are backed up under the game folder's PlaytestBackups.
-3. Keep layout.toc, initfs_win32, Win32 and Audio together inside the complete Throwdown Assets folder. Enable one copy. The installer supports the active Mods/ModData layout.
-4. Runtime Update requires complete Assets 1.0.6 already present. Every PC needs the same updated runtime pair. Launch the game yourself afterward and allow generated mod files to rebuild if prompted.
-
-## Checks awaiting in-game confirmation
-
-- Save a Deathrace, enroll on another PC and wait for the host. There should be no Ready step or ready count. Host Start should start all enrolled skaters.
-- Leave before Start, enroll again, and repeat the host-start check with 1-UP. Draft Deathrace flags should stay private until Save; published 1-UP flags should be joinable on the other PC.
-- Check the actual challenge name/logo/rules on the nearby banner, join page and map card. The known Spot Battle fallback remains under investigation.
-- Start/finish/leave a normal Skate Jam and check the waiting banner retires; then create a new queue and check its banner appears normally.
-- Disable stock Compass and D-Pad HUD sections and change maps twice. Check the custom HUD on each PC; the known disappearing-HUD report remains open.
-- Hippy jump without recovery; then test a real bail and accidental board loss with the existing grace periods. Check rotation, three-axis Chevron snapping/clearance, saved routes, gate compass and checkpoint rewind.
-
-Keep build name, map, role and steps with a bug report. Do not post personal settings, credentials or private captures.
+Automated checks pass; these live checks are pending. No GitHub push was performed.

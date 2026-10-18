@@ -70,6 +70,7 @@ struct NativeView {
     unsigned missed_gate{};
     Vec3 cursor{};
     float cursor_yaw{},cursor_width=6.f,cursor_roll{},cursor_pitch{};
+    bool editor_roll_axis{},route_saved{};unsigned gates_visible_from{};std::uint64_t object_changed_ms{};
     bool placing_circle{}; float draft_radius{}; // an area being placed: its size so far
     bool placing_corners{}, zone_custom{};          // R.E.S.K.A.T.E.: its cones being placed; a custom zone
     Settings settings;

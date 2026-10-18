@@ -53,22 +53,18 @@ Registry& registry() {
             "oneup","UI/ReSkate/OneUp/img_OneUp_Blue_1024",Adapter::native_one_up,0,1,
             {0xffef8b22U,0xfff3f0e5U,0xfff2cc52U,0xff171717U,0xffffffffU}});
         for(const auto mode:modes::all_modes) {
-            // R.E.S.K.A.T.E. (Mode::skate) is ReSkate's own letters game in place of skate.'s
-            // S.K.A.T.E. throwdown, which is not offered. It has no generated logo: its card keeps
-            // the donor tile's native artwork (empty logo).
-            if(mode==modes::Mode::one_up)continue;
+            if(mode==modes::Mode::one_up || mode==modes::Mode::skate)continue;
             const auto key=std::string(modes::mode_key(mode));
             const unsigned donor=modes::tag_like(mode)?0U:mode==modes::Mode::jam?2U:1U;
             // Matches the single generated 4x2 placeholder atlas, RGBA bytes.
             const unsigned color=mode==modes::Mode::jam?0xffab4fffU:mode==modes::Mode::meat?0xff218affU:
                 mode==modes::Mode::race?0xff3434ffU:mode==modes::Mode::domination?0xffff558cU:
                 mode==modes::Mode::graffiti?0xff9fd929U:mode==modes::Mode::tag?0xff31d3ffU:
-                mode==modes::Mode::infection?0xff24d675U:mode==modes::Mode::skate?0xff00a5ffU:0xffffbd39U;
-            const bool letters=mode==modes::Mode::skate;
+                mode==modes::Mode::infection?0xff24d675U:0xffffbd39U;
             result.add({"mode."+key,std::string(modes::mode_name(mode)),std::string(modes::mode_summary(mode)),key,
-                letters?std::string():"UI/ReSkate/Throwdowns/img_"+key+"_Placeholder",
-                Adapter::game_mode,static_cast<unsigned>(mode),letters?0U:donor,{color,0xfff3f0e5U,0xfff2cc52U,0xff171717U,0xffffffffU},
-                mode==modes::Mode::race || mode==modes::Mode::domination,mode==modes::Mode::hide || letters});
+                "UI/ReSkate/Throwdowns/img_"+key+"_Placeholder",
+                Adapter::game_mode,static_cast<unsigned>(mode),donor,{color,0xfff3f0e5U,0xfff2cc52U,0xff171717U,0xffffffffU},
+                mode==modes::Mode::race || mode==modes::Mode::domination,mode==modes::Mode::hide});
         }
         return result;
     }();

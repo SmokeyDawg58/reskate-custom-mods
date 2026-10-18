@@ -486,7 +486,8 @@ void carried_into_another_bundle_with_the_list(bool music_first) {
 // import graph. A custom map's core replacement must receive all nine
 // roots and their isolated native material depot; unrelated additions still do
 // not carry. Exercise the real writer, collect and merge pipeline end to end.
-void deathrace_runtime_roots_survive_core_replacement(bool map_first,bool correct_owner,bool correct_bundle) {
+void deathrace_runtime_roots_survive_core_replacement(bool map_first,bool correct_owner,bool correct_bundle,
+        const char* owner="ReSkate Core 1-Up") {
     const auto* core = mods::detail::race_core_bundle.data();
     Fixture fixture(std::string("race-")+(map_first ? "map-first" : "core-first")+
         (correct_owner ? "-owned" : "-ordinary")+(correct_bundle ? "-core" : "-other"),correct_bundle);
@@ -505,7 +506,7 @@ void deathrace_runtime_roots_survive_core_replacement(bool map_first,bool correc
     const std::vector<Resource> materials{{
         "world/reskate/deathrace/checkpoints_win32_shaderstate/shaderblockdepot_12937733901070835605",
         {std::byte{1},std::byte{2}},0x73312045},{"world/reskate/deathrace/unrelated_depot",{std::byte{3}},0x73312045}};
-    const auto add_core = [&] { fixture.add(correct_owner ? "ReSkate Core 1-Up" : "ordinary",false,shared_toc,{},assets,materials,bundle); };
+    const auto add_core = [&] { fixture.add(correct_owner ? owner : "ordinary",false,shared_toc,{},assets,materials,bundle); };
     const auto add_map = [&] { fixture.add("map",true,map_toc,{map_superbundle},game_copy(),{},bundle); };
     if(map_first) {add_map();add_core();} else {add_core();add_map();}
     const auto report = mods::merge_mods(fixture.catalog);
@@ -882,6 +883,11 @@ int main() try {
     carried_into_another_bundle_with_the_list(false);
     deathrace_runtime_roots_survive_core_replacement(true,true,true);
     deathrace_runtime_roots_survive_core_replacement(false,true,true);
+    for(const auto owner:{"SmokeyDawg58-ReSkate_Throwdown_Assets","SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.6"}) {
+        deathrace_runtime_roots_survive_core_replacement(true,true,true,owner);
+        deathrace_runtime_roots_survive_core_replacement(false,true,true,owner);
+        deathrace_runtime_roots_survive_core_replacement(true,true,false,owner);
+    }
     deathrace_runtime_roots_survive_core_replacement(true,false,true);
     deathrace_runtime_roots_survive_core_replacement(true,true,false);
     carried_payload_written_once();

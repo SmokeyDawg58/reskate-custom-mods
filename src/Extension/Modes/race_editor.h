@@ -4,6 +4,17 @@
 #include <limits>
 
 namespace dingosdk::modes {
+inline std::string_view race_placement_label(unsigned object) noexcept {
+    constexpr std::array<std::string_view,5> names{"START FLAG","REQUIRED GATE","FINISH GATE","GUIDE GATE","CHEVRON"};
+    return object<names.size()?names[object]:"REQUIRED GATE";
+}
+inline float race_object_label_alpha(std::uint64_t now,std::uint64_t changed) noexcept {
+    if(!changed || now<changed)return 0.f;
+    const auto age=now-changed;
+    if(age<180)return static_cast<float>(age)/180.f;
+    if(age<2000)return 1.f;
+    return age<2300?static_cast<float>(2300-age)/300.f:0.f;
+}
 struct RaceEditorDirections { int yaw{},tilt{},size{};bool undo{},redo{}; };
 inline RaceEditorDirections race_editor_directions(bool rotating,unsigned step) noexcept {
     const int horizontal=int(bool(step&2))-int(bool(step&1));
@@ -19,6 +30,19 @@ public:
         if(before==after)return;
         if(past.size()==64)past.erase(past.begin());
         past.push_back(before);future.clear();
+    }
+    // Saved routes may outlive their editor/game. Rebuild a useful history
+    // only when this session has no more precise placement history to retain.
+    void resume(const Settings& route) {
+        if(!past.empty() || !future.empty() || route.points.size()<2)return;
+        for(std::size_t count=1;count<route.points.size();++count) {
+            auto prefix=route;prefix.points.resize(count);prefix.yaws.resize(count);prefix.widths.resize(count);
+            if(!prefix.gate_kinds.empty())prefix.gate_kinds.resize(count);
+            if(!prefix.arrow_rolls.empty())prefix.arrow_rolls.resize(count);
+            if(!prefix.gate_pitches.empty())prefix.gate_pitches.resize(count);
+            prefix.race_finish=false;past.push_back(std::move(prefix));
+            if(past.size()>64)past.erase(past.begin());
+        }
     }
     bool undo(Settings& route,bool& finish) {
         if(past.empty())return false;

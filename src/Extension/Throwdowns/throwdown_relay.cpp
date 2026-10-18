@@ -1,4 +1,5 @@
 #include "throwdown_relay.h"
+#include "one_up_placement.h"
 #include "throwdown_lab.h"
 #include "throwdown_wire.h"
 #include "native_throwdowns.h"
@@ -467,6 +468,7 @@ void on_local(Relay &r, ThrowdownLocalAction &a, std::uint64_t now) {
     case Local::exited: {
         if (a.cancelling) { close_hosted(r); break; }
         if (!a.mmid || a.placement.empty()) break;
+        if(one_up::known_custom_flag_queue(a.mmid)){close_hosted(r);break;}
         if (!r.hosted || r.hosted->id != a.mmid) {
             close_hosted(r);
             Hosted h;

@@ -90,6 +90,7 @@ struct Bail {
 struct Game {
     unsigned capacity=6;
     bool race_finish_placed{};
+    RaceRoutePublication race_publication;
     bool native_lobby{}, native_flag_placed{};
     bool zone_custom{}; // R.E.S.K.A.T.E.: its trick zone is outlined by cones placed after the flag
     float native_flag_yaw{};
@@ -209,6 +210,8 @@ struct State {
     bool route_snap=true,snap_previous{};
     unsigned snap_angle=default_race_editor_snap_angle;
     RaceClearHold clear_hold;
+    std::map<std::string,RaceRouteHistory> course_histories;
+    bool editor_roll_axis{};std::uint64_t editor_object_changed{};
     RaceEditorPresses editor_presses;
     bool editor_exit_confirm{};
     std::uint64_t skate_return_sent{}; // when the last return teleport was asked for
@@ -372,10 +375,15 @@ void announce_match(State& s,std::uint64_t leader,std::uint32_t game,const Setti
     if(auto text=s.announcements[{leader,game}].observe(name_of(s,leader),settings,state,now))notice(s,std::move(*text));
 }
 void save_race_course(State& s) {
-    if(s.game && s.game->settings.mode==Mode::race)s.courses.save(s.course_map,s.game->settings);
+    if(s.game && s.game->leading && s.game->settings.mode==Mode::race)s.courses.save(s.course_map,s.game->settings);
 }
 void end_game(State &s, std::string why) {
     save_race_course(s);
+    if(s.game && s.game->leading && s.game->settings.mode==Mode::race) {
+        s.course_histories[s.course_map]=s.route_history;
+        if(s.course_histories.size()>16)s.course_histories.erase(s.course_histories.begin());
+        if(s.game->leading)send(s,header(*s.game,Message::Kind::end));
+    }
     s.editor_exit_confirm=false;s.clear_hold={};s.editor_presses={};s.editor_rotating=false;s.editor_angles_ready=false;s.route_history.reset();s.editor_pose_game=0;
     {std::lock_guard lock(s.recovery_mutex);s.recovery_velocity.reset();}
     s.recovering.store(false,std::memory_order_release);
@@ -889,6 +897,7 @@ void track_bail(State &s, std::uint32_t physics, float vertical, std::uint64_t n
     }
     const auto in = [](std::uint32_t state, std::uint32_t first) { return state >= first && state < first + 100; };
     if (in(physics, wipeout_state) && !in(s.previous_state, wipeout_state)) bailed = true;
+    const bool hard_bail=bailed || in(physics,wipeout_state);
     if (physics >= offboard_states_first && in(s.previous_state, 200) && s.previous_vertical < -6.0f) bailed = true;
     if (std::exchange(s.ragdoll_lost, false)) bailed = true;
     // On foot the skater is off the board already, so no state change marks a jump off a roof:
@@ -925,9 +934,11 @@ void track_bail(State &s, std::uint32_t physics, float vertical, std::uint64_t n
         }
         s.fall_peak = 0;
     }
-    const bool hippy=s.race_hippy.observe(watch.valid,physics,watch.previous,vertical,bailed,now);
+    const auto movement=trainer::telemetry();
+    const bool hippy=s.race_hippy.observe(watch.valid || movement.skater,physics,watch.valid?watch.previous:s.previous_state,vertical,hard_bail,now,movement.airborne);
+    if(hippy && !hard_bail)bailed=false;
     const bool runout=runout_edge && !hippy;
-    if(hippy && s.game && s.game->settings.mode==Mode::race)s.game->recovery_grace.cancel_runout();
+    if(hippy && s.game && s.game->settings.mode==Mode::race)s.game->recovery_grace.reset();
     // Checkpoint recovery is independent of the 3.5-second Meat measurement.
     // A second fall after a quick recovery must not be ignored by that timer.
     if(bailed || runout) {
@@ -1153,7 +1164,8 @@ std::optional<Vec3> game_spot(const Settings &st) {
     if (st.has_spawn) return st.spawn;
     return std::nullopt;
 }
-bool offer_open(const Offer &o) { return o.confirmed && (o.phase == Phase::setup || o.phase == Phase::countdown); }
+bool offer_open(const Offer &o) { return o.confirmed && (o.phase == Phase::setup || o.phase == Phase::countdown) &&
+    (o.settings.mode!=Mode::race || race_route_ready(o.settings,o.settings.race_finish)); }
 // Joins an offered game: the leader is asked at once, and the player is put at its start, a few
 // steps from its spot (round the circle, or behind Deathrace's start gate), not on anyone's head.
 std::string join_offer(State &s, const Offer &offer, std::uint64_t now) {
@@ -1228,11 +1240,12 @@ std::string gate_name(std::size_t index, std::size_t count);
 // Deathrace: the next checkpoint reached. The area: a player outside it for a while is put back.
 void track_game(State &s, std::uint64_t now) {
     if (!s.game || !playing(*s.game) || (!s.skater && !(s.game->settings.mode==Mode::race &&
-        (s.game->recovery_grace.pending() || s.game->gate_crossed)))) {
+        (s.game->recovery_grace.pending() || s.game->gate_crossed || s.race_hippy.active(now))))) {
         s.outside_since = 0;
         return;
     }
     auto &g = *s.game;
+    const bool race_rider=s.on_board || (g.settings.mode==Mode::race && s.race_hippy.active(now));
     const auto *me = standing(g, self_id(s));
     if (!me || me->out) return;
     if (tag_like(g.settings.mode) || g.settings.mode==Mode::race) {
@@ -1292,7 +1305,7 @@ void track_game(State &s, std::uint64_t now) {
             if(!g.recovery_queued) {
                 g.recovery_pose=race_checkpoint_pose(g.settings,g.checkpoint_fallback.target(g.settings,index));
                 if(teleport_to(g.recovery_pose.at,g.recovery_pose.yaw))g.recovery_queued=now;
-            } else if(s.on_board && !local_skater_teleport_pending() &&
+            } else if(race_rider && !local_skater_teleport_pending() &&
                 std::hypot(s.position[0]-g.recovery_pose.at[0],s.position[2]-g.recovery_pose.at[2])<3.f) {
                 {std::lock_guard lock(s.recovery_mutex);s.recovery_velocity.request(race_recovery_motion(g.recovery_speed,g.recovery_pose.yaw),now);}
                 g.recovery_pending=false;g.recovery_queued=0;g.recovery_until=now+3000;
@@ -1301,9 +1314,9 @@ void track_game(State &s, std::uint64_t now) {
             } else if(now-g.recovery_queued>5500)g.recovery_queued=0;
             return;
         }
-        if(!s.on_board && !(finish && g.gate_crossed) && !g.recovery_grace.pending()){g.have_along=false;return;}
+        if(!race_rider && !(finish && g.gate_crossed) && !g.recovery_grace.pending()){g.have_along=false;return;}
         if(!s.skater && !s.race_body_known && !(finish && g.gate_crossed)){g.have_along=false;expire_grace();return;}
-        if(s.on_board && g.have_along)g.checkpoint_fallback.observe_crossings(g.settings,index,g.previous_gate_position,s.position);
+        if(race_rider && g.have_along)g.checkpoint_fallback.observe_crossings(g.settings,index,g.previous_gate_position,s.position);
         const auto &next = g.settings.points[index];
         const float dx = s.position[0] - next[0], dz = s.position[2] - next[2];
         // A gate counts when the skater crosses its line, forwards, between its posts: not on
@@ -1313,7 +1326,7 @@ void track_game(State &s, std::uint64_t now) {
         const float along = dx * fx + dz * fz;
         // Sweep the actual movement segment through the gate plane. Fast
         // skating and frame gaps must not skip a crossing between two samples.
-        const auto crossing=g.have_along && (s.on_board || (finish && g.recovery_grace.waiting(now)))?
+        const auto crossing=g.have_along && (race_rider || (finish && g.recovery_grace.waiting(now)))?
             race_gate_crossing(g.settings,index,g.previous_gate_position,s.position):RaceGateCrossing{};
         // Crossing is evaluated at the swept intersection, including wide detours.
         if (crossing.inside && !g.gate_crossed) {
@@ -1327,24 +1340,16 @@ void track_game(State &s, std::uint64_t now) {
             report(s, Event::checkpoint, me->score, 0, g.crossed_at);
         }
         if(finish && g.gate_crossed)g.recovery_grace.reset();
-        // Missed: across the gate's line but outside its posts, or already through a later gate.
-        // (Not while a crossing waits for the referee: the skater rides on to the next gate meanwhile.)
-        bool missed = s.on_board && !g.recovery_grace.pending() && index > 0 && g.have_along && !g.gate_crossed && race_miss_recovery_ready(g.settings,index,g.previous_gate_position,s.position,g.miss_pending);
-        g.along = along;
-        for (std::size_t later = index + 1; later < g.settings.points.size() && s.on_board && !g.recovery_grace.pending() && !missed && !g.gate_crossed; ++later) {
-            if(guiding_gate(g.settings,later))continue;
-            if (g.have_along && along>=std::clamp(gate_half_width(g.settings,index)*.15f,1.5f,4.f) &&
-                race_gate_along(g.settings,later,s.position)>race_gate_along(g.settings,later,g.previous_gate_position) &&
-                race_gate_crossing(g.settings,later,g.previous_gate_position,s.position).inside)
-                missed = true;
-        }
+        const bool missed=race_rider && !g.recovery_grace.pending() && g.have_along && !g.gate_crossed &&
+            race_later_gate_crossed(g.settings,index,g.previous_gate_position,s.position).has_value();
+        g.along=along;
         g.previous_gate_position = s.position;
         g.have_along = true;
         expire_grace();
         if (missed && (g.missed_warned != me->score || now>g.recovery_until)) {
             g.recovery_speed=g.recovery_speed_guard.limit(g.momentum.current(now),now);
             g.missed_warned = me->score;g.recovery_pending=true;g.recovery_queued=0;g.recovery_until=now+8000;
-            popup(s, std::format("Go back to required gate {}!",mandatory_gates(g.settings,index)+1));
+            popup(s, std::format("Missed required gate {}. Returning to your last cleared gate.",mandatory_gates(g.settings,index)+1));
         }
     }
     // R.E.S.K.A.T.E.'s area is a trick zone, not a fence: players roll in from outside it.
@@ -1453,6 +1458,14 @@ void update_cursor(State &s) {
         const auto hit = world_ray(aim_ray);
         s.cursor_ok = hit.hit && now_ms() - hit.when < 500;
         if (s.cursor_ok) s.cursor = hit.at;
+        if(s.game && s.game->settings.mode==Mode::race && s.race_object!=0) {
+            // Gates can float at the aimed depth; only a nearby direct surface
+            // hit mounts them. Distant buildings do not steal the air cursor.
+            float distance=16.f;
+            if(s.cursor_ok)distance=std::hypot(hit.at[0]-origin[0],hit.at[1]-origin[1],hit.at[2]-origin[2]);
+            if(!s.cursor_ok || distance>30.f)for(unsigned a=0;a<3;++a)s.cursor[a]=origin[a]+forward[a]*16.f;
+            s.cursor_ok=true;
+        }
         cursor_diagnostic(s, !hit.cast ? "waiting for client ray dispatch" : !hit.available ? "client collision world unavailable" :
             s.cursor_ok ? "ready" : "aim does not hit a surface", camera, origin, forward);
         // The gate faces the way the camera looks.
@@ -1605,7 +1618,7 @@ void run_placing(State &s, std::uint64_t now) {
     const bool route = !corners && g.settings.mode == Mode::race;
     if (route) {
         if(s.editor_pose_game!=g.id || s.editor_pose_world!=s.world) {
-            s.editor_pose_game=g.id;s.arrow_line_snap.reset();s.editor_pose_world=s.world;s.editor_angles_ready=false;s.editor_rotating=false;s.route_history.reset();s.yaw_offset=0;s.pitch_offset=0;s.draft_width=default_race_editor_width;s.snap_angle=default_race_editor_snap_angle;s.route_snap=true;
+            s.editor_pose_game=g.id;s.arrow_line_snap.reset();s.editor_pose_world=s.world;s.editor_angles_ready=false;s.editor_rotating=false;s.editor_roll_axis=false;s.editor_object_changed=now;s.yaw_offset=0;s.pitch_offset=0;s.draft_width=default_race_editor_width;s.snap_angle=default_race_editor_snap_angle;s.route_snap=true;
         }
         if(!s.editor_angles_ready && s.cursor_ok) {
             s.editor_yaw=race_camera_yaw(s.cursor_heading,s.yaw_offset,s.race_object==4);
@@ -1620,7 +1633,10 @@ void run_placing(State &s, std::uint64_t now) {
         }
         constexpr std::array<float,5> snap_angles{5.f,15.f,30.f,45.f,90.f};
         if(pressed&0x40)s.snap_angle=(s.snap_angle+4u)%5u;
-        if(pressed&0x80)s.snap_angle=(s.snap_angle+1u)%5u;
+        if(pressed&0x80) {
+            if(s.editor_rotating && s.race_object==4)s.editor_roll_axis=!s.editor_roll_axis;
+            else s.snap_angle=(s.snap_angle+1u)%5u;
+        }
         const unsigned held_editor=((buttons&pad_left) || held(VK_PRIOR)?1u:0u) |
             ((buttons&pad_right) || held(VK_NEXT)?2u:0u) |
             ((buttons&pad_down) || held(VK_OEM_4)?4u:0u) |
@@ -1653,14 +1669,19 @@ void run_placing(State &s, std::uint64_t now) {
         const int wheel_steps=static_cast<int>(notches);
         if(const auto yaw_steps=controls.yaw+(s.editor_rotating?wheel_steps:0);yaw_steps)
             s.editor_yaw=rotate_race_gate(s.editor_yaw,yaw_steps,s.route_snap,snap_angles[s.snap_angle]);
-        if(controls.tilt)s.editor_pitch=tilt_race_gate(s.editor_pitch,controls.tilt,s.route_snap,snap_angles[s.snap_angle]);
+        if(controls.tilt) {
+            if(s.race_object==4 && s.editor_roll_axis)s.arrow_roll=rotate_race_gate(s.arrow_roll,controls.tilt,s.route_snap,snap_angles[s.snap_angle]);
+            else s.editor_pitch=tilt_race_gate(s.editor_pitch,controls.tilt,s.route_snap,snap_angles[s.snap_angle]);
+        }
         s.draft_width=size_race_gate(s.draft_width,controls.size+(!s.editor_rotating?wheel_steps:0));
         if(controls.undo && s.route_history.undo(g.settings,g.race_finish_placed)){settings_changed(g);popup(s,"Last placement undone.");}
         else if(controls.redo && s.route_history.redo(g.settings,g.race_finish_placed)){settings_changed(g);popup(s,"Placement restored.");}
+        const auto old_object=s.race_object;
         const bool lt=(buttons&0x10000) || held('Z'),rt=(buttons&0x20000) || held('X');
         if(lt && !s.cycle_left)s.race_object=static_cast<unsigned>(cycle_race_object(static_cast<RaceObject>(s.race_object),true));
         if(rt && !s.cycle_right)s.race_object=static_cast<unsigned>(cycle_race_object(static_cast<RaceObject>(s.race_object),false));
         s.cycle_left=lt;s.cycle_right=rt;
+        if(old_object!=s.race_object){s.editor_object_changed=now;s.editor_rotating=false;s.editor_roll_axis=false;s.editor_angles_ready=false;}
         const bool snap=(buttons&0x8000) || held('G');
         if(snap && !s.snap_previous)s.route_snap=!s.route_snap;
         s.snap_previous=snap;
@@ -1707,7 +1728,7 @@ void run_placing(State &s, std::uint64_t now) {
             if(!issue.empty()) {
                 s.editor_save_blocked=true;popup(s,std::string(issue));
                 overlay::notify(overlay::NoticeLevel::warning,"Deathrace route not saved",std::string(issue));
-            } else {s.editor_save_blocked=false;s.placing=State::Placing::none;settings_changed(g);popup(s,"Deathrace route saved.");}
+            } else {s.editor_save_blocked=false;s.placing=State::Placing::none;g.race_publication.save(g.settings);settings_changed(g);save_race_course(s);popup(s,"Deathrace route saved. Players can enroll.");}
         }
         return;
     }
@@ -1818,7 +1839,7 @@ void run_leader(State &s, Game &g, std::uint64_t now) {
         if (now - g.setup_sent >= setup_every_ms) {
             auto m = header(g, Message::Kind::setup);
             m.settings = advertised_lobby_settings(g.settings,s.placing!=State::Placing::none ||
-                (g.native_lobby && !g.native_flag_placed));
+                (g.native_lobby && !g.native_flag_placed) || (g.settings.mode==Mode::race && !g.race_publication.ready(g.settings)));
             send(s, m);
             g.setup_sent = now;
         }
@@ -2589,6 +2610,7 @@ void build_hud(State &s, std::uint64_t now) {
     // Other players' games: banners over the world, the announcement, and the menu's list.
     for (const auto &o : s.offers) {
         if (!o.confirmed) continue; // its phase is not known yet (a state message follows within half a second)
+        if(o.settings.mode==Mode::race && !offer_open(o))continue;
         overlay::ModesHudOffer offer;
         std::string mode(mode_name(o.settings.mode));
         for (auto &c : mode) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -2635,6 +2657,7 @@ void build_hud(State &s, std::uint64_t now) {
         native.flag_placed=g.native_flag_placed;
         native.pending_flag=g.native_lobby && !g.native_flag_placed && !g.referee;
         native.waiting=g.native_lobby && g.native_flag_placed && !g.referee && !native.placing &&
+            (g.settings.mode!=Mode::race || !g.leading || g.race_publication.ready(g.settings)) &&
             (!g.state || g.state->phase==Phase::setup);
         if(native.waiting) {
             native.waiting_status=missing(g.settings);
@@ -2647,11 +2670,14 @@ void build_hud(State &s, std::uint64_t now) {
             race_arrow_preview_visible(s.arrow_preview_ready,s.editor_rotating,s.editor_angles_ready):s.cursor_ok;
         native.cursor_yaw=s.placing==State::Placing::points && g.settings.mode==Mode::race?s.snapped_yaw:s.cursor_heading+s.yaw_offset;native.cursor_width=s.draft_width;
         native.placing_circle=s.placing==State::Placing::circle;native.draft_radius=s.draft_radius;
-        native.placing_corners=s.placing==State::Placing::corners;native.zone_custom=g.zone_custom;
+        native.placing_corners=s.placing==State::Placing::corners;native.zone_custom=reskate_custom_zone(g.settings,g.zone_custom);
         native.cursor_roll=s.arrow_roll;native.cursor_pitch=s.editor_pitch;native.rotating=s.editor_rotating;native.arrow_height_snapped=s.arrow_height_snapped;
         if(native.placing && g.settings.mode==Mode::race && s.editor_save_blocked)native.editor_warning=std::string(race_route_save_error(g.settings,g.race_finish_placed));
         native.route_snap=s.route_snap;
         native.snap_degrees=std::array{5.f,15.f,30.f,45.f,90.f}[s.snap_angle];
+        native.editor_roll_axis=s.editor_roll_axis;native.object_changed_ms=s.editor_object_changed;
+        native.route_saved=g.settings.mode!=Mode::race || !g.leading || g.race_publication.ready(g.settings);
+        if(g.settings.mode==Mode::race)if(const auto* me=standing(g,native.local);me && me->score>=0)native.gates_visible_from=static_cast<unsigned>(g.checkpoint_fallback.visible_from(static_cast<std::size_t>(me->score)));
         native.clear_progress=s.clear_hold.progress;native.exit_confirm=s.editor_exit_confirm;
         native.recovering=g.recovery_pending;
 
@@ -3037,6 +3063,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
                    : "Showing its flick diagram for 10 seconds.";
     }
     if (v == "zone") {
+        if (!s.game || s.game->settings.mode != Mode::skate) return "error: trick zones belong to R.E.S.K.A.T.E.";
         // R.E.S.K.A.T.E.'s trick zone: a circle this many metres wide around the start flag (or the
         // player, until the flag is placed); 0 or off: anywhere counts.
         if (!arguments.empty() && arguments[0] == "custom") {
@@ -3140,6 +3167,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
         if(*mode==Mode::race){s.draft_width=default_race_editor_width;s.snap_angle=default_race_editor_snap_angle;s.route_snap=true;}
         if(*mode==Mode::race)if(auto saved=s.courses.restore(s.course_map)) {
             g.settings=std::move(*saved);g.race_finish_placed=g.settings.race_finish;
+            s.route_history=s.course_histories[s.course_map];s.route_history.resume(g.settings);
         }
         s.editor_exit_confirm=false;s.clear_hold={};
         g.heard = now;
@@ -3216,6 +3244,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
                 }
             }
             s.placing = State::Placing::none;
+            if(g.settings.mode==Mode::race && what=="done") {g.race_publication.save(g.settings);save_race_course(s);}
             settings_changed(g);
             return "Placing stopped.";
         }
@@ -3248,6 +3277,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
             if (g.settings.mode == Mode::race) { // a route is skated again from its start
                 if(!multiplayer::one_up::begin_race_flag_placement(s.world,g.id,g.capacity))
                     return "error: native flag placement is still busy.";
+                g.native_lobby=true;g.native_flag_placed=false;g.race_publication.begin_edit();settings_changed(g);
                 // Re-enter the builder with the existing course. Only its
                 // deliberate hold-to-clear action removes all saved gates.
                 s.yaw_offset = 0;
@@ -3307,7 +3337,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
     if (v == "time" && g.settings.mode==Mode::race) return "Deathrace deadline is fixed at 120 seconds; the clock appears for the last 30.";
     if (v == "time") return set_number(30, 3600, [&](float x) { g.settings.duration_s = static_cast<std::uint32_t>(x); }, "Time (s)");
     if (v == "turn") return set_number(10, 120, [&](float x) { g.settings.turn_s = static_cast<std::uint32_t>(x); }, "Turn time (s)");
-    if (v == "strikes") return set_number(1, max_strikes, [&](float x) { g.settings.strikes = static_cast<std::uint8_t>(x); }, "Strikes");
+    if (v == "strikes") return set_number(1, g.settings.mode==Mode::skate?float(max_strikes):5.f, [&](float x) { g.settings.strikes = static_cast<std::uint8_t>(x); }, "Strikes");
     if (v == "tricks") {
         // R.E.S.K.A.T.E.: the kinds of trick that may be set, one or more.
         std::uint8_t kinds = 0;
@@ -3334,7 +3364,7 @@ std::string command(std::string_view verb, const std::vector<std::string> &argum
     if (v == "start") {
         if(g.native_lobby && !g.native_flag_placed)return "error: place the native starting flag before starting this Throwdown.";
         if(g.native_lobby && s.placing!=State::Placing::none)return "error: finish placing the area or capture spots before starting this Throwdown.";
-        if(g.settings.mode==Mode::race && (!race_route_ready(g.settings,g.race_finish_placed) || s.placing!=State::Placing::none ||
+        if(g.settings.mode==Mode::race && (!g.race_publication.ready(g.settings) || !race_route_ready(g.settings,g.race_finish_placed) || s.placing!=State::Placing::none ||
            (multiplayer::one_up::race_flag_registration_owned() && !multiplayer::one_up::native_flag_mode_waiting())))
             return "error: finish placing the start flag, checkpoints and one red finish first.";
         if(g.settings.mode==Mode::race)if(const auto error=race_world::start_error(s.world,g.id);!error.empty())return "error: "+error;

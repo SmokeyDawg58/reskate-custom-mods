@@ -48,7 +48,7 @@ struct Reader {
 
 bool valid_settings(const Settings &s) noexcept {
     if (!std::any_of(std::begin(all_modes), std::end(all_modes), [&](Mode m) { return m == s.mode; })) return false;
-    if (s.duration_s < 30 || s.duration_s > 3600 || s.turn_s < 10 || s.turn_s > 120 || s.strikes < 1 || s.strikes > max_strikes)
+    if (s.duration_s < 30 || s.duration_s > 3600 || s.turn_s < 10 || s.turn_s > 120 || s.strikes < 1 || s.strikes > (s.mode == Mode::skate ? max_strikes : 5))
         return false;
     if (s.trick_kinds == 0 || s.trick_kinds > all_trick_kinds) return false;
     if (!(s.radius >= 1.0f && s.radius <= 50.0f)) return false;
@@ -302,6 +302,9 @@ std::string trick_steps(std::string_view trick, bool goofy) {
     } catch (...) {
         return {};
     }
+}
+bool reskate_custom_zone(const Settings &s, bool draft) noexcept {
+    return s.mode == Mode::skate && (draft || (s.area_radius <= 0.f && s.corners.size() >= 3));
 }
 bool trick_allowed(const Settings &s, std::string_view trick) noexcept {
     const auto kinds = trick_kinds_of(trick);

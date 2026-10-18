@@ -36,7 +36,7 @@ void require(bool ok,const char* why) {if(!ok)throw std::runtime_error(why);}
 template<std::size_t N> void prefix(std::uintptr_t base,std::uintptr_t rva,const std::array<unsigned char,N>& expected) {
     std::array<unsigned char,N> actual{};require(memory::peek_bytes(base+rva,actual.data(),N) && actual==expected,"Deathrace entity ABI differs.");
 }
-struct Gate {Vec3 at{};float yaw{},width{};bool finish{},guiding{},arrow{};float roll{},pitch{};bool operator==(const Gate&) const=default;};
+struct Gate {Vec3 at{};float yaw{},width{};bool finish{},guiding{},arrow{};float roll{},pitch{};bool hidden{};bool operator==(const Gate&) const=default;};
 struct Entity {std::uintptr_t entity{},owner{},context{};unsigned group{},part{};};
 struct State {
     detail::CheckpointWorldLifetime lifetime;
@@ -62,7 +62,7 @@ constexpr std::array<const char*,3> cone_names{
 void waiting(State& s,std::string issue) {
     if(s.waiting==issue)return;
     s.waiting=std::move(issue);
-    logging::log(logging::Level::info,logging::Channel::runtime,"Native world objects (Deathrace gates, R.E.S.K.A.T.E. cones): {}",s.waiting);
+    logging::log(logging::Level::debug,logging::Channel::runtime,"Native world objects (Deathrace gates, R.E.S.K.A.T.E. cones): {}",s.waiting);
 }
 constexpr std::array<const char*,11> checkpoint_names{
     "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AT_Gate",
@@ -323,7 +323,7 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
             ((view.settings.area_radius>0.f && !view.settings.corners.empty()) || (view.placing_circle && view.cursor_valid) ||
              (view.zone_custom && (!view.settings.corners.empty() || (view.placing_corners && view.cursor_valid))));
         {std::lock_guard lock(s.mutex);s.route_ready=false;}
-        if(s.context && s.context!=context) {std::lock_guard lock(s.mutex);s.entities.clear();s.gates.clear();s.dirty.clear();s.assets={};s.context=0;}
+        if(s.context && s.context!=context) {std::lock_guard lock(s.mutex);s.entities.clear();s.gates.clear();s.dirty.clear();s.assets={};s.context=0;s.cone=0;s.bolt=0;s.cone_points.clear();s.bolt_retry=s.bolt_moved=0;}
         if(!ready || !context) {if(active)waiting(s,"waiting for local client world readiness");return;}
         // Releasing a route is independent of the native creation gate. That
         // gate can be closed after Leave even while these entities still live.
@@ -338,7 +338,7 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
         if(!get<std::uint8_t>(base+addr::engine::entity_creation_ready) || !get<std::uint8_t>(tls+0xb19) || ptr(tls,0x550)!=context) {
             if(active)waiting(s,"waiting for verified native client creation scope");return;
         }
-        if(s.world!=view.world || s.game!=view.game) {clear(base);s.assets={};s.world=view.world;s.game=view.game;s.error.clear();}
+        if(s.world!=view.world || s.game!=view.game) {clear(base);s.assets={};s.cone=0;s.bolt=0;s.cone_points.clear();s.bolt_retry=s.bolt_moved=0;s.world=view.world;s.game=view.game;s.error.clear();}
         s.context=context;
         if(!s.verified) {
             prefix(base,e::descriptor_init,e::descriptor_init_prefix);prefix(base,e::descriptor_destroy,e::descriptor_destroy_prefix);
@@ -369,12 +369,14 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
             i<view.settings.yaws.size()?view.settings.yaws[i]:0.f,gate_half_width(view.settings,i),
             i+1==view.settings.points.size() && view.route_finish,guiding_gate(view.settings,i),arrow_marker(view.settings,i),
             i<view.settings.arrow_rolls.size()?view.settings.arrow_rolls[i]:0.f,i<view.settings.gate_pitches.size()?view.settings.gate_pitches[i]:0.f});
+        const bool racing=view.state && view.state->phase==Phase::playing;
+        for(std::size_t i=0;i<gates.size();++i)gates[i].hidden=!race_gate_visible(view.settings,i+1,view.gates_visible_from,racing);
         if(view.placing && view.cursor_valid && view.route_object!=0)gates.push_back({view.cursor,view.cursor_yaw,view.cursor_width,view.route_object==2,view.route_object==3,view.route_object==4,view.cursor_roll,view.cursor_pitch});
         if(gates.empty())waiting(s,view.placing?"waiting for a valid placement surface":"waiting for route gates");
         std::set<unsigned> dirty;
         std::vector<unsigned> live_parts(gates.size());
         std::vector<unsigned> expected_parts;unsigned expected_total{};
-        for(const auto& gate:gates){const auto parts=gate.arrow?2u:4u;expected_parts.push_back(parts);expected_total+=parts;}
+        for(const auto& gate:gates){const auto parts=gate.hidden?0u:gate.arrow?2u:4u;expected_parts.push_back(parts);expected_total+=parts;}
         {std::lock_guard lock(s.mutex);
             for(const auto& entity:s.entities)if(entity.group<live_parts.size())++live_parts[entity.group];
             dirty=detail::pending_checkpoint_groups(s.dirty,live_parts,expected_parts);}
@@ -396,7 +398,7 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
             if(i<gates.size() && i<s.gates.size() && gates[i]==s.gates[i] && !dirty.contains(i))continue;
             // Move a resident arch in place. Recreating all four meshes five
             // times a second caused the preview to jump and restart its FX.
-            if(i<gates.size() && i<s.gates.size() && gates[i].finish==s.gates[i].finish && gates[i].guiding==s.gates[i].guiding && gates[i].arrow==s.gates[i].arrow && !dirty.contains(i)) {
+            if(i<gates.size() && i<s.gates.size() && gates[i].finish==s.gates[i].finish && gates[i].guiding==s.gates[i].guiding && gates[i].arrow==s.gates[i].arrow && gates[i].hidden==s.gates[i].hidden && !dirty.contains(i)) {
                 std::vector<Entity> group;
                 {std::lock_guard lock(s.mutex);for(const auto& entity:s.entities)if(entity.group==i)group.push_back(entity);}
                 if(group.size()==expected_parts[i] && std::all_of(group.begin(),group.end(),[](const auto& entity) {
@@ -438,6 +440,7 @@ void before_level_transition(std::uintptr_t base,unsigned next) noexcept {
     {std::lock_guard lock(s.mutex);
         s.entities.clear();s.gates.clear();s.dirty.clear();s.assets={};s.asset_domains={};
         s.context=0;s.world=0;s.game=0;s.ready_world=0;s.ready_game=0;s.route_ready=false;s.retry=0;
+        s.cone=0;s.bolt=0;s.cone_points.clear();s.bolt_retry=s.bolt_moved=0;
     }
     logging::log(logging::Level::info,logging::Channel::runtime,"Deathrace gate ownership retired before native state {}.",next);
 }

@@ -126,22 +126,13 @@ inline bool race_gate_missed(const Settings& settings,std::size_t index,const Ve
     // restrict this warning to a narrow band outside the posts.
     return crossing.crossed && !crossing.inside;
 }
-// Let a rider clear the gate plane before recovering. Approaching a later
-// large arch is never evidence of missing the current checkpoint.
+// Signed distance to a gate plane, independent of recovery policy.
 inline float race_gate_along(const Settings& route,std::size_t index,const Vec3& at) noexcept {
     if(index>=route.points.size())return 0;
     const float heading=index<route.yaws.size()?route.yaws[index]:index?std::atan2(route.points[index][0]-route.points[index-1][0],route.points[index][2]-route.points[index-1][2])*180.f/3.14159265f:0;
     const float yaw=heading*3.14159265f/180.f;
     if(const auto pitch=race_gate_pitch(route,index);pitch!=0.f)return race_gate_dot(at,route.points[index],race_gate_axes(heading,pitch).forward);
     return (at[0]-route.points[index][0])*std::sin(yaw)+(at[2]-route.points[index][2])*std::cos(yaw);
-}
-inline bool race_miss_recovery_ready(const Settings& route,std::size_t index,const Vec3& before,const Vec3& after,bool& pending) noexcept {
-    const float a=race_gate_along(route,index,before),b=race_gate_along(route,index,after);
-    const auto crossing=race_gate_crossing(route,index,before,after);
-    if(b<=0 || crossing.inside)pending=false;
-    else if(b>a && race_gate_missed(route,index,before,after))pending=true;
-    const float grace=std::clamp(gate_half_width(route,index)*.15f,1.5f,4.f);
-    return pending && b>=grace;
 }
 inline float race_snap_reach(float degrees) noexcept {return std::clamp(degrees*.1f,.5f,6.f);}
 inline float rotate_race_gate(float yaw,int direction,bool snap,float degrees) noexcept {
@@ -178,24 +169,25 @@ inline std::size_t previous_required_checkpoint(const Settings& route,std::size_
 // Manual fallback persists through another bail at the unsafe checkpoint. A
 // newly cleared Required gate resets it; guides and arrows never become targets.
 class RaceCheckpointFallback {
-    std::optional<std::size_t> selected_;
+    std::optional<std::size_t> selected_,visible_;
 public:
     std::size_t step_back(const Settings& route,std::size_t next) noexcept {
         const auto last=selected_.value_or(previous_required_checkpoint(route,next));
-        selected_=previous_required_checkpoint(route,last);return *selected_;
+        selected_=previous_required_checkpoint(route,last);visible_=selected_;return *selected_;
     }
     std::size_t target(const Settings& route,std::size_t next) const noexcept {
         return selected_.value_or(previous_required_checkpoint(route,next));
     }
+    std::size_t visible_from(std::size_t next) const noexcept {return visible_.value_or(next);}
     void observe_crossings(const Settings& route,std::size_t next,const Vec3& before,const Vec3& after) noexcept {
         if(!selected_ || route.points.empty())return;
         const auto end=std::min(next,route.points.size()-1);
         // Authoritative progress stays cleared during rewind. Re-crossing an
         // older Required gate must still move the local recovery point ahead.
-        for(auto i=*selected_+1;i<end;++i)if(!guiding_gate(route,i) &&
-            race_gate_along(route,i,after)>race_gate_along(route,i,before) && race_gate_crossing(route,i,before,after).inside)selected_=i;
+        for(auto i=*selected_;i<end;++i)if(!guiding_gate(route,i) &&
+            race_gate_along(route,i,after)>race_gate_along(route,i,before) && race_gate_crossing(route,i,before,after).inside){selected_=i;visible_=i+1;}
     }
-    void advanced() noexcept {selected_.reset();}
+    void advanced() noexcept {selected_.reset();visible_.reset();}
 };
 struct RaceCheckpointBackPress {
     bool down=true;
@@ -285,6 +277,33 @@ inline bool race_route_ready(const Settings& settings, bool finish) noexcept {
         (settings.arrow_rolls.empty() || settings.arrow_rolls.size()==settings.points.size()) &&
         (settings.gate_pitches.empty() || settings.gate_pitches.size()==settings.points.size()) &&
         !guiding_gate(settings,0) && !guiding_gate(settings,settings.points.size()-1) && mandatory_gates(settings,settings.points.size()-1)>0;
+}
+// A finish mesh is not publication. Only an explicit Save commits the shape;
+// any later edit withdraws it until saved again. Timer/player edits keep the shape.
+inline bool same_race_shape(const Settings& a,const Settings& b) noexcept {
+    return a.mode==b.mode && a.points==b.points && a.yaws==b.yaws && a.widths==b.widths &&
+        a.gate_kinds==b.gate_kinds && a.arrow_rolls==b.arrow_rolls && a.gate_pitches==b.gate_pitches &&
+        a.race_finish==b.race_finish && a.has_spawn==b.has_spawn && a.spawn==b.spawn;
+}
+class RaceRoutePublication {
+    std::optional<Settings> saved_;
+public:
+    void begin_edit() noexcept {saved_.reset();}
+    bool save(const Settings& route) {if(!race_route_ready(route,route.race_finish))return false;saved_=route;return true;}
+    bool ready(const Settings& route) const noexcept {return saved_ && same_race_shape(*saved_,route) && race_route_ready(route,route.race_finish);}
+};
+inline bool race_gate_visible(const Settings& route,std::size_t index,std::size_t from,bool playing) noexcept {
+    return !playing || arrow_marker(route,index) || index>=from;
+}
+// Missing a gate's posts never teleports. Only a later real Required/Finish
+// crossing proves that the player has continued past the missed checkpoint.
+inline std::optional<std::size_t> race_later_gate_crossed(const Settings& route,std::size_t expected,
+        const Vec3& before,const Vec3& after) noexcept {
+    if(expected==0 || expected>=route.points.size())return {};
+    for(auto i=expected+1;i<route.points.size();++i)
+        if(!guiding_gate(route,i) && race_gate_along(route,i,after)>race_gate_along(route,i,before) &&
+            race_gate_crossing(route,i,before,after).inside)return i;
+    return {};
 }
 inline std::string_view race_route_save_error(const Settings& route,bool finish) noexcept {
     if(!finish || !route.race_finish)return "You need a Finish line before saving this route.";

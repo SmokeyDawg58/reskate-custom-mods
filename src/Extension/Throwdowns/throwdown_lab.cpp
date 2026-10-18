@@ -1803,23 +1803,12 @@ bool consume_one_up_throwdown_send(std::uint32_t hash,Address type,Address paylo
                         if(!view.active || view.game!=game)return false;
                         key=modes::mode_key(view.settings.mode);
                     }
-                    // Only challenges authored in the asset pack have a private registration (ten
-                    // flags since Assets 1.0.2, R.E.S.K.A.T.E.'s "skate" the tenth). Any other keeps
-                    // the stock Spot Battle flag: an unregistered InstanceId leaves the native
-                    // setup page unmounted with the phone held up.
-                    constexpr std::array<std::string_view,10> flagged{"oneup","jam","meat","race","domination",
-                        "graffiti","tag","infection","hide","skate"};
-                    if(std::find(flagged.begin(),flagged.end(),key)==flagged.end()) {
-                        if(hash==event_create)logging::log(logging::Level::info,logging::Channel::ui,
-                            "Custom Throwdown: {} has no private flag; keeping the stock Spot Battle flag.",key);
-                    } else {
                     // Native registry selects RegistrationPrefab by Series +
                     // InstanceId. Keep the Spot Battle backend protocol while
                     // choosing a private mesh variation for this custom flag.
                     assign_string(payload+params->offset+instance->offset,"ReSkate."+key);
                     if(hash==event_create)logging::log(logging::Level::info,logging::Channel::ui,
                         "Custom Throwdown: selected ReSkate.{} physical flag.",key);
-                    }
                 }
             }
             if(hash==event_create || hash==event_update)return false;

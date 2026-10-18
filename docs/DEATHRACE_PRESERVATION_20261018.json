@@ -1,0 +1,31 @@
+{
+  "result": "PASS",
+  "base_game": "2.1.0",
+  "session_protocol": 52,
+  "deathrace_dedicated_source_and_assets": "BYTE_IDENTICAL_TO_PREMERGE",
+  "deathrace_editor_block": "BYTE_IDENTICAL_TO_PREMERGE",
+  "protected_shared_functions": {
+    "void track_bail(": "a17d7a9d7d85a168125c87f4e87dbed848a0419b10d56edde6e40a43746a0f35",
+    "void track_game(": "21aecac121f994b36d6adb28741a6c635786d5fb109bc86168f266a5183541ad",
+    "void update_cursor(": "6816887bc4dace4354443c4f7453cdc4571f9b2d5ec004b6dfe3bbc7fa13dc5d",
+    "void end_game(": "b42078b5be0d41e008f34d2c94353162c6f106bd0691fb82fa616e9eec82b38a",
+    "void run_leader(": "c8e8070ad44e075d7904857ea1f0e3c969e2f5701eea97ee57b02311c009063c",
+    "void run_player(": "f80291a2d8b3f14ce2fd09a4f9bf49bc60f80cbc2d255504390e9bb607d08b3b",
+    "std::string command(": "646797740a359ef7969a18d404e7f973d9eb267a36516dd4fad225aba8023ec3"
+  },
+  "only_changed_files": [
+    "Engine/Core/Log/lean_backtrace_disabled.cpp",
+    "Engine/Core/Log/logging.h",
+    "Extension/Modes/game_modes.cpp",
+    "Extension/Settings/local_gameplay_settings.cpp",
+    "Extension/Settings/local_gameplay_settings.h",
+    "Extension/UI/NativeMenu/throwdown_modes_ui.inl",
+    "cmake/Core.cmake",
+    "cmake/ProjectOptions.cmake"
+  ],
+  "enrollment_and_recovery": "PRESERVED",
+  "production_logging": "OFF_BY_DEFAULT",
+  "push_authorized": false,
+  "shared_input_change": "ONLY R.E.S.K.A.T.E. spectator predicate",
+  "deathrace_hud_body": "UNCHANGED after read-only stance observation"
+}

@@ -81,6 +81,8 @@ bool trick_allowed(const Settings &, std::string_view trick) noexcept;
 // ("[img {0}]FLICKIT_Kickflip_RS[/img]", the flick-it stick picture) for a regular or goofy stance.
 // Empty when the Skatepedia has no entry for it.
 std::string trick_steps(std::string_view trick, bool goofy);
+// Infer a completed custom trick zone from the shared settings; draft is local.
+bool reskate_custom_zone(const Settings &, bool draft = false) noexcept;
 // The trick as it is set: its parts without a plain ollie popped into the part that counts.
 std::string set_trick_name(std::string_view trick);
 // An attempt copies the set trick when it has the same parts in the same order (case aside); a plain

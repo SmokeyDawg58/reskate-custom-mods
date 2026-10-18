@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<defs><pattern id="checks" width="32" height="32" patternUnits="userSpaceOnUse"><rect width="32" height="32" fill="white"/><path d="M0 0h16v16H0zM16 16h16v16H16z" fill="#151515"/></pattern></defs>
+<path d="M32 224V122A96 96 0 0 1 224 122V224" fill="none" stroke="#151515" stroke-width="34" stroke-linejoin="round"/>
+<path d="M32 224V122A96 96 0 0 1 224 122V224" fill="none" stroke="#ff4242" stroke-width="24"/>
+<path d="M32 224V122A96 96 0 0 1 224 122V224" fill="none" stroke="#ffb4a8" stroke-width="5"/>
+<path d="M51 89H205V138H51z" fill="url(#checks)" stroke="#151515" stroke-width="7"/>
+<path d="M13 226h39M204 226h39" stroke="#151515" stroke-width="18" stroke-linecap="round"/>
+<path d="M13 226h39M204 226h39" stroke="#ff6960" stroke-width="8" stroke-linecap="round"/>
+</svg>

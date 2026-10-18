@@ -2,6 +2,7 @@
 #include "Extension/Throwdowns/challenge_registry.h"
 #include "Extension/Modes/game_modes.h"
 #include "Extension/Modes/race_navigation.h"
+#include "Extension/Modes/race_editor.h"
 #include "Extension/Modes/mode_lobby.h"
 #include "native_menu_data.h"
 #include "native_menu_lifetime.h"
@@ -166,6 +167,12 @@ struct ModeHud {
     std::uint64_t go_until{};
     unsigned row_count=~0U;
     Value placement_title; // the cone set's title row
+    Value object_label,object_list,object_anchor,object_item,object_style;
+    Value info_list,info_anchor,info_item,info_panel_anchor,info_panel_item;
+    std::array<Value,6> info_labels;
+    bool object_visible{},editor_info_visible{};
+    Value intro_list,intro_row,intro_heading,intro_rules,intro_background_anchor,intro_background_item;
+    std::array<Value,16> intro_styles;
     Value letters_red,letters_grey,style_callout,style_neon52,style_clean52,style_clean64; // R.E.S.K.A.T.E.'s text styles
     bool race_layout{},placing_layout{},placement_cones{}; // placement_cones: the editor rows are R.E.S.K.A.T.E.'s cone set
     bool letters_layout{}; // R.E.S.K.A.T.E.: no header (Throwdowns explains it), standings top left
@@ -2754,6 +2761,11 @@ void trace_official_panel_models(const Context& c,std::uint64_t now) noexcept {
 void gameplay_hud(const Context& c,std::uint64_t now) {
     auto& s=state();
     try {custom_join_details(c);}catch(const std::exception&) { /* Retry only this native card, preserving its controls. */ }
+    try {throwdown_map_identity(c);custom_flag_interaction(c);}
+    catch(const std::exception& e) {
+        static std::uint64_t report{};
+        if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"Custom Throwdown map identity: {}",e.what());}
+    }
     // Retire expired countdown/intro before any optional HUD builder can fail.
     try {mode_hud_transients(c,modes::native_view(),now);}
     catch(const std::exception&) { /* Retired native parents are retried safely. */ }
@@ -2771,11 +2783,6 @@ void gameplay_hud(const Context& c,std::uint64_t now) {
             if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"Native challenge menu transition: {}",e.what());}
         }
         return;
-    }
-    try {throwdown_map_identity(c);custom_flag_interaction(c);}
-    catch(const std::exception& e) {
-        static std::uint64_t report{};
-        if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"Custom Throwdown map identity: {}",e.what());}
     }
     try {waiting_hud(c);}
     catch(const std::exception& e) {

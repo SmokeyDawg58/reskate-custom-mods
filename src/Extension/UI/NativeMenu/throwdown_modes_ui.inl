@@ -340,6 +340,9 @@ void mode_hud_publish(const Context& c,bool show,bool countdown,bool intro,bool 
     const auto append=[&](Value item) {if(item.handle)visible.push_back(item);};
     const bool letters=show && h.letters_layout;
     if(show && h.placing_layout)append(h.editor_panel_item);
+    if(show && h.editor_info_visible){append(h.info_panel_item);append(h.info_item);}
+    if(show && h.object_visible)append(h.object_item);
+    if(intro)append(h.intro_background_item);
     if(race && h.gate_compass_visible)append(h.gate_compass_item);
     // Challenge titles now sit compactly above the compass; no large racing header panel.
     if(results)append(h.results_panel_item);
@@ -498,7 +501,7 @@ void mode_letters_hud(const Context& c,const overlay::ModesHud& feed,
     // The trick to copy: the caption, then the stick picture with the name beside it.
     mode_card_label(c,h.card_caption,caption,"TextStylesList/H52-XBold_White",0,
                     custom_text_style(c,h.style_clean52,"TextStylesList/H52-XBold_White",clean_outline));
-    mode_card_list(c,h.card_caption_list,std::array{h.card_caption},60.f,1400.f,h.card_caption_anchor,h.card_caption_item,mode_hud_id+46);
+    mode_card_list(c,h.card_caption_list,std::array{h.card_caption},60.f,1400.f,h.card_caption_anchor,h.card_caption_item,mode_hud_id+51);
     mode_card_place(c,h.card_caption_anchor,{1400.f,60.f},.03f,0.f,0.f,.42f,0.f,0.f);
     // The picture's model, set up as the Throwdown Panel's setting icons are (those draw): its size,
     // its own layout in the slot (weight 1: zero collapses it) and a colour style.
@@ -540,7 +543,7 @@ void mode_letters_hud(const Context& c,const overlay::ModesHud& feed,
 }
 // The score block's width: R.E.S.K.A.T.E.'s holds a trick name and its stick picture.
 float mode_score_width(const modes::NativeView& v) { return v.settings.mode==modes::Mode::skate?900.f:480.f; }
-// The packed HUD art set for a mode. R.E.S.K.A.T.E. has none yet: it borrows 1-Up's.
+// Use the existing packed HUD theme, including the current R.E.S.K.A.T.E. artwork.
 std::string mode_hud_key(modes::Mode mode) {
     return std::string(native_hud_theme_key(modes::mode_key(mode)));
 }
@@ -877,14 +880,14 @@ void mode_world_markers(const Context& c,const overlay::ModesHud& feed) {
         h.world_items.push_back(marker.item);
     };
     for(unsigned i=0;i<feed.points.size();++i) {
-        if(feed.route && !feed.placing && static_cast<int>(i)<feed.next_point)continue;
+        if(feed.route && !feed.placing && !modes::race_gate_visible(modes::native_view().settings,i,modes::native_view().gates_visible_from,true))continue;
         std::string label=feed.route?(i==0?"START":i+1==feed.points.size() && modes::native_view().route_finish?"FINISH":"CHECKPOINT "+std::to_string(i)):"CAPTURE "+std::to_string(i+1);
         if(static_cast<int>(i)==feed.next_point)label="NEXT: "+label;
         mark(feed.points[i],label);
     }
     const auto placement=modes::native_view();
     // R.E.S.K.A.T.E.'s preview cone already shows where the next one goes.
-    if(feed.placing && placement.cursor_valid && !placement.placing_corners)mark(feed.cursor,feed.route?"PLACE: "+std::string(placement.route_object==0?"START FLAG":placement.route_object==2?"FINISH":placement.route_object==3?"GUIDE":placement.route_object==4?"CHEVRON":"REQUIRED"):"PLACE HERE");
+    if(feed.placing && placement.cursor_valid && !(placement.settings.mode==modes::Mode::skate && placement.placing_corners))mark(feed.cursor,feed.route?"PLACE: "+std::string(placement.route_object==0?"START FLAG":placement.route_object==2?"FINISH":placement.route_object==3?"GUIDE":placement.route_object==4?"CHEVRON":"REQUIRED"):"PLACE HERE");
     for(const auto& player:feed.players)if(!player.self && player.it)mark(player.at,player.name+(feed.infection?"  INFECTED":"  IT"));
     for(const auto& tag:feed.tags)if(!tag.path.empty())mark(tag.path[tag.path.size()/2],"TAGGED");
 }
@@ -922,7 +925,8 @@ void mode_gate_compass(const Context& c,const modes::NativeView& view,const over
     c.set_if_changed(c.field(h.gate_compass,0xf524c836),size);c.set_if_changed(c.field(h.gate_compass,0x6fbd254e),size);
     c.set_if_changed(c.field(h.gate_compass,0xd1997d0c),false);
     c.set_if_changed(c.field(h.gate_compass,0xcd4a53c0),record_ref(c,"InteractivityColorStylesList/InteractiveColors.Core.AllWhite"));
-    mode_art(c,std::array{c.field(h.gate_compass,0x6e469d2a)},"UI/ReSkate/Throwdowns/img_GateCompass");
+    mode_art(c,std::array{c.field(h.gate_compass,0x6e469d2a)},
+        view.settings.race_finish && *next+1==view.settings.points.size()?"UI/ReSkate/Throwdowns/img_FinishGateCompass":"UI/ReSkate/Throwdowns/img_GateCompass");
     const auto texture_widget=asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget");
     const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
     if(!hud_list_has_items(c,h.gate_compass_list,1))hud_list(c,h.gate_compass_list,{{texture_widget,{0,h.gate_compass.handle}}},true,size,0.f);
@@ -930,6 +934,56 @@ void mode_gate_compass(const Context& c,const modes::NativeView& view,const over
     mount_hud(c,h.gate_compass_list,list_widget,h.gate_compass_anchor,h.gate_compass_item,mode_hud_id+57,false);
     mode_gate_compass_position(c,h,*offset);
     h.gate_compass_visible=true;
+}
+// Change only an owned text style. Validate the four-channel color layout
+// before finding alpha; unknown reflection layouts retain fully visible text.
+void placement_text_alpha(const Context& c,Value style,float alpha) {
+    if(!style.handle)return;
+    const auto color=c.path(style,{0xc7a2ba80,0x2358a817,0xd32f6895});
+    if(kind(color.type)!=2 || size(color.type)!=16)return;
+    const auto metadata=read<Address>(color.type),fields=read<Address>(metadata+0x60);
+    if(read<std::uint16_t>(metadata+0x2a)!=4 || !fields)return;
+    const std::array<std::uint32_t,3> rgb{0x6fb7b2a4,0x3b385eb0,0xd1cdb49a};
+    unsigned found{};std::uint32_t alpha_hash{};
+    for(unsigned i=0;i<4;++i) {
+        const auto field=fields+i*24;const auto hash=read<std::uint32_t>(field);
+        if(size(read<Address>(field+16))!=4)return;
+        if(std::find(rgb.begin(),rgb.end(),hash)!=rgb.end())++found;else alpha_hash=hash;
+    }
+    if(found==3 && alpha_hash)c.set_if_changed(c.field(color,alpha_hash),std::clamp(alpha,0.f,1.f));
+}
+void race_editor_information(const Context& c,const modes::NativeView& view,std::uint64_t now) {
+    auto& h=state().mode_hud;h.editor_info_visible=h.object_visible=false;
+    if(!view.placing || view.settings.mode!=modes::Mode::race)return;
+    unsigned required{},guides{},arrows{};float length{};
+    for(std::size_t i=1;i<view.settings.points.size();++i) {
+        if(modes::arrow_marker(view.settings,i))++arrows;
+        else if(modes::guiding_gate(view.settings,i))++guides;
+        else if(!(view.settings.race_finish && i+1==view.settings.points.size()))++required;
+        if(!modes::arrow_marker(view.settings,i)) {
+            const auto& a=view.settings.points[i-1];const auto& b=view.settings.points[i];
+            length+=std::hypot(b[0]-a[0],b[1]-a[1],b[2]-a[2]);
+        }
+    }
+    const std::array<std::string,6> rows{"ROUTE INFO",std::format("Required {}  |  Guides {}",required,guides),
+        std::format("Chevrons {}  |  Finish {}",arrows,view.route_finish?"set":"needed"),
+        std::format("Next: {}",modes::race_placement_label(view.route_object)),
+        std::format("Height {:.1f}m  |  Size {}%",view.cursor[1],static_cast<int>(std::lround(view.cursor_width/6.f*100.f))),
+        std::format("{:.0f}m route  |  {}",length,view.route_saved?"SAVED":"LOCAL DRAFT")};
+    for(unsigned i=0;i<rows.size();++i)mode_card_label(c,h.info_labels[i],rows[i],"TextStylesList/SP38-SemiB_White",0);
+    mode_card_list(c,h.info_list,h.info_labels,56.f,640.f,h.info_anchor,h.info_item,mode_hud_id+53);
+    mode_card_place(c,h.info_anchor,{640.f,356.f},native_hud_screen_anchor(.994f),1.f,-24.f,.34f,0.f,20.f);
+    mount_hud(c,{},asset(c,"UI/ReSkate/Throwdowns/ConfirmationPanel_Widget"),h.info_panel_anchor,h.info_panel_item,mode_hud_id+54,false);
+    mode_card_place(c,h.info_panel_anchor,{688.f,400.f},native_hud_screen_anchor(.994f),1.f,0.f,.34f,0.f,0.f);
+    h.editor_info_visible=true;
+    const float alpha=modes::race_object_label_alpha(now,view.object_changed_ms);
+    if(alpha<=0)return;
+    const auto style=custom_text_style(c,h.object_style,"TextStylesList/H52-XBold_White",clean_outline);
+    placement_text_alpha(c,style,alpha);
+    mode_card_label(c,h.object_label,std::string(modes::race_placement_label(view.route_object)),"TextStylesList/H52-XBold_White",2,style);
+    mode_card_list(c,h.object_list,std::array{h.object_label},68.f,850.f,h.object_anchor,h.object_item,mode_hud_id+52);
+    mode_card_place(c,h.object_anchor,{850.f,72.f},.5f,.5f,0.f,0.f,0.f,300.f);
+    h.object_visible=true;
 }
 void mode_hud_transients(const Context& c,const modes::NativeView& view,std::uint64_t now) {
     auto& h=state().mode_hud;
@@ -939,8 +993,9 @@ void mode_hud_transients(const Context& c,const modes::NativeView& view,std::uin
         challenge && challenge->phase==modes::Phase::playing,challenge?challenge->remaining_ms:0,now);
     if(!h.stack.handle || c.type_of(h.stack.handle)!=h.stack.type ||
        !read<bool>(c.address(c.field(h.stack,0x369babfe))))return;
-    for(const auto [item,keep]:std::array<std::pair<Value,bool>,2>{{
-        {h.countdown_item,h.transients.countdown},{h.intro_item,h.transients.intro}}}) {
+    for(const auto [item,keep]:std::array<std::pair<Value,bool>,3>{{
+        {h.countdown_item,h.transients.countdown},{h.intro_item,h.transients.intro},
+        {h.intro_background_item,h.transients.intro}}}) {
         if(!keep && item.handle && c.type_of(item.handle)==item.type)
             c.set_if_changed(c.field(item,0x369babfe),false);
     }
@@ -985,10 +1040,11 @@ void mode_hud(const Context& c) {
         c.set_if_changed(c.field(value,0xc13ba637),false);c.set_if_changed(c.field(value,0xfc53d427),false);
         c.set_if_changed(c.field(value,0x87ad624c),2);
     }
-    const bool cone_editor=feed.placing && v.placing_corners; // R.E.S.K.A.T.E.'s trick-zone cones
+    const bool cone_editor=feed.placing && v.settings.mode==modes::Mode::skate && v.placing_corners; // R.E.S.K.A.T.E.'s trick-zone cones
     h.placing_layout=feed.placing && (race || cone_editor);
     h.letters_layout=v.settings.mode==modes::Mode::skate;
     h.exit_visible=h.placing_layout && v.exit_confirm;
+    try {race_editor_information(c,v,GetTickCount64());}catch(const std::exception&) {h.editor_info_visible=h.object_visible=false;}
     if(h.placing_layout) {
         mount_hud(c,{},asset(c,"UI/ReSkate/Throwdowns/EditorPanel_Widget"),h.editor_panel_anchor,h.editor_panel_item,mode_hud_id+43,false);
         c.set_if_changed(c.field(h.editor_panel_anchor,0x1cff7243),cone_editor?std::array<float,2>{500.f,370.f}:std::array<float,2>{880.f,1150.f}); // the cone set's 8 rows
@@ -1092,9 +1148,9 @@ void mode_hud(const Context& c) {
             if(i==5)dynamic_caption=v.rotating?"Rotate: ON (X to finish)":"Rotate";
             if(i==7)dynamic_caption=v.rotating?"Yaw - / +":"Undo / Redo";
             if(i==10 && !v.editor_warning.empty())dynamic_caption=v.route_finish?"Check route":"Finish line required";
-            if(i==9)dynamic_caption=v.rotating?"Tilt up / down":"Size "+std::to_string(static_cast<int>(std::lround(v.cursor_width/6.f*100.f)))+"%";
+            if(i==9)dynamic_caption=v.rotating?(v.editor_roll_axis?"Roll - / +":"Tilt up / down"):"Size "+std::to_string(static_cast<int>(std::lround(v.cursor_width/6.f*100.f)))+"%";
             if(i==12)dynamic_caption=v.route_snap?(v.arrow_height_snapped?"Snap ON (Chevron line locked)":std::format("Snap ON ({:.1f}m reach)",std::clamp(v.snap_degrees*.1f,.5f,6.f))):"Snap OFF";
-            if(i==14)dynamic_caption="Rotation step: "+std::to_string(static_cast<int>(v.snap_degrees))+" deg";
+            if(i==14)dynamic_caption=v.rotating && v.route_object==4?"Snap - / Tilt-Roll":"Rotation step: "+std::to_string(static_cast<int>(v.snap_degrees))+" deg";
             if(cone_editor) {
                 const auto cones=v.settings.corners.size();
                 // How long the edge to the next cone would be, so sides can be matched.
@@ -1141,7 +1197,7 @@ void mode_hud(const Context& c) {
         if(h.exit_visible) {
             mount_hud(c,{},asset(c,"UI/ReSkate/Throwdowns/ConfirmationPanel_Widget"),h.exit_panel_anchor,h.exit_panel_item,mode_hud_id+44,true);
             if(!h.exit_text.handle){h.exit_text=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");label_styles(c,h.exit_text,"TextStylesList/H52-XBold_White","TextStylesList/H52-XBold_White");}
-            plain_label(c,h.exit_text,cone_editor?"STOP PLACING CONES?":"LEAVE THE EDITOR?\nYour course is saved.");
+            plain_label(c,h.exit_text,cone_editor?"STOP PLACING CONES?":"LEAVE THE EDITOR?\nDraft kept locally. Save to share.");
             c.set_if_changed(c.field(h.exit_text,0xc13ba637),true);
             std::vector<Widget> modal{{label_widget,{0,h.exit_text.handle}}};
             for(unsigned i=0;i<2;++i) {
@@ -1298,17 +1354,31 @@ void mode_hud(const Context& c) {
         }
     }
     if(intro) {
-        if(!h.intro.handle) {
-            h.intro=record_model(c,"TD_Hud_ContentResources/TD_ActivityBanner");
-            c.set_if_changed(c.field(h.intro,0xf79313be),record_ref(c,"ActivityBannerStylesList/ActivityBannerCenterFullWidthStyle.Throwdown.Default"));
-            c.copy(c.field(h.intro,0xcbc57608),c.address(record_model(c,"TD_Hud_ContentResources/TD_ActivityBanner_ContentWithTitle")));
-            h.intro_badge=make(c,texture_schema);c.set_if_changed(c.field(h.intro_badge,0xf524c836),256.f);c.set_if_changed(c.field(h.intro_badge,0x6fbd254e),256.f);
-            c.set_if_changed(c.path(h.intro,{0xcbc57608,content}),Widget{asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget"),{0,h.intro_badge.handle}});
-        }
-        plain_label(c,c.path(h.intro,{0xcbc57608,0x44688629}),d->name);plain_label(c,c.path(h.intro,{0xcbc57608,0x00f3b15e}),d->description);
+        constexpr float width=1248.f;
+        if(!h.intro_badge.handle)h.intro_badge=make(c,texture_schema);
+        c.set_if_changed(c.field(h.intro_badge,0xf524c836),88.f);c.set_if_changed(c.field(h.intro_badge,0x6fbd254e),88.f);
+        c.set_if_changed(c.field(h.intro_badge,0xd1997d0c),false);
         mode_art(c,std::array{c.field(h.intro_badge,0x6e469d2a)},d->logo);
-        mount_hud(c,h.intro,asset(c,"UI/Features/Activities/Blueprints/ActivityBanner_CenterFullWidth_Widget"),h.intro_anchor,h.intro_item,mode_hud_id+3,true);
-        c.set_if_changed(c.field(h.intro_anchor,0x1cff7243),std::array<float,2>{1920.f,600.f});
+        const auto color=d->palette.primary;
+        auto& style=h.intro_styles[std::min(static_cast<unsigned>(v.settings.mode),15u)];
+        mode_card_label(c,h.intro_heading,d->name,"TextStylesList/H64-XBold_White",0,
+            custom_text_style(c,style,"TextStylesList/H64-XBold_White",clean_outline,
+                {float(color&255)/255.f,float((color>>8)&255)/255.f,float((color>>16)&255)/255.f}));
+        const auto rules=race?std::string("Pass Required gates in order, then the red Finish. Up: previous gate."):d->description;
+        mode_card_label(c,h.intro_rules,rules,"TextStylesList/SP38-SemiB_White",2);
+        c.set_if_changed(c.field(h.intro_rules,0xc13ba637),true);
+        if(!hud_list_has_items(c,h.intro_row,2))hud_list(c,h.intro_row,
+            {{asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget"),{0,h.intro_badge.handle}},
+             {label_widget,{0,h.intro_heading.handle}}},true,96.f,24.f,0.f,width);
+        mode_hud_list_cell_size(c,h.intro_row,0,88.f,96.f,{asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget"),{0,h.intro_badge.handle}});
+        mode_hud_list_cell_size(c,h.intro_row,1,width-136.f,96.f,{label_widget,{0,h.intro_heading.handle}});
+        if(!hud_list_has_items(c,h.intro_list,2))hud_list(c,h.intro_list,
+            {{list_widget,{0,h.intro_row.handle}},{label_widget,{0,h.intro_rules.handle}}},false,112.f,12.f,0.f,width);
+        mount_hud(c,h.intro_list,list_widget,h.intro_anchor,h.intro_item,mode_hud_id+3,true);
+        mode_card_place(c,h.intro_anchor,{width,248.f},.5f,.5f,0.f,.5f,.5f,0.f);
+        const auto frame="UI/ReSkate/Throwdowns/HUD_"+std::string(native_hud_theme_key(d->key))+"_Title_1312_Widget";
+        mount_hud(c,{},asset(c,frame.c_str()),h.intro_background_anchor,h.intro_background_item,mode_hud_id+55,true);
+        mode_card_place(c,h.intro_background_anchor,{1312.f,112.f},.5f,.5f,0.f,.5f,.5f,-76.f);
     }
     if((counting && !intro) || go) {
         if(!h.countdown.handle)h.countdown=record_model(c,"Activities_HudElementData_ContentResource/Activities_CountdownItemHUD");

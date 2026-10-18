@@ -25,32 +25,35 @@ public:
         const bool changed=*seen!=count;seen=count;return changed;
     }
 };
-// Hippy jumps and walking share state 504. A clean riding -> offboard
+// Hippy jumps and walking share offboard states in the 500 range. Riding/air -> offboard
 // transition followed by upward motion identifies the jump; state alone
 // cannot distinguish it from an accidental loss of the board.
 class RaceHippyJump {
-    std::uint64_t candidate_until{},jump_until{},landed_until{};
+    std::uint64_t candidate_until{},jump_until{},landed_until{},board_until{};
     std::uint32_t last{};
 public:
     bool observe(bool valid,std::uint32_t state,std::uint32_t previous,float vertical,
-                 bool bail,std::uint64_t now) noexcept {
+                 bool bail,std::uint64_t now,bool airborne=false) noexcept {
         if(!valid || !std::isfinite(vertical) || bail) {
-            candidate_until=jump_until=landed_until=0;last=state;return false;
+            candidate_until=jump_until=landed_until=board_until=0;last=state;return false;
         }
+        const bool board=state>=100 && state<300,offboard=state>=500 && state<600;
+        if(board)board_until=now+350;
         if(state!=last) {
-            candidate_until=state==504 && previous==100?now+250:0;
-            if(state!=504) {
+            candidate_until=offboard && ((previous>=100 && previous<300) || now<board_until)?now+350:0;
+            if(!offboard) {
                 if(jump_until && now<jump_until && state<300)landed_until=now+250;
                 jump_until=0;
             }
             last=state;
         }
-        if(state==504 && candidate_until && now<=candidate_until && vertical>.5f) {
+        if(offboard && candidate_until && now<=candidate_until && (vertical>.2f || (airborne && vertical>=-1.5f))) {
             jump_until=now+4000;candidate_until=0;
         }
-        if(state!=504 || now>=jump_until)jump_until=0;
+        if(!offboard || now>=jump_until)jump_until=0;
         return jump_until!=0 || (state<300 && now<landed_until);
     }
+    bool active(std::uint64_t now) const noexcept {return now<jump_until || now<landed_until;}
 };
 class RaceRecoveryGrace {
     std::uint64_t until{};bool full_bail{};
