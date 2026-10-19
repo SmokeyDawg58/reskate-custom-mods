@@ -801,7 +801,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
     // (Watching the pointer for the pause menu's browser keeps the mouse state between frames,
     // or every frame would look like a fresh click.)
     if (!interactive) { ImGui::GetIO().ClearInputKeys(); if (!hub_frame) ImGui::GetIO().ClearInputMouse(); }
-    feed_menu_gamepad(interactive && s.visible.load() && !s.editor_visible.load());
+    feed_menu_gamepad(interactive && (s.visible.load() || s.race_route_dialog_visible.load()) && !s.editor_visible.load());
     ImGui::GetIO().MouseDrawCursor = owns_menu_cursor(s);
     ImGui_ImplDX12_NewFrame();
     { OverlayInputAccess access; ImGui_ImplWin32_NewFrame(); }
@@ -824,6 +824,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
     draw_trainer_hud();
     draw_notices();
     draw_item_browser();
+    draw_race_routes();
     draw_chat();
     draw_map_download();
     sync_menu_cursor(); // close buttons also change visibility, without a key message

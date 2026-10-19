@@ -28,7 +28,7 @@
       "binaryDir": "${sourceDir}/build/lean-playtest-x64",
       "cacheVariables": {
         "DINGOSDK_LEAN_PLAYTEST": "ON",
-        "DINGOSDK_VERSION": "2.1.0",
+        "DINGOSDK_VERSION": "2.1.1",
         "DINGOSDK_BUILD_LAUNCHER_TESTS": "ON",
         "DINGOSDK_BUILD_MULTIPLAYER_TESTS": "ON",
         "DINGOSDK_BUILD_BACKTRACE_TESTS": "OFF"

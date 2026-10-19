@@ -385,12 +385,18 @@ AssetOverrides collect_asset_overrides(const std::vector<const Mod*>& mods,
             // One addition per kind and name in a bundle (keep): this mod's, or not.
             const auto& index = addedAt[bundle];
             const auto held = index.find({fb::AssetKind::ebx, lower(companion.asset.name)});
-            const bool checkpointShader = race_core_shader(mod->name,bundle,lower(companion.asset.name),companion.asset.resourceType) &&
-                static_cast<std::size_t>(std::count_if(found->second.begin(),found->second.end(),[&](const auto& addition) {
-                    return addition.asset.kind == fb::AssetKind::ebx &&
-                        race_core_root(addition.mod,bundle,lower(addition.asset.name));
-                })) == race_core_roots.size();
-            if ((held != index.end() && found->second[held->second].mod == mod->name) || checkpointShader)
+            // Native mesh material keys do not import their shader depot by
+            // EBX GUID/name. Carry each private depot with its own runtime
+            // blueprint family, including Arrows on replacement-map cores.
+            const auto shaderRoots=race_core_shader_roots(lower(companion.asset.name));
+            const bool runtimeShader = race_core_shader(mod->name,bundle,lower(companion.asset.name),companion.asset.resourceType) &&
+                std::all_of(shaderRoots.begin(),shaderRoots.end(),[&](const auto root) {
+                    return std::any_of(found->second.begin(),found->second.end(),[&](const auto& addition) {
+                        return addition.mod==mod->name && addition.asset.kind==fb::AssetKind::ebx &&
+                            lower(addition.asset.name)==root;
+                    });
+                });
+            if ((held != index.end() && found->second[held->second].mod == mod->name) || runtimeShader)
                 keep(bundle, std::move(companion));
         }
         // A native mesh RES can refer to geometry in its bundle, rather than

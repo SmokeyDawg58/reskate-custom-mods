@@ -483,8 +483,8 @@ void carried_into_another_bundle_with_the_list(bool music_first) {
 }
 
 // Runtime-created native checkpoint roots are deliberately absent from the UI
-// import graph. A custom map's core replacement must receive all nine
-// roots and their isolated native material depot; unrelated additions still do
+// import graph. A custom map's core replacement must receive all eleven
+// roots and the gates' and Arrows' private material depots; unrelated additions still do
 // not carry. Exercise the real writer, collect and merge pipeline end to end.
 void deathrace_runtime_roots_survive_core_replacement(bool map_first,bool correct_owner,bool correct_bundle,
         const char* owner="ReSkate Core 1-Up") {
@@ -496,6 +496,15 @@ void deathrace_runtime_roots_survive_core_replacement(bool map_first,bool correc
     unsigned seed = 40;
     for(const auto name : mods::detail::race_core_roots)
         assets.push_back({std::string(name),0,ebx_document(guid(static_cast<std::uint8_t>(seed++)),{})});
+    for(const auto name:mods::detail::race_core_arrow_textures)
+        assets.push_back({std::string(name),0,ebx_document(guid(static_cast<std::uint8_t>(seed++)),{})});
+    assets.push_back({"effects/gameplay/textures/t_fx_directionalarrow_l03_v02_backup",0,ebx_document(guid(74),{})});
+    assets.push_back({std::string(mods::detail::race_core_arrow_variations),0,ebx_document(guid(72),{})});
+    assets.push_back({"world/reskate/deathrace/arrowmeshvariationdb_win32_backup",0,ebx_document(guid(73),{})});
+    expect(mods::detail::race_core_roots.size()==11 &&
+        mods::detail::race_core_root(owner,core,"world/reskate/deathrace/floatingarrow_at") &&
+        mods::detail::race_core_root(owner,core,"world/reskate/deathrace/floatingarrow_a"),
+        "Both Arrow layers are explicit runtime roots, independent of native map registrations");
     constexpr std::array hud_roots{"ui/reskate/throwdowns/racetime_352_widget",
         "ui/reskate/throwdowns/raceelapsed_widget","ui/reskate/throwdowns/caption_352_widget",
         "ui/reskate/throwdowns/raceposition_gold_widget","ui/reskate/throwdowns/resultspanel1_1184_widget"};
@@ -503,9 +512,11 @@ void deathrace_runtime_roots_survive_core_replacement(bool map_first,bool correc
         assets.push_back({name,0,ebx_document(guid(static_cast<std::uint8_t>(seed++)),{})});
     assets.push_back({"ui/foreign/throwdowns/unrelated_widget",0,ebx_document(guid(71),{})});
     assets.push_back({"world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate_backup",0,ebx_document(guid(70),{})});
-    const std::vector<Resource> materials{{
-        "world/reskate/deathrace/checkpoints_win32_shaderstate/shaderblockdepot_12937733901070835605",
-        {std::byte{1},std::byte{2}},0x73312045},{"world/reskate/deathrace/unrelated_depot",{std::byte{3}},0x73312045}};
+    std::vector<Resource> materials;
+    for(const auto name:mods::detail::race_core_shaders)
+        materials.push_back({std::string(name),{std::byte{1},std::byte{2}},0x73312045});
+    expect(materials.size()==3,"Checkpoint and both Arrow shader depots are in the custom-map fixture");
+    materials.push_back({"world/reskate/deathrace/unrelated_depot",{std::byte{3}},0x73312045});
     const auto add_core = [&] { fixture.add(correct_owner ? owner : "ordinary",false,shared_toc,{},assets,materials,bundle); };
     const auto add_map = [&] { fixture.add("map",true,map_toc,{map_superbundle},game_copy(),{},bundle); };
     if(map_first) {add_map();add_core();} else {add_core();add_map();}
@@ -513,7 +524,7 @@ void deathrace_runtime_roots_survive_core_replacement(bool map_first,bool correc
     expect(report.issue.empty() && report.built,"Deathrace native roots: merge builds\n"+describe(report));
     const auto files = fixture.merged_files(map_toc,bundle);
     const auto expected = 3 + (correct_owner && correct_bundle ?
-        static_cast<int>(mods::detail::race_core_roots.size()+hud_roots.size())+1 : 0);
+        static_cast<int>(mods::detail::race_core_roots.size()+hud_roots.size()+mods::detail::race_core_shaders.size()+mods::detail::race_core_arrow_textures.size()+1) : 0);
     expect(files == expected,"Deathrace native roots: map gets only scoped roots/material ("+
         std::to_string(files)+" files vs "+std::to_string(expected)+")\n"+describe(report));
 }

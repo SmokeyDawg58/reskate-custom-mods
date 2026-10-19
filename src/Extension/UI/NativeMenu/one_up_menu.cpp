@@ -1,4 +1,5 @@
 #include "one_up_menu.h"
+#include "Extension/Throwdowns/native_flag_cursor_height.h"
 #include "Extension/Throwdowns/challenge_registry.h"
 #include "Extension/Modes/game_modes.h"
 #include "Extension/Modes/race_navigation.h"
@@ -135,7 +136,7 @@ struct ModeHud {
     Value race_progress,race_progress_anchor,race_progress_item;
     Value race_deadline,race_deadline_anchor,race_deadline_item,race_deadline_caption,race_deadline_caption_anchor,race_deadline_caption_item;
     std::array<float,3> race_widths{100.f,224.f,320.f};
-    Value results_header,results_columns,results_badge,results_panel_anchor,results_panel_item;
+    Value results_header,results_columns,results_badge,results_panel_anchor,results_panel_item,results_header_anchor;
     Value results_logo_anchor,results_logo_item,results_notice_anchor,results_notice_item,results_columns_anchor,results_columns_item;
     std::array<Value,3> results_captions;
     Value race_position,race_position_anchor,race_position_item,race_warning,race_warning_anchor,race_warning_item;
@@ -169,9 +170,10 @@ struct ModeHud {
     Value placement_title; // the cone set's title row
     Value object_label,object_list,object_anchor,object_item,object_style;
     Value info_list,info_anchor,info_item,info_panel_anchor,info_panel_item;
-    std::array<Value,6> info_labels;
+    std::array<Value,8> info_labels;
     bool object_visible{},editor_info_visible{};
     Value intro_list,intro_row,intro_heading,intro_rules,intro_background_anchor,intro_background_item;
+    Value intro_rules_anchor,intro_rules_item;
     std::array<Value,16> intro_styles;
     Value letters_red,letters_grey,style_callout,style_neon52,style_clean52,style_clean64; // R.E.S.K.A.T.E.'s text styles
     bool race_layout{},placing_layout{},placement_cones{}; // placement_cones: the editor rows are R.E.S.K.A.T.E.'s cone set
@@ -855,7 +857,7 @@ void publish_hud_surface(const Context& c,Value stack,std::span<const Value> vis
     auto& s=state();auto found=s.hud_surfaces.find(stack.handle);
     if(found==s.hud_surfaces.end() && visible.empty())return;
     auto& surface=s.hud_surfaces[stack.handle];surface.stack=stack;
-    std::erase_if(surface.visible,[&](int id){return (id>=0x4d4f4400 && id<0x4d4f4440)==mode;});
+    clear_hud_publisher_visibility(surface.visible,mode);
     for(const auto item:visible)if(item.handle)surface.visible.insert(read<int>(c.address(c.field(item,0x1e95752c))));
     const auto target=c.field(stack,items);unsigned count{},stride{};
     const auto old=c.array(target,custom_hud_stack_item_limit,count,stride);
@@ -2761,11 +2763,13 @@ void trace_official_panel_models(const Context& c,std::uint64_t now) noexcept {
 void gameplay_hud(const Context& c,std::uint64_t now) {
     auto& s=state();
     try {custom_join_details(c);}catch(const std::exception&) { /* Retry only this native card, preserving its controls. */ }
-    try {throwdown_map_identity(c);custom_flag_interaction(c);}
+    try {throwdown_map_identity(c);}
     catch(const std::exception& e) {
         static std::uint64_t report{};
         if(now>=report) {report=now+10000;logging::log(logging::Level::warning,logging::Channel::ui,"Custom Throwdown map identity: {}",e.what());}
     }
+    try {custom_flag_interaction(c);}
+    catch(const std::exception&) { /* An optional map card must not suppress the focused flag banner. */ }
     // Retire expired countdown/intro before any optional HUD builder can fail.
     try {mode_hud_transients(c,modes::native_view(),now);}
     catch(const std::exception&) { /* Retired native parents are retried safely. */ }
@@ -3030,6 +3034,7 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
         // independent of level loading and must not erase a mounted picker/HUD.
         retire_solo_pending_queue(c);
         one_up::tick_flag_placement(c);
+        race_flag_cursor_height(c);
         // A native page can retire before its Quit/Start delegate is pumped.
         // Match controls belong to the match, not the picker generation.
         std::vector<Action> match_controls;

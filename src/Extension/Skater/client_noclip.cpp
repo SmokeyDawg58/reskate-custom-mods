@@ -363,6 +363,7 @@ void apply_race_recovery_velocity(std::uintptr_t core) noexcept {
     SourceBusyScope scope{state.busy};
     try {
         const auto wanted=modes::peek_race_recovery_velocity();
+        const bool hold=modes::race_countdown_holds() || (modes::race_recovery_pending() && request.velocity==std::array<float,3>{});
         if(!competition_stock_physics() || GetTickCount64()>=request.expires || !wanted || *wanted!=request.velocity) {
             request.pending.store(false,std::memory_order_release);return;
         }
@@ -378,7 +379,15 @@ void apply_race_recovery_velocity(std::uintptr_t core) noexcept {
             velocities[i]=request.velocity;
         }
         reader.verify();
-        for(std::size_t i=0;i<bodies.parts.size();++i){body_write(bodies.parts[i]+0x70,velocities[i]);body_write(bodies.parts[i]+0x60,flags[i]|8u);}
+        for(std::size_t i=0;i<bodies.parts.size();++i) {
+            body_write(bodies.parts[i]+0x70,velocities[i]);
+            if(hold)body_write(bodies.parts[i]+0x90,std::array<float,3>{});
+            body_write(bodies.parts[i]+0x60,flags[i]|(hold?0x28u:8u));
+        }
+        // Hold the validated local board still through countdown or a pending
+        // checkpoint return. Native teleport must not carry old fall velocity
+        // away from its destination before the route-facing speed is applied.
+        if(hold)return;
         // A queued request is not delivery: bail/teleport physics may still be
         // busy or have replaced the body. Acknowledge only the actual write.
         modes::accept_race_recovery_velocity(request.velocity);
@@ -499,6 +508,10 @@ bool queue_race_recovery_velocity(std::uintptr_t client,std::uintptr_t entity,co
         if(state.busy.test_and_set(std::memory_order_acquire))return false;
         SourceBusyScope scope{state.busy};
         if(request.pending.load(std::memory_order_acquire)) {
+            if((modes::race_countdown_holds() || modes::race_recovery_pending()) && velocity==std::array<float,3>{} &&
+               request.velocity==velocity && request.client==client && request.entity==entity) {
+                request.expires=GetTickCount64()+500;return true;
+            }
             if(GetTickCount64()<request.expires)return false;
             request.pending.store(false,std::memory_order_release);
         }

@@ -1,19 +1,19 @@
 {
   "upstream": "https://github.com/Dingo-Shenanigans/ReSkate",
-  "upstream_commit": "ba1245a5af51892e90f2be8637dd69a7e20f5b77",
-  "version": "2.1.0",
-  "variant": "reskate-mode1-main-merge",
-  "release_tag": null,
-  "tests_passed": 91,
+  "upstream_commit": "db99ed4d724dd77edd2abf62f3de0dbc5bb6717e",
+  "version": "2.1.1",
+  "variant": "custom-20261019-chevron-routes",
+  "release_tag": "v2.1.1-custom-20261019-deathrace-routes",
+  "tests_passed": 92,
   "multiplayer_protocol_version": 52,
   "mode_wire_version": 16,
   "one_up_wire_version": 5,
-  "integration_merge_commit": "9f86aadfdaeab5d31093a5df40a0ce5b71121b76",
-  "integration_source_tree": "37f3c1075346b360c8d9b9ea2f8e7358a03be99f",
-  "release_dll_sha256": "48632e6e8b4dbeb98ca3a8152a83cfbd5651753309617dfca292cee5b8f45d1f",
-  "release_launcher_sha256": "70a0f50f639a612239e62b5813f749519450da8ae88cea6f88d9445e1960f0aa",
-  "native_assets_sha256": "328fc5a05cf684b4dcb4630859c8c5d2e65c2736384bf4d8b7010565edc78bf2",
-  "native_assets_bytes": 502070658,
+  "integration_merge_commit": null,
+  "integration_source_tree": "56bfd9a5a3ec65834b8bcd074d1e7c405ace0d4e",
+  "release_dll_sha256": "3968083c57e2f8a33540c3e626da2357d30dc052aac7dca95be667f33891bc15",
+  "release_launcher_sha256": "7bb3fd5e1e7d52fba30535472013fe5b05d5e549419694efba09a8eaaf9401e3",
+  "native_assets_sha256": "ba48f846b184b88235a12aa6a61a471182e3021ac101d68ef620930dd9703679",
+  "native_assets_bytes": 197642358,
   "files": [
     {
       "path": ".gitignore",
@@ -22,13 +22,13 @@
     },
     {
       "path": "CMakeLists.txt",
-      "bytes": 37893,
-      "sha256": "a9236d8e279e8512b453a7c8c9eed8f628535134410adb3ed3b779233360335e"
+      "bytes": 38466,
+      "sha256": "86da4f49cf078e2b97e4e95b1dd8e3d28a2458e1a3804dff54187b60d26df221"
     },
     {
       "path": "CMakePresets.json",
       "bytes": 1473,
-      "sha256": "a729827bcb89e8bc3b444ba20cf0d9e7330210f7750db41eebdfcb4428c5e72e"
+      "sha256": "96a66ba55f52ca0df892372d82ffee49624a292935727a84919983179cd4feca"
     },
     {
       "path": "Engine/Core/Debug/disabled.cpp",
@@ -127,8 +127,8 @@
     },
     {
       "path": "Engine/Vfs/Test/mod_merge_added_assets_tests.cpp",
-      "bytes": 54438,
-      "sha256": "e23ebb4ed3de8c6be8e5b981a51fdf00dfe064e794c651d8d1b6dd7b6e19ed9d"
+      "bytes": 55500,
+      "sha256": "0e5cc2fa19a688c073311dc6071452671728dfba0949f810be9fba0734d182e3"
     },
     {
       "path": "Engine/Vfs/Test/mod_merge_audit_tests.cpp",
@@ -142,23 +142,28 @@
     },
     {
       "path": "Engine/Vfs/mod_catalog.cpp",
-      "bytes": 34275,
-      "sha256": "434b21c9718ee23972f4d10647a5bdd8dd874ba19796db4a2ecdde3513e3383a"
+      "bytes": 39924,
+      "sha256": "b398baf6f2c1e9796978fcf07a1d391262162dc18e9f2ea39584e51f65fbebf6"
+    },
+    {
+      "path": "Engine/Vfs/mod_list.cpp",
+      "bytes": 21073,
+      "sha256": "3c075519fb3d2925960d30553ba5ac976f616d8ccf328731f4075200bc9b4f99"
     },
     {
       "path": "Engine/Vfs/mod_merge_combine.cpp",
-      "bytes": 77872,
-      "sha256": "2bf095189e67e5beb3e5d36287d62dd2ccc6b70c1f63a2f2d2861c00e5b45403"
+      "bytes": 84447,
+      "sha256": "9455f5ce6b9835d61bbb53a158eab6ddcdfeed900089bb9522c8d50af3ee4c93"
     },
     {
       "path": "Engine/Vfs/mod_merge_internal.h",
-      "bytes": 19539,
-      "sha256": "744f3616e6bc1a4cb51e604710b0da24ab7debc3c068023c17d4cb7de93f4fe6"
+      "bytes": 21817,
+      "sha256": "8515e9a3ca63bafe932e5a8c6a6fa5acc0c9ad2773fdd5092c8da3a1717b085a"
     },
     {
       "path": "Engine/Vfs/mod_merge_overrides.cpp",
-      "bytes": 32990,
-      "sha256": "52446d61085f79c473b54cba306cb15f6819a14d4786d7d44f3351bd9638dfc4"
+      "bytes": 33374,
+      "sha256": "8bd86b60805b850d379e43fe5cd23619b161e48fa505570d636fc1e4c2792bc7"
     },
     {
       "path": "Engine/Vfs/native_asset_mod.cpp",
@@ -172,8 +177,8 @@
     },
     {
       "path": "Engine/Vfs/native_asset_mod_manifest.h",
-      "bytes": 2762,
-      "sha256": "427784c191f7b4601854b72e66c36c5608527e66f8ff12c730a263158a7fb193"
+      "bytes": 2761,
+      "sha256": "308e2262fc020fb3ff6aa0e1064ee1c8a32fec4eef3f2cf34c1272f4d2ba3b15"
     },
     {
       "path": "Engine/Vfs/one_up_core_assets.cpp",
@@ -187,8 +192,8 @@
     },
     {
       "path": "Engine/Vfs/race_core_assets.h",
-      "bytes": 2518,
-      "sha256": "2db1179b97c69448b78c76b1afd1ad7045113faa98363f96f5b2cb4360868234"
+      "bytes": 3804,
+      "sha256": "7d22fe6ca7841b4b2594a6ae5d5f2f5e98e4d7f275ff035dba875c8fb14deaaa"
     },
     {
       "path": "Extension/Console/commands.cpp",
@@ -237,13 +242,18 @@
     },
     {
       "path": "Extension/Modes/Test/mode_rules_tests.cpp",
-      "bytes": 107247,
-      "sha256": "0779a563bea0e33f6543190973c3139e6ffb4f433186368a0ab3f005bc198e4a"
+      "bytes": 133694,
+      "sha256": "539d4a6d3cf7373890f8fc9e69af6e1e068b3c08a993ae4bdc50f52110d1d0b7"
     },
     {
       "path": "Extension/Modes/Test/race_asset_contract_tests.cpp",
       "bytes": 10810,
       "sha256": "09c7ad4ba80f3c92fc5084552dd0c9ba76c23fc5c2111a68b40e9cdaec57d387"
+    },
+    {
+      "path": "Extension/Modes/Test/race_route_library_tests.cpp",
+      "bytes": 5699,
+      "sha256": "ad0e99fea63f063c4291be0c77d1ca9f828b0cdf04faae2a5ee8a53494f3308f"
     },
     {
       "path": "Extension/Modes/Test/trick_gesture_tests.cpp",
@@ -277,13 +287,13 @@
     },
     {
       "path": "Extension/Modes/game_modes.cpp",
-      "bytes": 207667,
-      "sha256": "d0e1b601e6e50f4a6358962db5aaf2f1e00f6bc079c3feb17606ffd4ce40f20b"
+      "bytes": 220742,
+      "sha256": "cccdc0bc9293da910462a508e25e8841b264e6bc805a7ca0f806f5d7f6540c1d"
     },
     {
       "path": "Extension/Modes/game_modes.h",
-      "bytes": 5755,
-      "sha256": "4d1f4e62b43952606af5a40c186915ca575c80cc762db135f935a1cfa74f62f0"
+      "bytes": 6200,
+      "sha256": "4822b5ad4ea45937914e7460f20ad8638b4d1270027488046de1bfaf15462dfe"
     },
     {
       "path": "Extension/Modes/mode_announcements.h",
@@ -327,8 +337,8 @@
     },
     {
       "path": "Extension/Modes/race_arrow_placement.h",
-      "bytes": 6337,
-      "sha256": "047e5a4730ba023e8a670094ecf5e933cb092dc2d6b4c3b06cfed94583837ddc"
+      "bytes": 6810,
+      "sha256": "882fb73c7206ce7534953d989d455a05aadcb566c19358de683c6ac5b6b1060e"
     },
     {
       "path": "Extension/Modes/race_asset_contract.h",
@@ -337,8 +347,8 @@
     },
     {
       "path": "Extension/Modes/race_editor.h",
-      "bytes": 12214,
-      "sha256": "dd0da81ca88946eb162125b68a2e1968573196c38e43b967e023adae005ed039"
+      "bytes": 17111,
+      "sha256": "ffd11ba37914681aafb4eb601c80725492f3fab93c4ae1c6cc84b6a7af38e7a1"
     },
     {
       "path": "Extension/Modes/race_group_reconciliation.h",
@@ -347,8 +357,8 @@
     },
     {
       "path": "Extension/Modes/race_momentum.h",
-      "bytes": 6543,
-      "sha256": "aa9652acc68c31f5c00c6d6d83f262ca335986309731a17b511756e42675cf25"
+      "bytes": 9122,
+      "sha256": "2e373175720e128f70e175abc5bf0283e26f265c6a7a6d3a52e93d39e14f62e2"
     },
     {
       "path": "Extension/Modes/race_navigation.h",
@@ -357,8 +367,23 @@
     },
     {
       "path": "Extension/Modes/race_route.h",
-      "bytes": 20446,
-      "sha256": "177d7c4ac733b517165cd2c2eba815a3d3e4a767cc415e2857233438da8dae0d"
+      "bytes": 23938,
+      "sha256": "e7286275bc24cc8d75f9fe37116fdf881d5f0e97dc6f3c286b4e8ca031c96191"
+    },
+    {
+      "path": "Extension/Modes/race_route_json.h",
+      "bytes": 4245,
+      "sha256": "64f585f3fc2f85f382023a58a22efa0f64ae0bedb6c294ebe5033214d00476af"
+    },
+    {
+      "path": "Extension/Modes/race_route_library.cpp",
+      "bytes": 10437,
+      "sha256": "23d4c0ab9a1168faf6046aa95387878c64c315dd7fa944537c96f9ca6d9454f6"
+    },
+    {
+      "path": "Extension/Modes/race_route_library.h",
+      "bytes": 4062,
+      "sha256": "40e15f76b3c9a326ec0b119806954e014965b6662202a2b17480cab497520866"
     },
     {
       "path": "Extension/Modes/race_sound.h",
@@ -537,8 +562,8 @@
     },
     {
       "path": "Extension/Skater/client_noclip.cpp",
-      "bytes": 34623,
-      "sha256": "cde1e90bd43dcfced42717158918ee86a8e8258bd995a6967eb293ec8a5b870b"
+      "bytes": 35439,
+      "sha256": "e679d3feb8524f5557d6c8fb28d443b3b46077ffcb13ce0b71aaa2b55fb28006"
     },
     {
       "path": "Extension/Skater/client_source_spawn.h",
@@ -567,8 +592,8 @@
     },
     {
       "path": "Extension/Throwdowns/Test/one_up_placement_tests.cpp",
-      "bytes": 41045,
-      "sha256": "2692f97beb72b1e88d50b084cbf1f73cbd4537d6709cd26521267ecbb3e09707"
+      "bytes": 42433,
+      "sha256": "7bdad3e792a32233f132a87246f621be09401103e28d9948276409eae4bba7de"
     },
     {
       "path": "Extension/Throwdowns/Test/one_up_runtime_tests.cpp",
@@ -582,8 +607,8 @@
     },
     {
       "path": "Extension/Throwdowns/Test/throwdown_relay_tests.cpp",
-      "bytes": 47784,
-      "sha256": "04accd32dda0ad32893b54c134fb13ec18d5dcde89cda59f32755957537f06b3"
+      "bytes": 47874,
+      "sha256": "971bfeb39684d6464fc739578e15ce52e804c0091242b9528eb14569c474e251"
     },
     {
       "path": "Extension/Throwdowns/challenge_registry.cpp",
@@ -599,6 +624,11 @@
       "path": "Extension/Throwdowns/native_flag_bubble.h",
       "bytes": 5764,
       "sha256": "99ac797c80ffa9a07f735afecc3cd2dbec9e92438fb9f5a14d455022bd2f5c4a"
+    },
+    {
+      "path": "Extension/Throwdowns/native_flag_cursor_height.h",
+      "bytes": 809,
+      "sha256": "04006b3fc831f932e33daff73072b362c0c4e6bc1e9306ce6f5c02b6f8dcea63"
     },
     {
       "path": "Extension/Throwdowns/native_flag_preview.h",
@@ -652,13 +682,13 @@
     },
     {
       "path": "Extension/Throwdowns/one_up_placement.cpp",
-      "bytes": 26824,
-      "sha256": "a5482c97b508d2338412e336f0ce0ca631637d1ba1e6725a827ffe5c9da31924"
+      "bytes": 27074,
+      "sha256": "3d4ccdc8b9b8359b536d8b356e473a70d756e8a2cdc679d4eb9a486a4eb1bf67"
     },
     {
       "path": "Extension/Throwdowns/one_up_placement.h",
-      "bytes": 4149,
-      "sha256": "bf7711e46850a381e182afc57850dbd2cd1f8d1b0c59376d2c6a25e6d9b62d29"
+      "bytes": 4197,
+      "sha256": "a24fd17a7ec3bf66a96d5aac4f6f601468e591dae73ae04854783a60a3647571"
     },
     {
       "path": "Extension/Throwdowns/one_up_runtime.cpp",
@@ -737,8 +767,8 @@
     },
     {
       "path": "Extension/UI/NativeMenu/Test/native_menu_lifetime_tests.cpp",
-      "bytes": 109631,
-      "sha256": "5933138a3135b12e8a81b82e7876073d114b19046afd29913b49ba28e203f6e1"
+      "bytes": 111208,
+      "sha256": "a5d17b3ca3f20c1549b7ebaa504c0ddf2271c347db3c6be1d4a585d21cf63470"
     },
     {
       "path": "Extension/UI/NativeMenu/native_array_publication.h",
@@ -777,8 +807,8 @@
     },
     {
       "path": "Extension/UI/NativeMenu/native_menu_data.cpp",
-      "bytes": 32608,
-      "sha256": "8af6e9c53657544636e9fbdedb24eddd660b0ee4c95112769dc896f907dcbea2"
+      "bytes": 32703,
+      "sha256": "77ebb9bdb1ea08fd58d5862f6a62e0d30eda99a60e94cf093be331ee225ee1bb"
     },
     {
       "path": "Extension/UI/NativeMenu/native_menu_data.h",
@@ -797,8 +827,8 @@
     },
     {
       "path": "Extension/UI/NativeMenu/native_menu_ownership.h",
-      "bytes": 13427,
-      "sha256": "2100fc80ad895e3d6405a88e4e7e4befc61d35225926bea0b4c7c12b3074e720"
+      "bytes": 13854,
+      "sha256": "69808de6e2aa7526083a5bca73db64ae2774e2a4b1c467f9e0dbac205cabcd0c"
     },
     {
       "path": "Extension/UI/NativeMenu/native_setup_roles.h",
@@ -812,8 +842,8 @@
     },
     {
       "path": "Extension/UI/NativeMenu/one_up_menu.cpp",
-      "bytes": 218087,
-      "sha256": "8386fc9da737fae05a594c8e35f2d06b0069750eca093497eaaec16d55692c5c"
+      "bytes": 218331,
+      "sha256": "38806b369fbc8cb39eeb4cb92dc4c34e0239aa8b808f44c684103ec7aa79f52b"
     },
     {
       "path": "Extension/UI/NativeMenu/one_up_menu.h",
@@ -822,13 +852,13 @@
     },
     {
       "path": "Extension/UI/NativeMenu/throwdown_map_identity.inl",
-      "bytes": 20493,
-      "sha256": "e956cc41f21c832162eb6b255635ac8372a4dc5b9cc2e53ca686edcebb33bb7b"
+      "bytes": 20604,
+      "sha256": "ee9937d927a57264c354f9af1cfbecade08c631a534aa656bfed246d44186d28"
     },
     {
       "path": "Extension/UI/NativeMenu/throwdown_modes_ui.inl",
-      "bytes": 108919,
-      "sha256": "309f69b66ffbda94b230bc9ef39a756f45a0c1352a34bc37c06a0b05cd801570"
+      "bytes": 115553,
+      "sha256": "047b0237078a16c23a751c2f45aadfb004a7752d984d214166cfe4e7a149f7da"
     },
     {
       "path": "Extension/UI/NativeMenu/ui_sound.cpp",
@@ -842,8 +872,8 @@
     },
     {
       "path": "Extension/UI/Overlay/input_capture.cpp",
-      "bytes": 59276,
-      "sha256": "5bb1ed3cd4da036704a14ee92cb391d65eec491458993c1014e9fae92740316a"
+      "bytes": 59393,
+      "sha256": "c572112ea1356d2f2dac9d4bbb85ac4ffb8ca0e513f773f78048d8a2c4e71f8e"
     },
     {
       "path": "Extension/UI/Overlay/input_capture.h",
@@ -857,13 +887,18 @@
     },
     {
       "path": "Extension/UI/Overlay/one_up_overlay.cpp",
-      "bytes": 5834,
-      "sha256": "d9eeee5be5038702718b6c85375cba4272296cca2f4adec58c3d7d9a4bd7391c"
+      "bytes": 5934,
+      "sha256": "c455d810ffb78ed56d9e682a2e271b0c3893c0289a21f5f5df6c6fc19893a1d5"
+    },
+    {
+      "path": "Extension/UI/Overlay/overlay.cpp",
+      "bytes": 26761,
+      "sha256": "dca7bace035f13cd024ae6c7a7ef03fd8626f8cb4643dd651b5072da5f77fe29"
     },
     {
       "path": "Extension/UI/Overlay/overlay.h",
-      "bytes": 29308,
-      "sha256": "0ffb8b0bdab8a6b3bee13aa0063eeeed15f54d01e01960c9ad6e84cd2c72fcbb"
+      "bytes": 29566,
+      "sha256": "0a718e14df01cb6cf15e066756dbf04a67e161b9342e04a3bdc751203cab953e"
     },
     {
       "path": "Extension/UI/Overlay/overlay_input.cpp",
@@ -872,18 +907,28 @@
     },
     {
       "path": "Extension/UI/Overlay/overlay_internal.h",
-      "bytes": 15096,
-      "sha256": "ffb4eae21cc73c76536072e37c41c4cd16189a5f6a5ed9fe78c6f33e4a22beb4"
+      "bytes": 15177,
+      "sha256": "0e2ecd0105ed259c98ae4ab2c4731a409109b2ec4a69ee3317f52d3e1f70efa7"
     },
     {
       "path": "Extension/UI/Overlay/overlay_render.cpp",
-      "bytes": 48672,
-      "sha256": "cfb5e33d1d731e28c5f902bb253ccfb833d4928285a9e8d736387a64aaa117eb"
+      "bytes": 48736,
+      "sha256": "5ed4213aeb8cb7d45b5955dbb8f859e22c220911148228d005aa2c25c3f3289a"
+    },
+    {
+      "path": "Extension/UI/Overlay/race_editor_numbers.inl",
+      "bytes": 2054,
+      "sha256": "52d90c2212491e43d2f170dc841995f9aa78fb8d093f85b566c7dd33fad23c2a"
     },
     {
       "path": "Extension/UI/Overlay/race_rotation_gizmo.inl",
-      "bytes": 3856,
-      "sha256": "9b0f7e965723bfde8aabba0e984cdcc516e785a93676e348bd6490dfda18a229"
+      "bytes": 3908,
+      "sha256": "d2b0a94dca88698c0f66c998d25ae4ce9a39a6647287fd4f352f7c9e2d445e1f"
+    },
+    {
+      "path": "Extension/UI/Overlay/race_routes_overlay.cpp",
+      "bytes": 9177,
+      "sha256": "af398fc5f0ec1dd144936555ffc3fdb13edf71868c6e6cbd13c07c394b02c310"
     },
     {
       "path": "Extension/UI/Overlay/skate_hud_overlay.cpp",
@@ -892,8 +937,8 @@
     },
     {
       "path": "Extension/UI/Overlay/skate_menu.cpp",
-      "bytes": 79644,
-      "sha256": "fc38ee59bdecf11810ee02433dd3f3216dbedee6fc9e4249c437034a0c3d91eb"
+      "bytes": 79800,
+      "sha256": "5687b3aab41b224a5f9d66fe814e058fa61b1c81a528dba689bf1288f37545dc"
     },
     {
       "path": "Extension/UI/Overlay/skate_menu.h",
@@ -926,14 +971,19 @@
       "sha256": "78823bf347faf0dd3da920697c7cb1c26d5cd7a92efc368965041a57868b62e7"
     },
     {
+      "path": "Launcher/Test/mod_manager_tests.cpp",
+      "bytes": 36364,
+      "sha256": "c1488af964ff3666670589fa5ac4ad8a6585693a36b607b90bd37fa33734dd4e"
+    },
+    {
       "path": "Launcher/crash_reporter_disabled.cpp",
       "bytes": 121,
       "sha256": "75d8d0d5d943994a23f6aab49ea9d7fbd20568335f026be72ba408faa86517de"
     },
     {
       "path": "Launcher/gui_home.cpp",
-      "bytes": 32520,
-      "sha256": "9a480686fdfe474a3c72a39899d9dee40b04f529046e522b600e8de6965e0c85"
+      "bytes": 32938,
+      "sha256": "dcad9600429c0b6099c3b4c4b95929e34aa324a8a71aaf813200c681a73de76a"
     },
     {
       "path": "MODE-PACK-RESEARCH.md",
@@ -957,8 +1007,8 @@
     },
     {
       "path": "Runtime/client_tick.cpp",
-      "bytes": 100011,
-      "sha256": "5c51f843e8a47ecdf132adf2dd1d8cf24920a2853f057a3d623446162be4f71d"
+      "bytes": 107273,
+      "sha256": "36c96cdb13e3ae977035f1c4fc1f3a76e95abf92a6fe03ff8aeefdc9ae37cfb0"
     },
     {
       "path": "Runtime/runtime_init.cpp",
@@ -1013,12 +1063,12 @@
     {
       "path": "assets/one_up/native_assets.sha256",
       "bytes": 65,
-      "sha256": "a6e1da764bec1bb8daebd3103cf2a20380723a9615cb15093a9819b81e655e98"
+      "sha256": "014e61b58db748e1ae9b8281293e3af368839b734c96c5c68c3945739c30c6cd"
     },
     {
       "path": "assets/throwdowns/audio/README.txt",
-      "bytes": 312,
-      "sha256": "4f407a727f5eaa069b14f1505237cc2069fdb42deda7e67d2ab7456b20ccaad8"
+      "bytes": 316,
+      "sha256": "2ffd123755020494b86650b964f21e1c3f61bf89236da872781f91210cf79c94"
     },
     {
       "path": "assets/throwdowns/audio/gate-required.wav",
@@ -1062,8 +1112,8 @@
     },
     {
       "path": "assets/throwdowns/runtime-audio/README.txt",
-      "bytes": 354,
-      "sha256": "ff22049fb9376a30402ea4391b53475a928b8b10ba7e4fa7287b423528a12d97"
+      "bytes": 358,
+      "sha256": "e63b0472989afb3949c2b36cf37ef06524d7c4e050afb37343144b7dd6cb5316"
     },
     {
       "path": "assets/throwdowns/runtime-audio/race-recovery.wav",
@@ -1072,8 +1122,8 @@
     },
     {
       "path": "cmake/Core.cmake",
-      "bytes": 6494,
-      "sha256": "87ea10f54d2449cc4a54e620b5eceea2541aa43b47c97b5dab18ec36394572d1"
+      "bytes": 6579,
+      "sha256": "187e87ca35a4f9bb16787452fd8412289aa6e8cdf61b827ad241c0ddaeef2ed9"
     },
     {
       "path": "cmake/CrashReport.cmake",
@@ -1087,13 +1137,13 @@
     },
     {
       "path": "cmake/Runtime.cmake",
-      "bytes": 22986,
-      "sha256": "a4c9c5ff7550d7eee1027c48135286bba9d090e2f98a42d6fac096aa2033e7d3"
+      "bytes": 23029,
+      "sha256": "4d4fb0d4e2f5d632557eff6b234856afa0f00da9f358c5597ee7cdd04e51a7b0"
     },
     {
       "path": "cmake/UI.cmake",
-      "bytes": 2829,
-      "sha256": "0eb8a29444087db6b63ad5874b338f4743b3baf9eabeada31a41428024f79485"
+      "bytes": 2878,
+      "sha256": "5052bbb802b3ae155b4c94a364c831fac0fceeaf4866673c6b181174d5196b71"
     },
     {
       "path": "contrib/throwdown-flags/ASSET_PACK_1_0_6.md",
@@ -1116,9 +1166,24 @@
       "sha256": "bd6b6ff17826ff58b19f9bbf0e3e50189518e9be8592edbd8befe8d1614f0c7d"
     },
     {
+      "path": "contrib/throwdown-flags/arrow_variation_assets.cpp",
+      "bytes": 3649,
+      "sha256": "78d270f078c34edec0e8729d8bcd6a2c2bc432e59960c96c89e3e02244b84720"
+    },
+    {
       "path": "contrib/throwdown-flags/build_oneup_native_bundle.py",
       "bytes": 1613,
       "sha256": "58adc916eee2ffa81cfc9df30959a09ed1fd8315f61b87dab65553313718edb6"
+    },
+    {
+      "path": "contrib/throwdown-flags/builder_fit_assets.cpp",
+      "bytes": 4876,
+      "sha256": "a65a45c6ee49967bdd7fb7d515d1eb7f0ed2d425b4339d8a9f7db11c14493b8b"
+    },
+    {
+      "path": "contrib/throwdown-flags/compact_native_archives.cpp",
+      "bytes": 7286,
+      "sha256": "40a46846eb9961d26d7d53c1091bfb2f36991b2b12de2c53d3632ca5e041e2b5"
     },
     {
       "path": "contrib/throwdown-flags/deathrace_audit_assets.cpp",
@@ -1161,14 +1226,34 @@
       "sha256": "a005f4c1af91416626a604cee78fde1539f73e69ee671708f95dceb60b9b2ae9"
     },
     {
+      "path": "contrib/throwdown-flags/editor_controls_fit_assets.cpp",
+      "bytes": 8582,
+      "sha256": "d1d79f677fec56b6c68da48982455117ce4b85f9c241142273d8a91c9d8738ac"
+    },
+    {
+      "path": "contrib/throwdown-flags/editor_polish_assets.cpp",
+      "bytes": 4752,
+      "sha256": "8e1718d7fcf04e02cb49ecec8df1241d09ca3ed04d85d507e9732f2d1be1ce8e"
+    },
+    {
+      "path": "contrib/throwdown-flags/gate_style_arrow_assets.cpp",
+      "bytes": 11746,
+      "sha256": "8707eb01b9c468257f99cc36f128146aa70f5db5c5d7eb4f3bf36e04dcead1c3"
+    },
+    {
+      "path": "contrib/throwdown-flags/intro_spacing_assets.cpp",
+      "bytes": 5561,
+      "sha256": "9162244925cab1fa462c32d51c78e82c7d842324f13db049b724181e542106a6"
+    },
+    {
       "path": "contrib/throwdown-flags/native_throwdown_flags.inl",
       "bytes": 35858,
       "sha256": "1096ce37712086ceb69d1fd58e93a302a247041242202851bdede6bd8e8ae722"
     },
     {
       "path": "contrib/throwdown-flags/package_asset_mod.py",
-      "bytes": 6362,
-      "sha256": "74ac08b6f7b48d2ff02556d60ebd89f7c5ab3b871c4184ad8a0dbc8337d892ca"
+      "bytes": 6933,
+      "sha256": "603086570864338c56b2e0f716e18ae4b6656e2669bb69ee4a99e7ea92631d6b"
     },
     {
       "path": "contrib/throwdown-flags/reskate_asset_refresh.cpp",
@@ -1179,6 +1264,11 @@
       "path": "contrib/throwdown-flags/reskate_logo_swap.cpp",
       "bytes": 6408,
       "sha256": "eaeaeaf991e1f84e2d9b543fd48c85837e9d86aec1fda50a3c91026e5db8a8d9"
+    },
+    {
+      "path": "contrib/throwdown-flags/restore_chevron_assets.cpp",
+      "bytes": 1819,
+      "sha256": "470b06705773173e21b2cc608796bb3fd96f5adcb0b98c244fbc96b72ae6c08e"
     },
     {
       "path": "contrib/throwdown-flags/shader_depot.cpp",
@@ -1200,15 +1290,15 @@
   "wider_multiplayer": "PENDING",
   "prerelease": true,
   "source_commit": null,
-  "source_tree": "37f3c1075346b360c8d9b9ea2f8e7358a03be99f",
+  "source_tree": "56bfd9a5a3ec65834b8bcd074d1e7c405ace0d4e",
   "live_validation": "PENDING",
   "known_issues": [
-    "The challenge HUD can still disappear on custom maps after map travel.",
-    "Nearby flag banners and map details can still show Spot Battle for a Deathrace."
+    "This exact build requires live confirmation of Chevron rendering, Save/Load input timing, HUD/cards after map travel and recovery animations.",
+    "Main starting-flag RT height-boundary behavior remains pending live confirmation."
   ],
-  "asset_version": "1.0.7",
-  "publication": "SOURCE_MAIN_ONLY",
-  "published": false,
+  "asset_version": "1.0.15",
+  "publication": "SOURCE_AND_THREE_DOWNLOAD_PLAYTEST",
+  "published": true,
   "readiness": "AUTOMATED_PASS_LIVE_PENDING",
   "merge": {
     "branch": "reskate-mode",
@@ -1220,27 +1310,28 @@
   "previous_public_release": "v2.1.0-custom-20261018-reskate-deathrace",
   "manual_verification": [],
   "manual_verification_pending": [
-    "This exact combined runtime in game",
-    "R.E.S.K.A.T.E. spectator lock, copied/failed feedback, landing hold, combo recognition, return positions and native stance diagrams",
-    "Repeated stock/custom map travel and custom HUD with stock Compass/D-Pad hidden",
-    "Preserved Deathrace/editor/enrollment behavior on both PCs"
+    "Original Chevron on both Improved maps",
+    "No object placement from route-menu confirmation",
+    "Two-PC host Start, stationary countdown, selected timer and HUD after travel",
+    "Hippy jump/offboard/spread-eagle/rolling recovery and momentum",
+    "Grounded main starting flag RT height boundary"
   ],
   "diagnostic_logging": false,
   "historical_manual_verification": [],
-  "source_overlay_line_endings": "LF; BUILD_SOURCES.json retains the exact raw canonical build inputs",
+  "source_overlay_line_endings": "Exact canonical Git blobs; BUILD_SOURCES.json retains raw compiled input hashes.",
   "release_downloads": [
     "ReSkate.dll",
     "ReSkateLauncher.exe",
-    "SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.7.zip"
+    "SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.15.zip"
   ],
-  "release_notes": "docs/RELEASE_NOTES_20261018_RESKATE_MODE1_MERGE.md",
+  "release_notes": "docs/RELEASE_NOTES_20261019_211_DEATHRACE_ROUTES.md",
   "previous_runtime_release_tag": "v2.1.0-custom-20261018-reskate-deathrace",
-  "canonical_source_tree": "37f3c1075346b360c8d9b9ea2f8e7358a03be99f",
+  "canonical_source_tree": "56bfd9a5a3ec65834b8bcd074d1e7c405ace0d4e",
   "imported_branch": "reskate-mode",
   "incoming_commit": "20a816ff84bd34a0769a1fda293f170ad56cca5f",
   "incoming_release_tag": "v2.1.0-reskate-mode.1",
   "source_published": true,
-  "runtime_publication": "LOCAL_ONLY",
+  "runtime_publication": "GITHUB_PRERELEASE",
   "previous_merges": [
     {
       "branch": "reskate-mode-210",
@@ -1250,6 +1341,22 @@
       "enrollment_preserved": true
     }
   ],
-  "source_checkpoint_commit": "3f2094887fd3b2b448daa8f529d4b776969b24d6",
-  "source_working_tree": "VERIFIED_UNCOMMITTED_INTEGRATION"
+  "source_checkpoint_commit": null,
+  "source_working_tree": "EXACT_RECONSTRUCTION_VERIFIED",
+  "previous_snapshot": {
+    "upstream_commit": "ba1245a5af51892e90f2be8637dd69a7e20f5b77",
+    "version": "2.1.0",
+    "source_tree": "37f3c1075346b360c8d9b9ea2f8e7358a03be99f",
+    "merge": {
+      "branch": "reskate-mode",
+      "commit": "20a816ff84bd34a0769a1fda293f170ad56cca5f",
+      "main_before": "a1fca03223ed8ab1028b09e8511beb93373d0ad2",
+      "current_deathrace_preserved": true,
+      "enrollment_preserved": true
+    },
+    "release_tag": null,
+    "publication": "SOURCE_MAIN_ONLY",
+    "incoming_commit": "20a816ff84bd34a0769a1fda293f170ad56cca5f",
+    "source_checkpoint_commit": "3f2094887fd3b2b448daa8f529d4b776969b24d6"
+  }
 }

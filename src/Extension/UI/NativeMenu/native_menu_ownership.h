@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <map>
+#include <set>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -102,17 +103,25 @@ public:
     }
     void manager_replaced() noexcept { leases_.clear(); }
 };
-// Both publishers share this stack: 64 mode IDs plus 1-UP/prompt/strike IDs.
+// Both publishers share this stack, including eleven fixed builder rows.
 inline constexpr unsigned custom_hud_stack_item_limit=128;
+inline bool mode_hud_item(std::int32_t id) noexcept {
+    return id>=0x4d4f4400 && id<0x4d4f444b;
+}
 inline bool custom_hud_item(std::int32_t id) noexcept {
-    return (id>=0x4d4f4400 && id<0x4d4f4440) ||
+    return mode_hud_item(id) ||
            (id>=0x31555071 && id<=0x31555078) || (id>=0x31555800 && id<0x31555806);
+}
+// Both publishers refresh the same visible set. Use the same ownership
+// range as mounting/cleanup, so 1-Up cannot blank newer builder rows.
+template<class Set> void clear_hud_publisher_visibility(Set& visible,bool mode) {
+    std::erase_if(visible,[&](std::int32_t id){return custom_hud_item(id) && mode_hud_item(id)==mode;});
 }
 
 // Empty presenters remain ACTIVE. Their private anchor Content is blank
 // until configured and requested; inactive native placeholders are pruned.
 inline constexpr auto custom_hud_slot_order=[] {
-    std::array<std::int32_t,78> result{};std::size_t used{};
+    std::array<std::int32_t,89> result{};std::size_t used{};
     const auto append=[&](std::int32_t id) {
         for(std::size_t i=0;i<used;++i)if(result[i]==id)return;
         result[used++]=id;
@@ -120,7 +129,7 @@ inline constexpr auto custom_hud_slot_order=[] {
     // Keep background panels behind captions, objectives and confirmation.
     for(const int id:{43,54,55,57,60,4,0,40,7,1,59,2,3,5,6,41,61,62,63,42,58,44,45})append(0x4d4f4400+id);
     for(int id=8;id<40;++id)append(0x4d4f4400+id);
-    for(int id=0;id<64;++id)append(0x4d4f4400+id);
+    for(int id=0;id<75;++id)append(0x4d4f4400+id);
     for(const int id:{0x31555071,0x31555075,0x31555077,0x31555078,0x31555072,0x31555073,0x31555074})append(id);
     for(int id=0;id<6;++id)append(0x31555800+id);
     append(0x31555076); // The persistent Start prompt always paints last.

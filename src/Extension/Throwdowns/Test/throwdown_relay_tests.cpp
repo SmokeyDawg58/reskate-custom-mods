@@ -40,6 +40,7 @@ std::vector<std::string> oneup_commands;
 }
 namespace dingosdk::multiplayer::one_up {
 View view() {return oneup_view;}
+bool observe_free_race_flag_spawned(std::uint64_t,std::uint32_t) noexcept {return false;}
 bool known_custom_flag_queue(std::uint32_t mmid) noexcept {return custom_queues.contains(mmid);}
 void queue(std::string_view command) {oneup_commands.emplace_back(command);}
 bool adopt_native_one_up_flag(std::uint64_t world,std::uint32_t mmid,const std::array<float,3>&,float,unsigned,unsigned) noexcept {

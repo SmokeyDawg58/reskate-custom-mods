@@ -166,9 +166,10 @@ void throwdown_map_identity(const Context& c) {
     // also the object the existing Waypoint and Fast Travel delegates use.
     const auto focus_handle=read<Handle>(map+0x28);
     const Value focus{focus_handle,c.type_of(focus_handle)};
-    require(focus.type && read<std::uint32_t>(read<Address>(focus.type))==0xa2e44781 && size(focus.type)==112,
-            "Native map focus schema differs.");
-    const auto focused=read<Handle>(c.address(c.field(focus,0xcaf76739)));
+    // Gameplay compass/flag bubbles exist while the pause-map focus does not.
+    // No open map means no selected card; its markers still need branding.
+    const auto focused=focus.type && read<std::uint32_t>(read<Address>(focus.type))==0xa2e44781 && size(focus.type)==112?
+        read<Handle>(c.address(c.field(focus,0xcaf76739))):Handle{};
     std::uint32_t selected_mmid{};
     std::set<Handle> current;
     unsigned visited{};

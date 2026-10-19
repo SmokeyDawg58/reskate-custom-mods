@@ -1021,6 +1021,7 @@ bool install_input_capture() {
 }
 
 namespace dingosdk::overlay {
+void set_race_route_dialog_active(bool active) noexcept { detail::state().race_route_dialog_visible.store(active); }
 bool interface_open() noexcept { return detail::interactive_visible(detail::state()); }
 void hide_game_buttons(std::uint16_t buttons) noexcept { detail::mode_hidden_buttons.store(buttons, std::memory_order_relaxed); }
 void capture_challenge_menu_input(bool active,bool native_panel,bool opening_key_down) noexcept {

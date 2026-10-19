@@ -4,9 +4,41 @@
 #include <limits>
 
 namespace dingosdk::modes {
+class RaceEditorInputRelease {
+    bool waiting{};
+public:
+    void arm() noexcept {waiting=true;}
+    bool blocked(unsigned buttons,bool keyboard,bool menu_open=false) noexcept {
+        if(menu_open){arm();return true;}
+        if(!waiting)return false;
+        if(!buttons && !keyboard)waiting=false;
+        return true; // Consume the release frame too; it belongs to the menu.
+    }
+};
 inline std::string_view race_placement_label(unsigned object) noexcept {
-    constexpr std::array<std::string_view,5> names{"START FLAG","REQUIRED GATE","FINISH GATE","GUIDE GATE","CHEVRON"};
+    constexpr std::array<std::string_view,5> names{"START FLAG","REQUIRED GATE","FINISH GATE","GUIDE GATE","ARROW"};
     return object<names.size()?names[object]:"REQUIRED GATE";
+}
+// User-facing names stay separate from persisted object identifiers.
+inline std::string_view race_editor_object_name(unsigned object) noexcept {
+    constexpr std::array<std::string_view,5> names{"Start flag","Required gate","Finish gate","Guide gate","Arrow"};
+    return object<names.size()?names[object]:"Required gate";
+}
+inline bool race_default_roll_axis(unsigned object) noexcept {return object==4;}
+// Build-only markers use the mandatory sequence, excluding decorative arrows
+// and guide gates. Their world position follows the tilted gate's highest edge.
+inline std::string race_editor_gate_number(const Settings& route,std::size_t i) {
+    if(!i || i>=route.points.size() || arrow_marker(route,i))return {};
+    if(guiding_gate(route,i))return "GUIDE";
+    return std::string(route.race_finish && i+1==route.points.size()?"FINISH ":"GATE ")+std::to_string(mandatory_gates(route,i)+1);
+}
+inline Vec3 race_editor_gate_number_position(const Settings& route,std::size_t i) noexcept {
+    auto point=route.points[i];const auto from=route.points[i?i-1:i];
+    const float yaw=i<route.yaws.size()?route.yaws[i]:std::atan2(point[0]-from[0],point[2]-from[2])*180.f/3.14159265f;
+    const auto axes=race_gate_axes(yaw,race_gate_pitch(route,i));
+    const float half=gate_half_width(route,i),scale=half/6.f;
+    for(unsigned axis=0;axis<3;++axis)point[axis]+=axes.up[axis]*1.70747f*scale;
+    point[1]+=half+.7f;return point;
 }
 inline float race_object_label_alpha(std::uint64_t now,std::uint64_t changed) noexcept {
     if(!changed || now<changed)return 0.f;
@@ -22,8 +54,32 @@ inline RaceEditorDirections race_editor_directions(bool rotating,unsigned step) 
     return rotating?RaceEditorDirections{horizontal,vertical,0,false,false}:
         RaceEditorDirections{0,0,vertical,horizontal<0,horizontal>0};
 }
+struct RaceRotationOrigin {
+    float yaw{},pitch{},roll{};
+    bool captured{};
+    void clear() noexcept {captured=false;}
+    // Keep the first straight pose across repeated visits to Rotate.
+    void capture(float y,float p,float r) noexcept {if(!captured){yaw=y;pitch=p;roll=r;captured=true;}}
+    void update_aim(float camera_yaw,float camera_pitch,float& y,float& p,bool automatic_tilt=false) const noexcept {
+        if(!captured)y=camera_yaw;
+        if(!captured || automatic_tilt)p=camera_pitch;
+    }
+    void restore(float& y,float& p,float& r) const noexcept {y=yaw;p=pitch;r=roll;}
+};
+inline float race_rotation_degrees(float value) noexcept {
+    if(!std::isfinite(value))return 0.f;
+    const float angle=std::remainder(value,360.f);
+    return std::abs(angle)<.05f?0.f:angle; // Avoid -0.0 in the readout.
+}
 class RaceRouteHistory {
     std::vector<Settings> past,future;
+    static void restore_shape(Settings& route,Settings previous) {
+        // Undo edits the route, not current timer/rules/area settings.
+        route.points=std::move(previous.points);route.yaws=std::move(previous.yaws);
+        route.widths=std::move(previous.widths);route.gate_kinds=std::move(previous.gate_kinds);
+        route.arrow_rolls=std::move(previous.arrow_rolls);route.gate_pitches=std::move(previous.gate_pitches);
+        route.race_finish=previous.race_finish;route.has_spawn=previous.has_spawn;route.spawn=previous.spawn;
+    }
 public:
     void reset(){past.clear();future.clear();}
     void changed(const Settings& before,const Settings& after) {
@@ -44,13 +100,24 @@ public:
             if(past.size()>64)past.erase(past.begin());
         }
     }
+    // Reopening uses a newly placed native flag. History must never move
+    // its logical spawn back to a previous flag that no longer exists.
+    void rebase_start(const Settings& route) {
+        if(route.mode!=Mode::race || route.points.empty() || route.yaws.empty() || route.widths.empty())return;
+        const auto update=[&](Settings& entry) {
+            bool finish=entry.race_finish;
+            (void)edit_race_route(entry,finish,RaceObject::start,route.points.front(),route.yaws.front(),route.widths.front());
+        };
+        for(auto& entry:past)update(entry);
+        for(auto& entry:future)update(entry);
+    }
     bool undo(Settings& route,bool& finish) {
         if(past.empty())return false;
-        future.push_back(route);route=std::move(past.back());past.pop_back();finish=route.race_finish;return true;
+        future.push_back(route);restore_shape(route,std::move(past.back()));past.pop_back();finish=route.race_finish;return true;
     }
     bool redo(Settings& route,bool& finish) {
         if(future.empty())return false;
-        past.push_back(route);route=std::move(future.back());future.pop_back();finish=route.race_finish;return true;
+        past.push_back(route);restore_shape(route,std::move(future.back()));future.pop_back();finish=route.race_finish;return true;
     }
 };
 inline float tilt_race_gate(float pitch,int direction,bool snap,float degrees) noexcept {
@@ -91,12 +158,12 @@ inline RaceArrowSnapPose snap_race_arrow_angles(RaceArrowSnapPose pose,bool enab
 }
 class RaceArrowLineSnap {
     bool locked{},upright_locked{};Vec3 anchor{},direction{};float yaw{},pitch{},roll{};
-    Vec3 last_raw{},input_bias{};bool raw_valid{};
+    Vec3 last_raw{},input_bias{};bool raw_valid{};std::size_t upright_count{};
     std::optional<std::size_t> rotation_count;
     static float dot(const Vec3& a,const Vec3& b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
     static Vec3 sub(const Vec3& a,const Vec3& b){return {a[0]-b[0],a[1]-b[1],a[2]-b[2]};}
 public:
-    void reset() noexcept {locked=false;upright_locked=false;raw_valid=false;input_bias={};rotation_count.reset();}
+    void reset() noexcept {locked=false;upright_locked=false;raw_valid=false;input_bias={};upright_count=0;rotation_count.reset();}
     void begin_rotation(std::size_t count) noexcept {reset();rotation_count=count;}
     // Keep the projection routine out of the large input handler's optimizer
     // graph. The routine itself still receives normal Release optimization.
@@ -114,20 +181,28 @@ public:
         }
         if(upright && std::abs(pose.pitch)<.001f && std::abs(pose.roll)<.001f) {
             std::optional<std::size_t> recent;
+            float nearest=24.f*24.f;
             for(std::size_t i=route.points.size();i>1;) {
                 --i;if(!arrow_marker(route,i))continue;
                 const float old_roll=i<route.arrow_rolls.size()?route.arrow_rolls[i]:0.f;
-                if(std::abs(race_gate_pitch(route,i))<.001f && std::abs(old_roll)<.001f){recent=i;break;}
+                const auto delta=sub(pose.at,route.points[i]);const float distance=dot(delta,delta);
+                if(std::abs(race_gate_pitch(route,i))<.001f && std::abs(old_roll)<.001f && distance<nearest){recent=i;nearest=distance;}
             }
             if(!recent){reset();return pose;}
             const auto i=*recent;const auto next=route.points[i];const auto delta=sub(pose.at,next);
             const float old_yaw=i<route.yaws.size()?route.yaws[i]:0.f;
-            if(dot(delta,delta)>64.f*64.f){reset();return pose;}
-            if(upright_locked && yaw==old_yaw) {
+            if(upright_locked && yaw==old_yaw && route.points.size()>=upright_count) {
                 const auto shift=sub(next,anchor);const float along=dot(shift,direction);
                 const Vec3 off{shift[0]-direction[0]*along,shift[1]-direction[1]*along,shift[2]-direction[2]*along};
                 if(dot(off,off)<.0001f) {
-                    if(dot(shift,shift)>.0001f && raw_valid)input_bias=sub(last_raw,next);
+                    if(dot(shift,shift)>.0001f) {
+                        // Rebase aim drift only onto a newly appended arrow.
+                        // An older collinear reference must not move the aim.
+                        const bool appended=route.points.size()>upright_count &&
+                            i>=upright_count-(route.race_finish?1u:0u);
+                        if(appended && raw_valid)input_bias=sub(last_raw,next);
+                        else reset();
+                    }
                     anchor=next;
                 } else reset();
             } else reset();
@@ -142,24 +217,28 @@ public:
             anchor=next;yaw=old_yaw;pitch=roll=0;
             const float along=dot(intent,direction);Vec3 projected{};
             for(unsigned axis=0;axis<3;++axis)projected[axis]=next[axis]+direction[axis]*along;
+            // A narrow rail can be escaped without toggling Snap. Re-evaluate
+            // every arrow on the next update, including an older nearby row.
+            const auto error=sub(projected,pose.at);
+            if(dot(error,error)>9.f){reset();return pose;}
             locked=upright_locked=locked || strongest>=1.f;
-            last_raw=pose.at;raw_valid=true;snapped=true;
+            last_raw=pose.at;raw_valid=true;upright_count=route.points.size();snapped=true;
             return {projected,yaw,0,0};
         }
         if(upright_locked){locked=false;upright_locked=false;}
         std::optional<std::size_t> recent;
+        float nearest=24.f*24.f;
         for(std::size_t i=route.points.size();i>1;) {
             --i;if(!arrow_marker(route,i))continue;
             const float old_yaw=i<route.yaws.size()?route.yaws[i]:0.f;
             const float old_roll=i<route.arrow_rolls.size()?route.arrow_rolls[i]:0.f;
             const auto prior=snap_race_arrow_angles({route.points[i],old_yaw,race_gate_pitch(route,i),old_roll},true,step);
-            if(std::abs(prior.pitch-pose.pitch)>35.f || std::abs(std::remainder(prior.yaw-pose.yaw,360.f))>35.f ||
-               std::abs(std::remainder(prior.roll-pose.roll,360.f))>35.f)continue;
-            recent=i;break;
+            if(std::abs(prior.pitch-pose.pitch)>35.f || std::abs(std::remainder(prior.roll-pose.roll,360.f))>35.f)continue;
+            const auto delta=sub(pose.at,route.points[i]);const float distance=dot(delta,delta);
+            if(distance<nearest){recent=i;nearest=distance;}
         }
         if(!recent){reset();return pose;}
         const auto i=*recent;const auto next_anchor=route.points[i];const auto delta=sub(pose.at,next_anchor);
-        if(dot(delta,delta)>64.f*64.f){reset();return pose;}
         const auto prior=snap_race_arrow_angles({next_anchor,i<route.yaws.size()?route.yaws[i]:0.f,
             race_gate_pitch(route,i),i<route.arrow_rolls.size()?route.arrow_rolls[i]:0.f},true,step);
         const auto project=[&](const Vec3& axis) {
@@ -174,9 +253,9 @@ public:
             // same axis. Undo/Redo and a genuinely new row cannot retain it.
             const auto shift=sub(next_anchor,anchor);const float along=dot(shift,direction);
             const auto off=Vec3{shift[0]-direction[0]*along,shift[1]-direction[1]*along,shift[2]-direction[2]*along};
-            if(dot(off,off)<.0001f && error(project(direction))<=36.f){anchor=next_anchor;return aligned(project(direction));}
+            if(dot(off,off)<.0001f && error(project(direction))<=9.f){anchor=next_anchor;return aligned(project(direction));}
         }
-        reset();float best=16.f;Vec3 selected{};bool found{};
+        reset();float best=9.f;Vec3 selected{};bool found{};
         const auto basis=race_arrow_transform({},prior.yaw,prior.roll,1.5f,prior.pitch);
         for(unsigned start:{0u,4u,8u}) {
             Vec3 axis{basis[start],basis[start+1],basis[start+2]};
@@ -188,7 +267,7 @@ public:
         return aligned(project(direction));
     }
 };
-struct RaceRotationPose {Vec3 at{};float yaw{},pitch{},width=7.5f;};
+struct RaceRotationPose {Vec3 at{};float yaw{},pitch{},width=7.5f,roll{};};
 class RaceRotationVisual {
     RaceRotationPose current;std::uint64_t previous{};bool initialized{};
 public:
@@ -200,6 +279,7 @@ public:
         for(unsigned axis=0;axis<3;++axis)current.at[axis]+=(target.at[axis]-current.at[axis])*blend;
         current.yaw=std::remainder(current.yaw+std::remainder(target.yaw-current.yaw,360.f)*blend,360.f);
         current.pitch+=(target.pitch-current.pitch)*blend;current.width+=(target.width-current.width)*blend;
+        current.roll=std::remainder(current.roll+std::remainder(target.roll-current.roll,360.f)*blend,360.f);
         return current;
     }
 };

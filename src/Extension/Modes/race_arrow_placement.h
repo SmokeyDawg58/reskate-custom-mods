@@ -5,6 +5,18 @@ namespace dingosdk::modes {
 struct RaceArrowRay {bool available{},hit{};Vec3 at{};};
 struct RaceArrowSurface {bool contact{};Vec3 at{},normal{};};
 struct RaceArrowAim {bool valid{},align_surface{};Vec3 at{};RaceArrowSurface surface;};
+class RaceArrowFloorAlignment {
+    bool flat{};
+public:
+    void reset() noexcept {flat=false;}
+    bool update(bool floor_contact,float forward_y,bool manual) noexcept {
+        // Engage only on a direct floor hit while looking down at least 45
+        // degrees; release at 30 degrees. No distant/downward ground search.
+        flat=!manual && floor_contact && std::isfinite(forward_y) &&
+            forward_y<=(flat?-.5f:-.70710678f);
+        return flat;
+    }
+};
 inline Vec3 arrow_add(const Vec3& a,const Vec3& b,float scale=1.f) noexcept {
     return {a[0]+b[0]*scale,a[1]+b[1]*scale,a[2]+b[2]*scale};
 }

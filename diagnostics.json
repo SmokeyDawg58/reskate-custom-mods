@@ -1,33 +1,63 @@
 {
   "result": "AUTOMATED_PASS_LIVE_PENDING",
-  "automated_tests": 91,
-  "runtime_files": {
+  "automated_tests": 92,
+  "base_game": "2.1.1",
+  "assets_version": "1.0.15",
+  "session_protocol": 52,
+  "mode_wire_version": 16,
+  "one_up_wire_version": 5,
+  "source_tree": "56bfd9a5a3ec65834b8bcd074d1e7c405ace0d4e",
+  "upstream_commit": "db99ed4d724dd77edd2abf62f3de0dbc5bb6717e",
+  "release_files": {
     "ReSkate.dll": {
-      "bytes": 30488576,
-      "sha256": "48632e6e8b4dbeb98ca3a8152a83cfbd5651753309617dfca292cee5b8f45d1f"
+      "bytes": 30663168,
+      "sha256": "3968083c57e2f8a33540c3e626da2357d30dc052aac7dca95be667f33891bc15"
     },
     "ReSkateLauncher.exe": {
-      "bytes": 5293056,
-      "sha256": "70a0f50f639a612239e62b5813f749519450da8ae88cea6f88d9445e1960f0aa"
+      "bytes": 5420032,
+      "sha256": "7bb3fd5e1e7d52fba30535472013fe5b05d5e549419694efba09a8eaaf9401e3"
+    },
+    "SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.15.zip": {
+      "bytes": 118592556,
+      "sha256": "0d1d7678d4e9be99042a0521dbb312d96ddc1469aced70f34640093f7a06cebb"
     }
   },
-  "base_game": "2.1.0",
-  "session_protocol": 52,
-  "assets_version": "1.0.7",
-  "incoming_commit": "20a816ff84bd34a0769a1fda293f170ad56cca5f",
-  "publication": "SOURCE_MAIN_ONLY",
-  "published": false,
-  "installed": false,
+  "release_tag": "v2.1.1-custom-20261019-deathrace-routes",
+  "published": true,
   "live_validation": "PENDING",
-  "release_tag": null,
-  "release_downloads": [
-    "ReSkate.dll",
-    "ReSkateLauncher.exe",
-    "SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.7.zip"
-  ],
-  "source_published": true,
-  "runtime_publication": "LOCAL_ONLY",
-  "incoming_release_tag": "v2.1.0-reskate-mode.1",
-  "source_tree": "37f3c1075346b360c8d9b9ea2f8e7358a03be99f",
+  "custom_map_offline_validation": "BOTH_IMPROVED_MAPS_CHEVRON_MESH_MATERIAL_TEXTURE_PIXELS_PASS",
+  "source_reconstruction": "PASS",
+  "native_asset_preservation": {
+    "result": "PASS",
+    "original_resources": 2190,
+    "updated_resources": 2190,
+    "unchanged_resources": 2188,
+    "original_metadata": "BYTE_IDENTICAL",
+    "changed_resources": [
+      [
+        1,
+        "World/ReSkate/Deathrace/FloatingArrow_AT"
+      ],
+      [
+        1,
+        "World/ReSkate/Deathrace/FloatingArrow_A"
+      ]
+    ],
+    "added_resources": []
+  },
+  "lossless_compaction": {
+    "result": "PASS",
+    "tocs": 12,
+    "bundles": 40,
+    "chunks": 309,
+    "references_verified": 15833,
+    "duplicate_stored_payloads_removed": 11223,
+    "old_cas_bytes": 497363466,
+    "new_cas_bytes": 190256034,
+    "saved_bytes": 307107432,
+    "all_encoded_payloads": "BYTE_IDENTICAL",
+    "archive_ownership": "UNCHANGED"
+  },
+  "menu_input_fix": "PHYSICAL_RELEASE_AFTER_DIALOG_TRANSITION",
   "release_cleanup": "CANCELLED_BY_OWNER"
 }

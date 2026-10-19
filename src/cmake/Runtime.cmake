@@ -63,6 +63,7 @@ add_library(dingosdk_runtime SHARED
     Extension/Throwdowns/one_up_native.cpp
     Extension/Throwdowns/challenge_registry.cpp
     Extension/Modes/game_modes.cpp
+    Extension/Modes/race_route_library.cpp
     Extension/Modes/race_world.cpp
     Extension/Modes/mode_rules.cpp
     Extension/Modes/console_commands.cpp

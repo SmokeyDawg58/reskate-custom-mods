@@ -4,6 +4,7 @@ static ULONGLONG placement_test_clock() { return test_now; }
 #define GetTickCount64 placement_test_clock
 #include "Extension/Throwdowns/one_up_placement.cpp"
 #undef GetTickCount64
+#include "Extension/Throwdowns/native_flag_cursor_height.h"
 static bool test_mode_active{};
 static unsigned race_handoffs{};
 static std::uint64_t race_world_seen{};
@@ -81,6 +82,19 @@ int main() {
     const auto check=[&](bool value) { ++count; if(!value) throw std::runtime_error("Flag bridge check "+std::to_string(count)); };
     const auto tick=[&] { ++test_now; tick_flag_placement(context); };
     try {
+        NativeFlagCursorHeight height;
+        check(height.apply(25.f)==NativeFlagCursorHeight::ceiling);
+        check(!height.apply(NativeFlagCursorHeight::ceiling));
+        check(height.restore(NativeFlagCursorHeight::ceiling)==25.f);
+        check(!height.restore(NativeFlagCursorHeight::ceiling));
+        check(height.apply(25.f).has_value() && height.apply(40.f).has_value());
+        check(height.restore(NativeFlagCursorHeight::ceiling)==40.f);
+        check(height.apply(25.f).has_value() && !height.restore(60.f));
+        check(!height.apply(-1.f) && !height.apply(100000.f));
+        check(!height.apply(std::numeric_limits<float>::quiet_NaN()));
+        check(height.apply(25.f).has_value());height={};
+        check(!height.restore(NativeFlagCursorHeight::ceiling)); // Retired manager.
+        check(!native_race_flag_cursor_active());
         // Captured native SpawnPoint: XYZ + 2.7408998 radians. The old
         // TeleportLocation-only reader lost this yaw and spawned at zero.
         const auto native_pose=native_spawn_transform({643.75787f,198.9449f,1082.6879f,2.7408998f});
@@ -109,6 +123,7 @@ int main() {
         check(!placement().flag_seen); // S.K.A.T.E. graphs cannot advance Spot Battle ownership.
         observe_flag_graph(0x9700be92);
         check(nav==native_name_hash("ThrowdownPlacement") && placement().flag_seen);
+        check(!native_race_flag_cursor_active()); // Native 1-Up keeps its own ceiling.
         nav=0; tick();
         observe_flag_position(100,{std::numeric_limits<float>::infinity(),8,9}); check(!placement().spawn);
         const Facing facing{0,0,-1,0,1,0,1,0,0};
@@ -264,10 +279,13 @@ int main() {
         current_mode_view.state->phase=dingosdk::modes::Phase::setup;current_mode_view.placing=true;
         check(!begin_race_flag_placement(current_view.world+1,12,1));
         check(begin_race_flag_placement(current_view.world,12,1) && race_flag_registration_owned());tick();nav=0;
+        check(!native_race_flag_cursor_active());
         observe_flag_created();observe_flag_graph(0x0f131312);tick();nav=0;
         observe_flag_graph(0x9700be92);tick();
+        check(native_race_flag_cursor_active());
         const auto one_up_handoffs=handed_off.size();
         observe_flag_position(1002,{7,8,9},&flag_transform);observe_flag_exit(false);tick();
+        check(!native_race_flag_cursor_active()); // Route building no longer borrows the picker.
         check(race_handoffs==1 && race_world_seen==current_view.world && race_game_seen==12 && race_pose_seen==std::array<float,3>{7,8,9} && std::abs(race_yaw_seen-90.f)<.01f);
         const auto race_destroy_before=destroyed.size();
         check(handed_off.size()==one_up_handoffs && owns_flag_registration(1002) && native_flag_mode_game()==12 && race_flag_registration_owned());
@@ -402,6 +420,7 @@ int main() {
         const auto flag_camera_release=released;
         const auto flag_camera_navigation_count=navigations.size();
         flag_registration_left();retire_unconfirmed_native_setup();
+        check(!native_race_flag_cursor_active()); // Cancel releases the movement override.
         check(race_flag_registration_owned() && placement().flag_seen && released==flag_camera_release);
         check(!begin_race_flag_placement(current_view.world,28,1,true));
         tick();check(nav==native_name_hash("ThrowdownerExit") && navigations.size()==flag_camera_navigation_count+1);
@@ -471,6 +490,7 @@ int main() {
             check(native_setup_active() && nav==0 && !placement().flag_seen);
             observe_flag_graph(1867583346U);observe_flag_graph(0x9700be92);tick();
             check(!native_setup_active() && placement().step==Step::placing && native_flag_mode_game()==game);
+            check(!native_race_flag_cursor_active()); // Stock-style mode pickers are unchanged.
             check(!native_flag_mode_waiting() && mode_handoffs==before_mode_handoff);
             check(!close_race_setup_for_start(game)); // Confirm is actual flag placement, not direct Start.
             const auto mmid=1100+static_cast<std::uint32_t>(mode);

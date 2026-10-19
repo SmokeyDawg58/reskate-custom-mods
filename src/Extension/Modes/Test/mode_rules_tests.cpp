@@ -2,6 +2,8 @@
 // the events players would send.
 #include "Extension/Modes/mode_rules.h"
 #include "Extension/Modes/race_route.h"
+#include "Extension/Modes/race_route_library.h"
+#include "Extension/Modes/race_route_json.h"
 #include "Extension/Modes/race_editor.h"
 #include "Extension/Modes/race_arrow_placement.h"
 #include "Extension/Modes/race_momentum.h"
@@ -21,6 +23,7 @@
 #include <string>
 
 using namespace dingosdk::modes;
+using dingosdk::Json;
 
 namespace {
 void check(bool condition, const std::string &what) {
@@ -237,23 +240,44 @@ void race_builder_flow() {
         const float rad=heading*3.14159265f/180.f;
         Settings course;course.mode=Mode::race;
         course.points={{10,2,30},{10,8,30},{10+50*std::sin(rad),2,30+50*std::cos(rad)}};
-        course.yaws={heading+180.f,0.f,heading};
+        course.yaws={heading+180.f,0.f,heading+180.f};
         RaceCourseMemory memory;memory.save("first-map",course);
         Settings other=course;other.yaws[0]=0;memory.save("second-map",other);
         auto loaded=*memory.restore("first-map");
-        loaded.yaws[0]=90; // Native flag re-placement on the saved map.
+        loaded.yaws[0]=heading; // Native flag re-placement on the saved map.
+        align_race_start(loaded);
         const auto aligned=race_spawn_transform(loaded.points[0],race_start_heading(loaded));
         check(std::abs(aligned[8]-std::sin(rad))<.0001f && std::abs(aligned[10]-std::cos(rad))<.0001f,
-            "Saved-route lineup faces the course despite flag re-placement and duplicate start points");
-        check(loaded.yaws[0]==90 && loaded.points==course.points,
+            "Saved-route lineup follows the replaced flag even when the course points behind it");
+        check(loaded.yaws[0]==heading && loaded.points==course.points,
             "Lineup does not rotate or discard saved gates");
+        for(unsigned count=1;count<=6;++count) {
+            Vec3 centre{};
+            for(unsigned i=0;i<count;++i) {
+                const auto at=race_start_position(loaded,float(i),float(count));
+                const auto dx=at[0]-loaded.points[0][0],dz=at[2]-loaded.points[0][2];
+                check(std::abs(dx*std::sin(rad)+dz*std::cos(rad)+1.5f)<.0001f && at[1]==2,
+                    "Every racer starts on the same row behind the flag at its height");
+                for(unsigned axis=0;axis<3;++axis)centre[axis]+=at[axis]/float(count);
+                if(i) {
+                    const auto previous=race_start_position(loaded,float(i-1),float(count));
+                    check(std::abs(std::hypot(at[0]-previous[0],at[2]-previous[2])-2.5f)<.0001f,
+                        "Sorted multiplayer slots remain evenly spaced without overlap");
+                }
+            }
+            check(std::abs(centre[0]-(10-1.5f*std::sin(rad)))<.0001f &&
+                  std::abs(centre[2]-(30-1.5f*std::cos(rad)))<.0001f,
+                "Solo and multiplayer rows stay centered behind the starting flag");
+        }
     }
     Settings s;s.mode=Mode::race;bool finish{};
     Settings restored;restored.mode=Mode::race;restored.points={{0,0,0},{0,0,50},{0,0,100}};
     restored.yaws={90,0,15};align_race_start(restored);
-    check(race_gate_crossing(restored,0,{0,0,-1.5f},{0,0,1.5f}).inside,
-        "A restored race's corrected spawn crosses its corrected start plane");
-    check(restored.yaws==std::vector<float>{0,0,15},"Start alignment preserves other gate rotations");
+    check(race_gate_crossing(restored,0,{-1.5f,0,0},{1.5f,0,0}).inside,
+        "The start plane retains the authored flag direction");
+    check(restored.yaws==std::vector<float>{90,0,15},"Start alignment preserves the flag and every gate rotation");
+    auto legacy=restored;legacy.yaws.clear();align_race_start(legacy);
+    check(legacy.yaws==std::vector<float>{0},"Legacy routes without flag facing retain their inferred course direction");
     const Vec3 start{0,0,0},gate{20,0,0},end{60,0,0},replacement{80,0,0};
     check(!edit_race_route(s,finish,RaceObject::checkpoint,gate,90,6),"cannot place a checkpoint before the flag");
     check(accept_race_flag(s,finish,start,90,6)==RaceFlagTransition::edit_route,"first native flag opens the route editor");
@@ -351,6 +375,16 @@ void race_clock_flow() {
     check(departed!=left.standings.end() && departed->out && departed->aux==1234,"departed racer timer freezes when leaving");
 }
 void race_arrow_surface_placement() {
+    RaceArrowFloorAlignment floor_align;
+    check(!floor_align.update(true,-.4f,false),"a shallow downward aim does not force an arrow flat");
+    check(floor_align.update(true,-.8f,false),"a deliberate downward aim onto the visible floor makes the arrow flat");
+    check(floor_align.update(true,-.6f,false),"small camera drift does not flicker a floor-mounted arrow");
+    check(!floor_align.update(true,-.45f,false),"looking back up releases gentle floor alignment");
+    check(!floor_align.update(false,-1.f,false),"looking down through clear air cannot attract an arrow onto distant ground");
+    check(!floor_align.update(true,-1.f,true),"manual rotation takes priority over automatic floor alignment");
+    check(floor_align.update(true,-.8f,false),"automatic floor alignment returns after manual orientation is reset");
+    floor_align.reset();
+    check(!floor_align.update(true,-.6f,false),"a different object does not inherit a previously captured floor angle");
     // Analytic collision fixtures exercise complete placements on walls,
     // floors, slopes and corners, independent of native physics availability.
     const auto plane=[](Vec3 point,Vec3 normal) {
@@ -477,6 +511,30 @@ void race_editor_rotation_history() {
     check(snapped_pose.yaw==0 && snapped_pose.pitch==0,"default90 snapping keeps an upright preview square despite small aiming changes");
     check(default_race_editor_width/6.f==1.25f && default_race_editor_snap_angle==4,
           "new race editor defaults are 125 percent and the 90-degree option");
+    Settings sides;sides.mode=Mode::race;sides.points={{0,0,0},{-10,12,0},{10,12,0}};
+    sides.gate_kinds={RaceGateKind::mandatory,RaceGateKind::arrow,RaceGateKind::arrow};sides.yaws={0,0,0};
+    for(const bool upright:{false,true}) {
+        line.reset();
+        snap=line.update(sides,{{-9,12,6},0,0,0},true,90,line_locked,upright);
+        check(line_locked && snap.at==Vec3{-10,12,6},"an older nearby arrow attracts the preview instead of only the most recently placed arrow");
+        snap=line.update(sides,{{9,12,6},0,0,0},true,90,line_locked,upright);
+        check(line_locked && snap.at==Vec3{10,12,6},"moving to the other side changes snap anchors without toggling Snap");
+        snap=line.update(sides,{{15,17,6},0,0,0},true,90,line_locked,upright);
+        check(!line_locked && snap.at==Vec3{15,17,6},"moving outside a narrow arrow rail releases its attraction");
+        sides.yaws[1]=180;line.reset();
+        snap=line.update(sides,{{-9,12,6},0,0,0},true,90,line_locked,upright);
+        check(line_locked && std::abs(snap.at[0]+10)<.001f && std::abs(snap.at[2]-6)<.001f && snap.yaw==180,
+              "nearby arrows on the opposite side can supply their own direction");
+        sides.yaws[1]=0;
+    }
+    Settings collinear=sides;collinear.points={{0,0,0},{-10,12,0},{10,12,0}};
+    line.reset();
+    snap=line.update(collinear,{{7,13,1},0,0,0},true,90,line_locked,true);
+    check(line_locked && snap.at==Vec3{7,12,0},"an upright collinear row starts without an aim offset");
+    snap=line.update(collinear,{{-7,13,1},0,0,0},true,90,line_locked,true);
+    check(line_locked && snap.at==Vec3{-7,12,0},"selecting an older collinear arrow does not rebase aim or jump the preview");
+    snap=line.update(collinear,{{7,13,1},0,0,0},true,90,line_locked,true);
+    check(line_locked && snap.at==Vec3{7,12,0},"returning to an existing collinear arrow preserves the actual aimed position");
     check(race_camera_yaw(30,0,false)==30 && race_camera_yaw(60,15,false)==75 && race_camera_yaw(30,0,true)==-150,
           "camera following returns for gates and front-facing chevrons with retained manual yaw offsets");
     check(race_camera_pitch(20,0,true)==0 && race_camera_pitch(50,0,true)==0 &&
@@ -1166,18 +1224,18 @@ void race_momentum_recovery_flow() {
     Settings draft;draft.mode=Mode::race;draft.race_finish=true;draft.points={{0,0,0},{0,0,10},{0,0,20}};
     check(!advertised_lobby_settings(draft,true).race_finish && advertised_lobby_settings(draft,false).race_finish && draft.race_finish,
         "unsaved routes withdraw their invitations, and saving publishes the finish without mutating the draft");
-    check(grace.observe(true,false,1000) && grace.waiting(2999) && !grace.ready(2999) && grace.ready(3000),
-        "a full bail always receives two complete seconds before recovery");
-    grace.observe(true,false,1800);check(grace.ready(3000),"repeated bail samples do not extend recovery indefinitely");
+    check(grace.observe(true,false,1000) && grace.waiting(1999) && !grace.ready(1999) && grace.ready(2000),
+        "a full bail returns after exactly one second");
+    grace.observe(true,false,1800);check(grace.ready(2000),"repeated bail samples do not extend recovery indefinitely");
     grace.reset();check(grace.observe(false,true,4000) && !grace.ready(4999) && grace.ready(5000),
         "accidental rolling board loss receives one complete second");
-    grace.observe(true,false,4500);check(!grace.ready(6499) && grace.ready(6500),"runout becoming a full bail gets the full two-second bail grace");
+    grace.observe(true,false,4500);check(!grace.ready(4999) && grace.ready(5000),"a stronger bail signal cannot restart the one-second recovery delay");
     Settings finish_route;finish_route.mode=Mode::race;finish_route.race_finish=true;finish_route.points={{0,0,0},{0,0,10},{0,0,20}};
     grace.reset();grace.observe(true,false,7000);
     const auto finish_cross=race_gate_crossing(finish_route,2,{0,1,19},{0,1,21});
-    check(grace.waiting(8999) && finish_cross.inside,"ragdoll movement can sweep through the finish during bail grace");
-    if(finish_cross.inside && grace.waiting(8999))grace.reset();
-    check(!grace.pending() && !grace.ready(9000),"a valid finish crossing cancels delayed recovery before it can teleport the winner");
+    check(grace.waiting(7999) && finish_cross.inside,"ragdoll movement can sweep through the finish during bail grace");
+    if(finish_cross.inside && grace.waiting(7999))grace.reset();
+    check(!grace.pending() && !grace.ready(8000),"a valid finish crossing cancels delayed recovery before it can teleport the winner");
     RagdollBailEdge fall;
     check(!fall.observe(true,false),"ordinary offboard walking/dismount is not a fall");
     check(fall.observe(true,true),"native ragdoll within offboard physics triggers a bail");
@@ -1205,6 +1263,14 @@ void race_momentum_recovery_flow() {
     check(momentum.before_bail(1800)==18.f && momentum.current(1800)==0.f,
         "late ragdoll confirmation retains approach motion without changing missed-gate freshness");
     check(momentum.before_bail(2200)==0.f && momentum.current(2200)==0.f,"stale samples never boost a later bail");
+    RaceMomentum board_only;
+    board_only.observe_onboard(true,24.f,1000);board_only.observe_onboard(true,23.f,1100);
+    board_only.observe_onboard(false,65.f,1150);board_only.observe_onboard(false,1.f,12000);
+    check(board_only.before_bail(12000)==24.f && board_only.current(12000)==24.f,"Late offboard recovery keeps pre-dismount board speed, ignoring offboard acceleration or braking");
+    board_only.observe_onboard(true,8.f,13000);
+    check(board_only.before_bail(13000)==8.f,"Genuine onboard control starts a new speed history");
+    board_only.suspend_until(14000);board_only.observe_onboard(false,119.f,13500);
+    check(board_only.before_bail(13500)==8.f,"Teleport measurements cannot overwrite trusted board momentum");
     RaceRecoverySpeedGuard speed_guard;
     check(speed_guard.limit(21.f,1000)==21.f,"first recovery uses measured approach speed");speed_guard.completed(1500);
     for(unsigned i=0;i<20;++i){const auto t=1600+100u*i;check(speed_guard.limit(110.f,t)<=21.f,"repeated recovery cannot amplify speed");speed_guard.completed(t);}
@@ -1223,7 +1289,15 @@ void race_momentum_recovery_flow() {
     delivery.accepted({1,0,0});check(delivery.peek(2600)==velocity,"an unrelated acknowledgement cannot consume pending recovery");
     delivery.accepted(velocity);check(!delivery.peek(2601),"success applies recovery once");
     delivery.request(velocity,3000);check(!delivery.peek(5000),"expired native restore cannot fire late");
-    delivery.request(velocity,6000);delivery.reset();check(!delivery.peek(6001),"match/world cleanup cancels recovery");
+    delivery.request(velocity,6000);for(std::uint64_t t=6100;t<20000;t+=100)delivery.wait_for_board(t);
+    check(delivery.peek(20000)==velocity,"Offboard recovery waits for the native board receiver without replacing speed from offboard telemetry");
+    delivery.reset();check(!delivery.peek(6001),"match/world cleanup cancels recovery");
+    check(delivery.peek(21000,true)==Vec3{} && !delivery.peek(21000,false),
+        "Only a pending race return holds the board still before a teleport completes");
+    delivery.request(velocity,22000);
+    check(delivery.peek(22001,true)==velocity,"Route-facing delivered speed takes priority over the return hold");
+    delivery.accepted(velocity);check(!delivery.peek(22002,false),"The hold ends as soon as the return completes");
+
 }
 void race_sound_and_announcements_flow() {
     RaceCountdownAudio audio;
@@ -1296,7 +1370,19 @@ void race_saved_course_and_recovery() {
     memory.save("map-a",*restored);
     check(!memory.restore("map-b"),"courses cannot leak to another map");
     route.points.clear();check(memory.restore("map-a")->points.size()==4,"match cleanup cannot mutate saved course");
-    const auto pose=race_recovery_pose(*restored,3);check(pose.at==Vec3{0,0,21.5f},"recovery skips optional guides and continues from last mandatory");
+    for(float yaw:{0.f,90.f,180.f,-90.f}) {
+        Settings back;back.mode=Mode::race;back.points={{10,4,20},{50,4,60}};back.yaws={yaw,yaw};
+        const auto p=race_checkpoint_pose(back,0);const float gate_angle=yaw*3.14159265f/180.f;
+        check(std::abs((p.at[0]-10)*std::sin(gate_angle)+(p.at[2]-20)*std::cos(gate_angle)+3.f)<.001f && p.at[1]==4 && p.yaw==yaw,
+            "Checkpoint returns have three metres of run-up behind the authored gate in every direction");
+    }
+    Settings turned;turned.mode=Mode::race;turned.points={{0,0,0},{100,0,20},{0,0,100}};
+    turned.gate_kinds={RaceGateKind::mandatory,RaceGateKind::arrow,RaceGateKind::mandatory};turned.yaws={0,90,0};
+    const auto facing=race_return_pose(turned,1,0,RaceGatePose{{0,0,50},180});
+    check(facing.at==Vec3{0,0,50} && facing.yaw==0 && race_recovery_motion(22,facing.yaw)==Vec3{0,0,22},
+        "Turning away before a fall cannot restore speed backwards or let an Arrow redirect the safe-position return");
+    check(race_return_pose(turned,2,0,std::nullopt).at==Vec3{0,0,-3},"Without a safe spot the return uses the gate run-up");
+    const auto pose=race_recovery_pose(*restored,3);check(pose.at==Vec3{0,0,17.f},"recovery skips guides and leaves three metres behind the last mandatory gate");
     check(race_gate_crossing(*restored,1,{0,19,19},{0,19,21}).inside,"enlarged gate accepts enlarged vertical trigger");
     restored->widths[1]=6;check(!race_gate_crossing(*restored,1,{0,19,19},{0,19,21}).inside,"default height excludes high bypass");
     auto snap=snap_race_gate(Settings{},Vec3{0,0,0},26,true,45);check(snap.yaw==45,"selected angle is used by preview and placement");
@@ -1319,6 +1405,33 @@ void race_saved_course_and_recovery() {
     presses.suppress();check(presses.update(8,6000)==0 && presses.update(8,9000)==0,"focus loss blocks held D-pad until release");
     presses.update(0,9001);check(presses.update(8,9002)==8,"focus reset rearms only after release");
     presses.update(0,9003);check(presses.update(3,9004)==3,"opposing direction steps cancel symmetrically");
+    RaceRotationOrigin original;
+    original.capture(173.25f,-35.f,90.f);
+    original.capture(-80.f,45.f,-170.f); // Leaving/reopening Rotate must not replace the baseline.
+    float reset_yaw=-80.f,reset_pitch=45.f,reset_roll=-170.f;
+    original.restore(reset_yaw,reset_pitch,reset_roll);
+    check(reset_yaw==173.25f && reset_pitch==-35.f && reset_roll==90.f,"L3 restores all original angles without changing position or size");
+    original.clear();original.capture(90,0,0);original.restore(reset_yaw,reset_pitch,reset_roll);
+    check(reset_yaw==90 && reset_pitch==0 && reset_roll==0,"another object starts with its own straight reset pose");
+    original.update_aim(-37,46,reset_yaw,reset_pitch);
+    check(reset_yaw==90 && reset_pitch==0,"camera movement after Rotate cannot turn or tilt the locked world pose");
+    original.update_aim(-37,-90,reset_yaw,reset_pitch,true);
+    check(reset_yaw==90 && reset_pitch==-90,"automatic Arrow floor tilt still works after Rotate while its world yaw stays fixed");
+    original.update_aim(-80,0,reset_yaw,reset_pitch,true);
+    check(reset_yaw==90 && reset_pitch==0,"looking back into open air restores an automatic Arrow upright without spinning it");
+    reset_pitch=25;original.update_aim(-80,-90,reset_yaw,reset_pitch,false);
+    check(reset_yaw==90 && reset_pitch==25,"explicit manual Arrow tilt is not replaced by camera or floor alignment");
+    original.clear();original.update_aim(-37,46,reset_yaw,reset_pitch);
+    check(reset_yaw==-37 && reset_pitch==46,"a fresh object can still use camera aim before its first rotation");
+    check(race_rotation_degrees(360.f)==0.f && !std::signbit(race_rotation_degrees(-.001f)) && race_rotation_degrees(365.f)==5.f,"rotation readout uses actual angles and no negative zero");
+    RaceEditorPresses rotation;
+    check(rotation.update(8,100,true)==8 && rotation.update(8,349,true)==0,"rotation taps respond immediately with a short hold delay");
+    check(rotation.update(8,350,true)==8 && rotation.update(8,429,true)==0 && rotation.update(8,430,true)==8,"rotation hold repeats at 80 ms");
+    check(rotation.update(8,1030,true)==8 && rotation.update(8,1079,true)==0 && rotation.update(8,1080,true)==8,"sustained rotation accelerates to 50 ms repeats");
+    check(rotation.update(8,5000,true)==8 && rotation.update(8,5001,true)==0,"rotation frame stall cannot create a catch-up burst");
+    rotation.update(0,5002,true);check(rotation.update(4,5003,true)==4,"opposite rotation starts with an immediate small tap");
+    check(rotate_race_gate(37,1,false,5)==42 && rotate_race_gate(37,-1,false,5)==32,"fixed manual rotation does not quantize to placement snapping");
+    check(tilt_race_gate(88,1,false,5)==90 && tilt_race_gate(-88,-1,false,5)==-90,"small manual tilt keeps valid pitch limits");
     alignment.points.push_back({0,0,20});alignment.yaws.push_back(0);alignment.widths.push_back(24);
     RaceClearHold hold;
     check(!hold.update(true,true,100) && !hold.update(true,true,1599),"tap cannot clear course");
@@ -1338,7 +1451,7 @@ void race_floating_arrow_flow() {
     check(race_start_heading(route)==0 && next_race_gate(route,1)==2 && mandatory_gates(route,route.points.size())==1,
           "floating arrow never redirects spawn or counts toward progress");
     check(!race_gate_missed(route,1,{100,30,-5},{100,30,5}),"missing an arrow cannot penalize a racer");
-    check(race_recovery_pose(route,2).at==Vec3{0,0,1.5f},"recovery skips a decorative arrow");
+    check(race_recovery_pose(route,2).at==Vec3{0,0,-3.f},"recovery skips a decorative arrow");
     check(edit_race_route(route,finish,RaceObject::arrow,{0,35,25},-45,9,30,-60) && route.gate_pitches[3]==-60,"aimed pitch is stored before the existing finish");
     Message pitched;pitched.kind=Message::Kind::setup;pitched.game=15;pitched.leader=1;pitched.settings=route;
     check(decode(encode(pitched))==pitched,"camera-aimed yaw, pitch, roll and size reach guests unchanged");
@@ -1425,20 +1538,206 @@ void deathrace_audit_regressions() {
     check(!race_later_gate_crossed(route,1,{0,0,14},{0,0,16}),"a decorative arrow is not proof of a skipped checkpoint");
     check(race_later_gate_crossed(route,1,{0,0,19},{0,0,21})==3,"crossing a later required gate detects the missing one");
     check(!race_later_gate_crossed(route,1,{0,0,21},{0,0,19}),"reverse crossings do not penalize");
-    check(race_later_gate_crossed(route,1,{0,0,29},{0,0,31})==4,"a finish crossed too early detects the missed gate");
+    check(!race_later_gate_crossed(route,1,{0,0,29},{0,0,31}) &&
+          !race_later_gate_crossed(route,3,{0,0,29},{0,0,31}),
+        "Finish crossings never trigger missed-gate recovery while Required gates remain");
+    Referee race(route,a,79);race.add_player(a);race.start(0);race.tick(countdown_ms);
+    race.event(a,Event::checkpoint,4,route.points.back(),1,countdown_ms+10);
+    check(race.phase()==Phase::playing && race.state(countdown_ms+10).standings.front().score==1 &&
+          !race.state(countdown_ms+10).standings.front().out,
+        "Early Finish does not advance, finish or eliminate the racer");
+    race.event(a,Event::checkpoint,1,route.points[1],2,countdown_ms+20);
+    race.event(a,Event::checkpoint,4,route.points.back(),3,countdown_ms+30);
+    check(race.state(countdown_ms+30).standings.front().score==3,
+        "Finish remains ignored with just the final Required gate outstanding");
+    race.event(a,Event::checkpoint,3,route.points[3],4,countdown_ms+40);
+    race.event(a,Event::checkpoint,4,route.points.back(),5,countdown_ms+50);
+    race.tick(countdown_ms+50);
+    check(race.phase()==Phase::results && race.state(countdown_ms+50).standings.front().aux==50,
+        "The same Finish becomes valid after all Required gates have been cleared in order");
     for(const unsigned offboard:{500u,504u,505u}) {
         RaceHippyJump jump;jump.observe(true,200,100,1.f,false,100);
         check(jump.observe(true,offboard,200,-.5f,false,125,true),"airborne board-to-offboard handoff recognizes a hippy without an upward sample");
         check(jump.active(130) && jump.observe(true,offboard,offboard,-4.f,false,400,true),"hippy descent remains eligible for gate progress");
         check(!jump.observe(true,300,offboard,-4.f,true,410,true) && !jump.active(411),"true native bail always wins over hippy immunity");
     }
-    check(race_placement_label(4)=="CHEVRON" && race_placement_label(2)=="FINISH GATE","object names match selected tool");
+    check(race_placement_label(4)=="ARROW" && race_placement_label(2)=="FINISH GATE","object names match selected tool");
     check(race_object_label_alpha(100,200)==0 && race_object_label_alpha(200,200)==0 && race_object_label_alpha(290,200)==.5f &&
         race_object_label_alpha(400,200)==1 && race_object_label_alpha(2350,200)==.5f && race_object_label_alpha(2500,200)==0,
         "placement label fades in, holds briefly and fades out without clock underflow");
 }
+void deathrace_lifecycle_followup() {
+    Settings route;route.mode=Mode::race;bool finish=false;RaceRouteHistory history;
+    check(edit_race_route(route,finish,RaceObject::start,{0,0,0},0,7.5f),"lifecycle start flag");
+    auto before=route;edit_race_route(route,finish,RaceObject::checkpoint,{0,0,20},0,8,0,30);history.changed(before,route);
+    before=route;edit_race_route(route,finish,RaceObject::finish,{0,0,40},0,9,0,-20);history.changed(before,route);
+    RaceRoutePublication publication;
+    check(!publication.accepting(route,false,false),"complete but unsaved route rejects a delayed Join");
+    check(publication.save(route) && publication.accepting(route,false,false),"Save opens the completed route to enrollment");
+    check(!publication.accepting(route,true,false) && !publication.accepting(route,false,true),
+        "both route editing and native flag placement reject stale Join requests");
+    publication.begin_edit();check(!publication.accepting(route,false,false),"closing an editor without Save never republishes a route");
+    // Both directions of history survive reopening and replacing the native flag.
+    check(history.undo(route,finish) && !finish,"undo Finish before reopening");
+    check(accept_race_flag(route,finish,{40,12,-8},65,10)==RaceFlagTransition::edit_route,"reopen with a moved native flag");
+    route.duration_s=300;route.turn_s=50;history.rebase_start(route);
+    check(history.redo(route,finish) && finish && route.spawn==Vec3{40,12,-8} && route.points.front()==route.spawn &&
+        route.yaws.front()==65 && route.widths.front()==10 && route.duration_s==300 && route.turn_s==50,
+        "Redo preserves the newly placed flag and current settings, while restoring Finish");
+    check(history.undo(route,finish) && history.undo(route,finish) && route.points.size()==1 && route.spawn==Vec3{40,12,-8},
+        "Undo back to just the start never revives the old flag position");
+    check(history.redo(route,finish) && route.gate_pitches.back()==30 && route.duration_s==300 &&
+        history.redo(route,finish) && finish && route.gate_pitches.back()==-20 && route.spawn==Vec3{40,12,-8},
+        "reopened history retains exact checkpoint/Finish tilts and both redo steps");
+    RaceRunoutWatch runout;
+    check(!runout.observe(true,7) && !runout.observe(false,7) && !runout.observe(true,7),
+        "one missing owner sample with unchanged native counters does not manufacture board loss");
+    check(runout.observe(false,8) && !runout.observe(true,8),"a real recorded runout survives a missing owner and fires exactly once");
+    RaceHippyJump jump;RaceRecoveryGrace grace;
+    jump.observe(true,200,100,1,false,100);grace.observe(false,true,110);
+    check(jump.observe(true,504,200,2,false,120,true),"recognize the hippy jump after a provisional runout");
+    grace.cancel_runout();check(!grace.pending(),"intentional takeoff cancels provisional board-loss recovery");
+    check(jump.observe(false,0,0,0,false,180) && jump.observe(true,504,504,-3,false,250,true),
+        "one missing sample does not interrupt hippy descent or checkpoint eligibility");
+    check(jump.observe(true,504,504,std::numeric_limits<float>::quiet_NaN(),false,260,true),
+        "one unreadable velocity keeps an already confirmed jump's existing deadline");
+    check(!jump.observe(false,0,0,0,false,5000),"missing telemetry never extends hippy immunity indefinitely");
+    grace.observe(true,false,6000);grace.cancel_runout();check(grace.waiting(6999) && grace.ready(7000),
+        "hippy filtering preserves a real bail's one-second grace");
+    check(!jump.observe(false,300,504,0,true,6100) && !jump.active(6101),"a trusted bail wins even during a missing telemetry sample");
+    RaceRotationVisual visual;visual.update({{},0,0,7.5f,179},1000);
+    const auto eased=visual.update({{},0,0,7.5f,-179},1016);
+    check(eased.roll>179 && eased.roll<181,"Chevron roll rings ease over the seam by the short path");
+    const auto settled=visual.update({{},0,0,7.5f,-179},1250);
+    check(std::abs(std::remainder(settled.roll+179,360.f))<.02f,"roll rings settle promptly at the authored angle");
+    const auto rolled=race_gate_axes(0,0,90);const auto plain=race_gate_axes(0,0);
+    check(std::abs(rolled.right[0])<.001f && rolled.right[1]>.999f && rolled.up[0]<-.999f &&
+        rolled.forward==plain.forward && plain.right==Vec3{1,0,0},
+        "Chevron ring axes follow roll while ordinary gate axes and forward direction remain intact");
+}
+void editor_polish_regressions() {
+    check(race_editor_object_name(1)=="Required gate" && race_editor_object_name(2)=="Finish gate" && race_editor_object_name(4)=="Arrow","full editor names distinguish gates from arrows");
+    check(race_default_roll_axis(4) && !race_default_roll_axis(1),"arrow X mode chooses pointing direction, ordinary gates keep tilt");
+    for(const auto [roll,vertical]:{std::pair{90.f,1.f},std::pair{-90.f,-1.f}}) {
+        const auto pose=race_arrow_transform({},0,roll,1.5f,0);
+        check(std::abs(pose[0])<.001f && std::abs(pose[1]-vertical)<.001f,"D-pad roll points the actual arrow up and down");
+    }
+    Settings route;route.mode=Mode::race;route.race_finish=true;
+    route.points={{0,0,0},{0,10,10},{0,10,15},{0,10,20},{0,10,30}};
+    route.gate_kinds={RaceGateKind::mandatory,RaceGateKind::mandatory,RaceGateKind::arrow,RaceGateKind::guiding,RaceGateKind::mandatory};route.widths={6,6,6,6,6};route.yaws={0,0,0,0,0};
+    check(race_editor_gate_number(route,0).empty() && race_editor_gate_number(route,1)=="GATE 1" && race_editor_gate_number(route,2).empty() && race_editor_gate_number(route,3)=="GUIDE" && race_editor_gate_number(route,4)=="FINISH 2","build labels number Required gates and Finish without counting arrows or guides");
+    const auto label=race_editor_gate_number_position(route,1);
+    check(label[1]>route.points[1][1]+6 && label[0]==0 && label[2]==10,"number stays above its gate");
+    for(unsigned state:{500u,504u,505u,600u,699u})check(race_offboard_progress(true,state),"on-foot and offboard tricks can clear gates");
+    check(!race_offboard_progress(false,504) && !race_offboard_progress(true,300) && !race_offboard_progress(true,700),"missing poses, ragdolls and teleports cannot sweep gates as walking");
+    RaceHippyJump jump;jump.input(true,true,100);
+    check(jump.taking_off(120) && jump.observe(true,504,100,0,false,140),"intentional hippy input survives a missed upward telemetry sample");
+    check(jump.observe(true,100,504,0,false,650) && jump.active(1300),"late landing animation pulses do not reset a completed hippy");
+    jump.input(true,true,1000);check(!jump.active(1500),"holding the chord does not rearm immunity");
+    jump.input(false,true,1600);jump.input(true,true,1610);
+    check(jump.observe(true,504,100,0,false,1620) && !jump.observe(true,300,504,0,true,1630),"a genuine native wipeout wins even after deliberate hippy input");
+    RaceOffboardRagdoll ragdoll;
+    check(!ragdoll.observe(true,true,100) && !ragdoll.observe(true,false,180) && !ragdoll.observe(true,true,300) && !ragdoll.observe(true,true,549) && ragdoll.observe(true,true,550) && !ragdoll.observe(true,true,800),"only a sustained offboard ragdoll produces one real bail edge");
+    // The 504 animation flag can remain set for the entire jump. It is a
+    // secondary signal, never the hard-bail input that clears jump tracking.
+    RaceHippyJump long_jump;RaceOffboardRagdoll animation;RaceRecoveryGrace recovery;
+    long_jump.observe(true,200,100,2.f,false,2000);
+    check(long_jump.observe(true,504,200,3.f,false,2010,true),"normal airborne takeoff identifies a hippy without a controller chord");
+    for(std::uint64_t now=2010;now<=3510;now+=100) {
+        const bool secondary=animation.observe(true,true,now);
+        const bool jumping=long_jump.observe(true,now<2810?504u:604u,504,-2.f,false,now,true);
+        if(jumping)animation.reset();
+        if(secondary && !jumping)recovery.observe(true,false,now);
+        check(jumping && !recovery.pending(),"long 504/604 hippy animation cannot turn its own flag into hard-bail recovery");
+    }
+    check(long_jump.observe(true,100,604,0,false,3600) && long_jump.active(4200),"hippy landing remains protected after an offboard trick state");
+    check(!long_jump.observe(true,300,100,0,true,4210),"actual native wipeout still overrides hippy landing protection");
+}
+void race_last_safe_return_flow() {
+    RaceLastSafeSpot safe;
+    check(!safe.pose(),"A new race cannot inherit another match's recovery position");
+    for(unsigned now=100;now<=1100;now+=50)safe.observe(true,{float(now),12,8},35,now);
+    check(safe.pose() && safe.pose()->at==Vec3{850,12,8} && safe.pose()->yaw==35,
+        "A long gap between gates retains the recent grounded spot and its actual facing");
+    safe.observe(false,{1200,-30,8},90,1150);
+    safe.observe(false,{1250,-80,8},90,1600);
+    check(safe.pose()->at==Vec3{850,12,8},"Airborne, bail and rollout samples cannot replace a safe approach spot");
+    safe.observe(true,{1300,-80,8},90,1700);safe.observe(false,{1350,-80,8},90,1750);
+    safe.observe(true,{1400,-80,8},90,2000);
+    check(safe.pose()->at==Vec3{850,12,8},"A brief grounded pulse during recovery does not replace the previous safe position");
+    safe.observe(true,{1450,22,8},-45,2250);
+    check(safe.pose()->at==Vec3{1400,-80,8},"Sustained grounded walking or skating may establish a new safe position");
+    safe.observe(true,{std::numeric_limits<float>::quiet_NaN(),0,0},0,2300);
+    check(safe.pose()->at==Vec3{1400,-80,8},"Invalid telemetry cannot corrupt a saved safe position");
+    safe.reset();check(!safe.pose(),"D-pad Up and missed-Required recovery discard spots ahead of the gate return");
+    safe.observe(true,{5,0,0},0,10);safe.observe(true,{6,0,0},0,260);
+    safe.observe(true,{7,0,0},0,100);
+    check(!safe.pose(),"A restarted clock cannot reuse a future recovery pose");
+}
+void named_race_route_flow() {
+    Settings route;route.mode=Mode::race;bool finish{};
+    edit_race_route(route,finish,RaceObject::start,{1,12,4},75,6);
+    edit_race_route(route,finish,RaceObject::checkpoint,{8,20,80},-25,9,0,20);
+    edit_race_route(route,finish,RaceObject::arrow,{12,24,100},35,5,60,-45);
+    edit_race_route(route,finish,RaceObject::finish,{20,12,200},0,8);
+    route.duration_s=600;
+    NamedRaceRoute named{1,"Rooftop run","skate3improved",route};
+    const auto bytes=encode_named_race(named);const auto loaded=decode_named_race(bytes);
+    check(loaded && loaded->name==named.name && loaded->map==named.map && loaded->settings==route,
+        "Named save retains map, all gates, Arrow poses, start facing and selected duration");
+    auto damaged=bytes;damaged.pop_back();check(!decode_named_race(damaged),"Truncated save is rejected without loading partial gates");
+    damaged=bytes;damaged.push_back(0);check(!decode_named_race(damaged),"Extra bytes cannot change a route silently");
+    damaged=bytes;damaged[7]=2;check(!decode_named_race(damaged),"Unsupported route versions cannot restore an incompatible world");
+    damaged=bytes;damaged[8]=255;check(!decode_named_race(damaged),"Unbounded route name length is rejected");
+    check(race_route_name("  Hill run  ")=="Hill run" && race_route_name("   ").empty() &&
+          race_route_name(std::string(65,'a')).empty() && race_route_name("bad\nname").empty(),
+        "Saved names are nonempty, trimmed, bounded and single line");
+    RaceRouteMenuPress button;
+    check(button.update(true,true,100)==RaceRouteMenuAction::none && button.update(false,true,200)==RaceRouteMenuAction::save,
+        "A short Start press opens Save Route only on release");
+    check(button.update(true,true,300)==RaceRouteMenuAction::none && button.update(true,true,1050)==RaceRouteMenuAction::none && button.progress==.5f,
+        "Load uses the same one-and-a-half-second hold progress as Clear");
+    check(button.update(true,true,1800)==RaceRouteMenuAction::load && button.update(true,true,2000)==RaceRouteMenuAction::none &&
+          button.update(false,true,2100)==RaceRouteMenuAction::none,"A load hold fires once and never opens Save on release");
+    button.update(true,true,2200);button.update(true,false,2300);
+    check(button.update(false,true,2400)==RaceRouteMenuAction::none,"Focus loss cancels the hold without loading a route");
+    const auto json=encode_named_race_json(named);const auto json_route=decode_named_race_json(json);
+    check(json_route && json_route->id==1 && json_route->name==named.name && json_route->settings==route,"Readable JSON preserves every route setting and Arrow pose");
+    check(json.find("Rooftop run")!=std::string::npos && json.find("arrow_roll_degrees")!=std::string::npos && json.find("\n")!=std::string::npos,"Saved JSON is readable and indented, without opaque payloads");
+    auto invalid=Json::parse(json);invalid["settings"]["gate_types"][std::size_t(1)]="unknown";
+    check(!decode_named_race_json(invalid.dump()),"Unknown JSON object types cannot reach native rendering");
+    invalid=Json::parse(json);invalid["settings"]["points"][std::size_t(1)][std::size_t(0)]=1e50;
+    check(!decode_named_race_json(invalid.dump()) && !decode_named_race_json("{}"),"Malformed or out-of-range JSON cannot load a partial route");
+    RaceEditorInputRelease release;release.arm();
+    check(release.blocked(0x1000,false) && release.blocked(0x1000,false),"A used by Load remains consumed while held");
+    check(release.blocked(0,false) && !release.blocked(0x1000,false),"A places objects only after release and a new press");
+    release.arm();check(release.blocked(0,true) && release.blocked(0,false) && !release.blocked(0,true),"Keyboard/menu click releases cannot leak into builder placement");
+    // A hidden gameplay sample must never release the latch while ImGui owns
+    // input, including the tick after an action closes the route dialog.
+    for(unsigned action:{0x1000u,0x2000u,0x10u}) {
+        release.arm();
+        check(release.blocked(0,false,true) && release.blocked(0,false,true),"Masked menu samples cannot release placement lock");
+        check(release.blocked(action,false) && release.blocked(action,false),"Physical Save/Load/Cancel button remains blocked after menu closes");
+        check(release.blocked(0,false) && !release.blocked(action,false),"Only a new press after physical release can place again");
+    }
+    release.arm();
+    check(release.blocked(0,true,true) && release.blocked(0,true) && release.blocked(0,false) && !release.blocked(0,true),
+        "Keyboard Enter and mouse confirmation stay consumed across the route dialog transition");
+    RaceRecoveryGrace bail;bail.observe(true,false,100);
+    check(!bail.ready(1099) && bail.ready(1100),"A genuine unrecovered bail still returns to the latest safe position");
+    for(unsigned physics:{100u,200u,500u,504u,604u}) {
+        check(race_recovered_control(true,physics,true,false),"Recovered board/air/offboard poses cancel automatic bail recovery");
+        bail.observe(true,false,3000);
+        if(race_recovered_control(true,physics,true,false))bail.reset();
+        check(!bail.ready(60000),"Controlled spread/rolling/offboard movement has no delayed automatic reset");
+    }
+    check(!race_recovered_control(true,300,true,true) && !race_recovered_control(true,504,true,true) &&
+          !race_recovered_control(false,504,true,false) && !race_recovered_control(true,700,true,false),
+        "A real ragdoll, missing sample or native reset is not mistaken for a recovery");
+}
 int main() {
     try {
+        editor_polish_regressions();
         area_flow();
         lobby_enrollment_flow();
         placement_camera_flow();
@@ -1448,11 +1747,14 @@ int main() {
         one_up_flow();
         race_flow();
         deathrace_audit_regressions();
+        deathrace_lifecycle_followup();
         race_builder_flow();
         race_floating_arrow_flow();
         race_checkpoint_back_flow();
         race_saved_course_and_recovery();
         race_momentum_recovery_flow();
+        race_last_safe_return_flow();
+        named_race_route_flow();
         race_sound_and_announcements_flow();
         race_clock_flow();
         race_editor_rotation_history();

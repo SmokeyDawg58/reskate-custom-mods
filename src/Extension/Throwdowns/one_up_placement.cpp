@@ -161,6 +161,11 @@ bool native_flag_mode_waiting() noexcept {
     auto& p=placement();std::lock_guard lock(p.mutex);
     return p.race_game && p.step==Step::waiting && p.handed_off && p.spawn && p.mmid;
 }
+bool native_race_flag_cursor_active() noexcept {
+    auto& p=placement();std::lock_guard lock(p.mutex);
+    return p.race_game && !p.generic_mode && p.flag_seen && !p.cancelling && !p.spawn &&
+        (p.step==Step::flag || p.step==Step::placing);
+}
 std::uint32_t native_setup_race_game() noexcept {
     auto& p=placement();std::lock_guard lock(p.mutex);
     return !p.generic_mode && p.show_setup && (p.step==Step::open || p.step==Step::setup)?p.race_game:0;

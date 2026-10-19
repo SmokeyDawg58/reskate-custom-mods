@@ -1,5 +1,9 @@
 # Changes
 
+## 19 October 2026 - ReSkate 2.1.1, original Chevron and JSON routes
+
+Restore the original Chevron and retain its missing texture on custom-map cores. Block route-menu input until physical release. Publish accumulated route JSON sharing, pencil/folder navigation, Mods save migration, one-second recovery, editor/rotation and presentation work, plus lossless asset compaction. Preserve R.E.S.K.A.T.E. and enroll-once/host-Start. All 92 checks and both offline Improved-map audits pass; live checks remain pending. [Full detailed notes](docs/RELEASE_NOTES_20261019_211_DEATHRACE_ROUTES.md). Three player downloads; historical releases retained.
+
 ## 18 October 2026 — reskate-mode.1 source merge
 
 Merge the latest branch into current main: two-part trick limit and lifted custom-map fallback zone bolts. Deathrace, enrollment and native/audio assets stay unchanged; 91 checks pass. Runtime staged locally, releases untouched. See [merge notes](docs/RELEASE_NOTES_20261018_RESKATE_MODE1_MERGE.md).

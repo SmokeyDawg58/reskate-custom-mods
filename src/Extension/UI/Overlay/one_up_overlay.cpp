@@ -13,6 +13,7 @@
 namespace dingosdk::overlay {
 namespace {
 #include "race_rotation_gizmo.inl"
+#include "race_editor_numbers.inl"
 using namespace multiplayer::one_up;
 std::string score_text(double score) { char text[48]{}; std::snprintf(text, sizeof(text), "%.0f", score); return text; }
 const char* phase_text(Phase phase) {
@@ -46,7 +47,7 @@ void roster(const View& v, bool compact) {
 }
 namespace detail {
 bool one_up_pending() {
-    if(race_rotation_visible())return true;
+    if(race_rotation_visible() || race_editor_numbers_visible())return true;
     const auto v = multiplayer::one_up::view();
     if (!v.state.match || v.state.phase == Phase::lobby || multiplayer::native_one_up_setup_open()) return false;
     // A completed practice must not leave a permanent panel over free skating.
@@ -58,6 +59,7 @@ bool one_up_pending() {
 }
 void draw_one_up() {
     draw_race_rotation();
+    draw_race_editor_numbers();
     // The game owns all 1-Up gameplay counters, timers and countdowns.
     // Clearing the legacy feed also removes any panel drawn on the last frame.
     draw_one_up_hud({});

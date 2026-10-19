@@ -1,0 +1,18 @@
+{
+  "result": "PASS",
+  "original_resources": 2190,
+  "updated_resources": 2190,
+  "unchanged_resources": 2188,
+  "original_metadata": "BYTE_IDENTICAL",
+  "changed_resources": [
+    [
+      1,
+      "World/ReSkate/Deathrace/FloatingArrow_AT"
+    ],
+    [
+      1,
+      "World/ReSkate/Deathrace/FloatingArrow_A"
+    ]
+  ],
+  "added_resources": []
+}

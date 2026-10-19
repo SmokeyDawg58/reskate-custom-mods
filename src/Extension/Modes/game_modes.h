@@ -56,6 +56,9 @@ struct OwnUiWrites {
 bool flick_test() noexcept;
 // What the ReSkate menu's Game Modes page shows (any thread).
 overlay::ModesMenu menu_view();
+struct SavedRaceRouteSummary {
+    std::uint64_t id{};std::string name,map;unsigned required{},objects{};
+};
 struct NativeView {
     bool active{}, leading{}, placing{};
     bool pending_flag{}, flag_placed{}, waiting{};
@@ -66,7 +69,9 @@ struct NativeView {
     bool route_finish{},cursor_valid{};
     unsigned route_object=1;
     bool route_snap=true,exit_confirm{},recovering{},rotating{},arrow_height_snapped{};
-    float snap_degrees=15.f,clear_progress{};
+    float snap_degrees=15.f,clear_progress{},save_progress{};
+    unsigned route_dialog{};std::uint64_t route_dialog_serial{};
+    std::string route_dialog_error,route_map,route_name;std::vector<SavedRaceRouteSummary> saved_routes;
     unsigned missed_gate{};
     Vec3 cursor{};
     float cursor_yaw{},cursor_width=6.f,cursor_roll{},cursor_pitch{};
@@ -79,6 +84,7 @@ struct NativeView {
     std::vector<std::pair<std::uint64_t,std::string>> names;
 };
 NativeView native_view();
+bool request_race_route_action(std::uint64_t world,std::uint32_t game,std::string action,std::string argument);
 struct NativeFlagOffer {
     std::uint64_t leader{};
     std::uint32_t game{};
@@ -108,6 +114,7 @@ void accept_race_recovery_velocity(const Vec3&) noexcept;
 bool internal_teleport() noexcept;
 bool countdown_locks_input() noexcept;
 bool race_recovery_pending() noexcept;
+bool race_countdown_holds() noexcept;
 bool placement_camera_requested() noexcept;
 bool restricts_session_markers() noexcept;
 } // namespace dingosdk::modes

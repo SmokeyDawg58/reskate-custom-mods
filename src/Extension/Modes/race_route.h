@@ -3,15 +3,15 @@
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <deque>
 #include <string>
 #include <optional>
 
 namespace dingosdk::modes {
 enum class RaceObject : unsigned { start, checkpoint, finish, guiding, arrow };
 inline constexpr RaceObject cycle_race_object(RaceObject object, bool previous) noexcept {
-    if(object==RaceObject::start)return RaceObject::checkpoint;
     const auto n=static_cast<unsigned>(object);
-    return static_cast<RaceObject>(previous?(n==1?4:n-1):(n==4?1:n+1));
+    return static_cast<RaceObject>(previous?(n<=1?4:n-1):(n>=4?1:n+1));
 }
 inline std::array<float,16> race_spawn_transform(const Vec3& at, float heading) noexcept {
     const float yaw=heading*3.14159265f/180.f, co=std::cos(yaw), si=std::sin(yaw);
@@ -39,22 +39,30 @@ inline std::array<float,16> race_arrow_layer_transform(const Vec3& at,float head
     }
     return pose;
 }
-// Restoring a saved route replaces the native flag's facing, but its existing
-// gates still define the race direction. Spawn facing the first distinct point
-// down that course; retain the authored facing only for an incomplete route.
+// The placed starting flag owns the lineup direction, including on a saved
+// course. Only legacy routes without an authored facing infer it from a gate.
 inline float race_start_heading(const Settings& route) noexcept {
+    if(!route.yaws.empty() && std::isfinite(route.yaws.front()))return route.yaws.front();
     if(!route.points.empty())for(std::size_t i=1;i<route.points.size();++i) {
         if(guiding_gate(route,i))continue;
         const float x=route.points[i][0]-route.points[0][0],z=route.points[i][2]-route.points[0][2];
         if(std::hypot(x,z)>.1f)return std::atan2(x,z)*180.f/3.14159265f;
     }
-    return route.yaws.empty()?0.f:route.yaws.front();
+    return 0.f;
 }
 inline void align_race_start(Settings& route) {
     if(route.mode!=Mode::race || route.points.size()<2)return;
     const auto heading=race_start_heading(route);
     if(route.yaws.empty())route.yaws.resize(1);
     route.yaws[0]=heading;
+}
+// A centered row perpendicular to the flag, with everyone behind its plane.
+inline Vec3 race_start_position(const Settings& route,float index,float count) noexcept {
+    if(route.points.empty())return route.spawn;
+    const auto& start=route.points.front();
+    const float yaw=race_start_heading(route)*3.14159265f/180.f,dx=std::sin(yaw),dz=std::cos(yaw);
+    const float across=(index-(count-1.f)*.5f)*2.5f;
+    return {start[0]-dz*across-dx*1.5f,start[1],start[2]+dx*across-dz*1.5f};
 }
 // A course belongs to a map, independently of any lobby, player or match.
 class RaceCourseMemory {
@@ -82,6 +90,19 @@ struct RaceClearHold {
         fired=true;return true;
     }
 };
+enum class RaceRouteMenuAction {none,load,save};
+class RaceRouteMenuPress {
+    RaceClearHold hold_;bool previous{},fired{};
+public:
+    float progress{};
+    RaceRouteMenuAction update(bool down,bool focused,std::uint64_t now) noexcept {
+        if(!focused) {hold_={};previous=fired=false;progress=0;return RaceRouteMenuAction::none;}
+        const bool complete=hold_.update(down,true,now);progress=hold_.progress;
+        const bool tap=previous && !down && !fired;
+        previous=down;if(complete)fired=true;else if(!down)fired=false;
+        return complete?RaceRouteMenuAction::load:tap?RaceRouteMenuAction::save:RaceRouteMenuAction::none;
+    }
+};
 inline void clear_race_gates(Settings& route,bool& finish) {
     // Retain the native start flag while clearing all checkpoints and finish.
     const auto keep=std::min<std::size_t>(1,route.points.size());
@@ -93,8 +114,8 @@ inline float race_gate_pitch(const Settings& settings,std::size_t index) noexcep
     return index<settings.gate_pitches.size()?settings.gate_pitches[index]:0.f;
 }
 struct RaceGateAxes {Vec3 right,up,forward;};
-inline RaceGateAxes race_gate_axes(float yaw,float pitch) noexcept {
-    const auto matrix=race_arrow_transform({},yaw,0.f,1.5f,pitch);
+inline RaceGateAxes race_gate_axes(float yaw,float pitch,float roll=0.f) noexcept {
+    const auto matrix=race_arrow_transform({},yaw,roll,1.5f,pitch);
     return {{matrix[0],matrix[1],matrix[2]},{matrix[4],matrix[5],matrix[6]},{matrix[8],matrix[9],matrix[10]}};
 }
 inline float race_gate_dot(const Vec3& p,const Vec3& origin,const Vec3& axis) noexcept {
@@ -145,21 +166,42 @@ inline float size_race_gate(float width,int direction) noexcept {
 }
 struct RaceEditorPresses {
     unsigned previous{}, blocked{};
-    std::array<std::uint64_t,4> next{};
-    void suppress(unsigned held=15) noexcept {blocked=held;previous=0;next={};}
-    unsigned update(unsigned held,std::uint64_t now) noexcept {
+    std::array<std::uint64_t,4> next{},started{};
+    void suppress(unsigned held=15) noexcept {blocked=held;previous=0;next={};started={};}
+    unsigned update(unsigned held,std::uint64_t now,bool rotating=false) noexcept {
         blocked&=held;held&=~blocked;
         unsigned pressed{};
         for(unsigned i=0;i<4;++i) {
             const auto bit=1u<<i;
-            if(!(held&bit)){next[i]=0;continue;}
-            if(!(previous&bit)){pressed|=bit;next[i]=now+350;}
-            else if(now>=next[i]){pressed|=bit;next[i]=now+150;}
+            if(!(held&bit)){next[i]=started[i]=0;continue;}
+            if(!(previous&bit)){pressed|=bit;started[i]=now;next[i]=now+(rotating?250:350);}
+            else if(now>=next[i]) {
+                pressed|=bit;
+                const auto interval=rotating?(now-started[i]>=900?50u:80u):150u;
+                next[i]=now+interval; // Never replay missed repeats after a frame stall.
+            }
         }
         previous=held;return pressed;
     }
 };
 struct RaceGatePose { Vec3 at{}; float yaw{}; };
+// Keep a short trail of confirmed grounded poses. A brief landing, collision,
+// air sample or ragdoll cannot replace the last settled position before a fall.
+class RaceLastSafeSpot {
+    std::deque<std::pair<std::uint64_t,RaceGatePose>> trail;
+    std::optional<RaceGatePose> saved;
+public:
+    void reset() noexcept {trail.clear();saved.reset();}
+    std::optional<RaceGatePose> pose() const noexcept {return saved;}
+    void observe(bool safe,const Vec3& at,float yaw,std::uint64_t now) {
+        if(!safe || !std::isfinite(yaw) || !std::all_of(at.begin(),at.end(),[](float v){return std::isfinite(v);})) {
+            trail.clear();return;
+        }
+        if(!trail.empty() && now<trail.back().first) {reset();}
+        while(!trail.empty() && now-trail.front().first>=250) {saved=trail.front().second;trail.pop_front();}
+        if(trail.empty() || now-trail.back().first>=50)trail.emplace_back(now,RaceGatePose{at,yaw});
+    }
+};
 inline std::size_t previous_required_checkpoint(const Settings& route,std::size_t before) noexcept {
     if(route.points.empty())return 0;
     auto index=std::min(before,route.points.size()-1);
@@ -221,10 +263,24 @@ inline RaceGatePose race_checkpoint_pose(const Settings& route,std::size_t check
     const auto last=std::min(checkpoint,route.points.size()-1);
     RaceGatePose pose{route.points[last],last<route.yaws.size()?route.yaws[last]:0.f};
     const auto yaw=pose.yaw*3.14159265f/180.f;
-    // Continue just beyond the cleared gate; do not count the recovery teleport
-    // as crossing the next required gate.
-    pose.at[0]+=std::sin(yaw)*1.5f;pose.at[2]+=std::cos(yaw)*1.5f;
+    // Leave room to regain control before skating through the gate again.
+    // Progress remains cleared; the teleport is never a gate crossing.
+    pose.at[0]-=std::sin(yaw)*3.f;pose.at[2]-=std::cos(yaw)*3.f;
     return pose;
+}
+inline RaceGatePose race_return_pose(const Settings& route,std::size_t next,std::size_t checkpoint,
+                                    std::optional<RaceGatePose> safe) noexcept {
+    if(!safe)return race_checkpoint_pose(route,checkpoint);
+    // A safe position remains useful even if the rider had turned around.
+    // Carry their onboard speed towards the next required gate, not their
+    // pre-fall facing. Decorative objects cannot redirect the recovery.
+    for(auto i=next;i<route.points.size();++i)if(!guiding_gate(route,i)) {
+        const float dx=route.points[i][0]-safe->at[0],dz=route.points[i][2]-safe->at[2];
+        if(std::hypot(dx,dz)>.1f)safe->yaw=std::atan2(dx,dz)*180.f/3.14159265f;
+        else if(i<route.yaws.size())safe->yaw=route.yaws[i];
+        break;
+    }
+    return *safe;
 }
 inline RaceGatePose race_recovery_pose(const Settings& route,std::size_t missed) noexcept {
     return race_checkpoint_pose(route,previous_required_checkpoint(route,missed));
@@ -291,16 +347,22 @@ public:
     void begin_edit() noexcept {saved_.reset();}
     bool save(const Settings& route) {if(!race_route_ready(route,route.race_finish))return false;saved_=route;return true;}
     bool ready(const Settings& route) const noexcept {return saved_ && same_race_shape(*saved_,route) && race_route_ready(route,route.race_finish);}
+    // Native flag placement is a separate editor phase. A stale Join must not
+    // enroll a guest while that picker is open, even when old geometry is valid.
+    bool accepting(const Settings& route,bool editing,bool flag_pending) const noexcept {
+        return !editing && !flag_pending && ready(route);
+    }
 };
 inline bool race_gate_visible(const Settings& route,std::size_t index,std::size_t from,bool playing) noexcept {
     return !playing || arrow_marker(route,index) || index>=from;
 }
-// Missing a gate's posts never teleports. Only a later real Required/Finish
-// crossing proves that the player has continued past the missed checkpoint.
+// Missing a gate's posts never teleports. A later Required gate proves a
+// skipped checkpoint; the Finish is ignored until every Required gate is clear.
 inline std::optional<std::size_t> race_later_gate_crossed(const Settings& route,std::size_t expected,
         const Vec3& before,const Vec3& after) noexcept {
     if(expected==0 || expected>=route.points.size())return {};
-    for(auto i=expected+1;i<route.points.size();++i)
+    const auto end=route.points.size()-(route.race_finish?1u:0u);
+    for(auto i=expected+1;i<end;++i)
         if(!guiding_gate(route,i) && race_gate_along(route,i,after)>race_gate_along(route,i,before) &&
             race_gate_crossing(route,i,before,after).inside)return i;
     return {};

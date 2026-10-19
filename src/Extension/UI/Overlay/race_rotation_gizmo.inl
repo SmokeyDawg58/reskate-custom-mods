@@ -11,10 +11,10 @@ void draw_race_rotation() {
     if(!race_rotation_visible()){visual.reset();return;}
     const auto view=modes::native_view();const auto frame=modes::hud();
     if(world!=view.world || game!=view.game || object!=view.route_object){visual.reset();world=view.world;game=view.game;object=view.route_object;}
-    const auto pose=visual.update({view.cursor,view.cursor_yaw,view.cursor_pitch,view.cursor_width},GetTickCount64());
+    const auto pose=visual.update({view.cursor,view.cursor_yaw,view.cursor_pitch,view.cursor_width,view.route_object==4?view.cursor_roll:0.f},GetTickCount64());
     if(!(frame.vertical_fov>1.f && frame.vertical_fov<175.f))return;
     const auto display=ImGui::GetIO().DisplaySize;if(display.x<=0 || display.y<=0)return;
-    const auto axes=modes::race_gate_axes(pose.yaw,pose.pitch);
+    const auto axes=modes::race_gate_axes(pose.yaw,pose.pitch,pose.roll);
     auto center=pose.at;
     if(view.route_object!=4)for(unsigned axis=0;axis<3;++axis)center[axis]+=axes.up[axis]*1.70747f*pose.width/6.f;
     const float focal=display.y/(2.f*std::tan(frame.vertical_fov*3.14159265f/360.f));

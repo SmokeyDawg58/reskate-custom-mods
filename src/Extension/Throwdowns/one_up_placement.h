@@ -5,6 +5,7 @@
 
 namespace dingosdk::multiplayer::menu_data { class Context; }
 namespace dingosdk::multiplayer::one_up {
+bool native_race_flag_cursor_active() noexcept;
 // Only owns a native Throwdown created by this request. Ordinary Spot Battle
 // placement, navigation and network events never enter this adapter.
 bool begin_flag_placement(unsigned seconds, unsigned players, bool show_native_setup=false);

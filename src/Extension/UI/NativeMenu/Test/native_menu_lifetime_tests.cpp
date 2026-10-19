@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <array>
 #include <map>
+#include <set>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -1465,7 +1466,7 @@ void exclusive_start_release() {
 }
 void stable_hud_surface_presenters() {
     using namespace dingosdk::multiplayer::menu_data;
-    check(custom_hud_slot_order.size()==78 && custom_hud_slot_order.back()==0x31555076,
+    check(custom_hud_slot_order.size()==89 && custom_hud_slot_order.back()==0x31555076,
           "A single stable catalog owns all mode/1-UP rows with the Start prompt last");
     for(std::size_t i=0;i<custom_hud_slot_order.size();++i) {
         check(custom_hud_item(custom_hud_slot_order[i]),"Every catalog slot belongs to a custom HUD");
@@ -1474,6 +1475,28 @@ void stable_hud_surface_presenters() {
     const auto where=[](int id){return std::find(custom_hud_slot_order.begin(),custom_hud_slot_order.end(),0x4d4f4400+id);};
     check(where(43)<where(0) && where(57)<where(61) && where(60)<where(5) && where(44)<where(45),
           "Editor, race, results and confirmation backgrounds remain behind their text");
+    check(where(43)<where(64) && where(74)!=custom_hud_slot_order.end() && !custom_hud_item(0x4d4f444b),
+          "All fixed builder rows belong to the retiring HUD and stay above their background");
+    std::set<std::int32_t> visible_controls;
+    const auto publish_builder=[&] {
+        clear_hud_publisher_visibility(visible_controls,true);
+        visible_controls.insert(0x4d4f4407);visible_controls.insert(0x4d4f442b);
+        for(int row=64;row<75;++row)visible_controls.insert(0x4d4f4400+row);
+    };
+    for(unsigned refresh=0;refresh<6;++refresh) {
+        publish_builder();
+        visible_controls.insert(0x31555076);
+        clear_hud_publisher_visibility(visible_controls,false); // Inactive 1-Up refresh runs after modes.
+        check(visible_controls.size()==13 && visible_controls.contains(0x4d4f4407) && visible_controls.contains(0x4d4f442b),
+              "Inactive 1-Up refresh retains the builder heading, panel and all eleven controls");
+        for(int row=64;row<75;++row)check(visible_controls.contains(0x4d4f4400+row),
+              "Every new builder row survives alternating HUD publisher refreshes");
+    }
+    visible_controls.insert(0x31555076);clear_hud_publisher_visibility(visible_controls,true);
+    check(visible_controls.size()==1 && visible_controls.contains(0x31555076),
+          "Leaving the builder retires its complete row range without hiding the 1-Up prompt");
+    clear_hud_publisher_visibility(visible_controls,false);
+    check(visible_controls.empty(),"Leaving both modes removes all owned visible content");
     struct Ref {std::uint64_t record{},handle{};};
     struct Presenter {std::uint64_t blueprint{};Ref data{};};
     struct Item {int id{};bool active{};float animation{};Presenter presenter;};

@@ -1,12 +1,13 @@
-# Later playtest
+# What to try
 
-Use matching 2.1.0 runtime and complete Assets 1.0.7 on both PCs. First check R.E.S.K.A.T.E. spectator lock, copied/failed/invalid callouts, one-second stable landing, combinations, spread return positions and Goofy setting diagrams. Download both runtime files and Assets 1.0.7 from the current release. Close the game/launcher yourself, back up and replace the runtime pair and complete asset folder, then launch yourself.
+Use the matching DLL, launcher and complete Assets 1.0.15 on both PCs. Allow generated files to rebuild.
 
-- Switch stock map -> Skate3Improved -> Skate2Improved -> stock and repeat. Start a challenge after each load. Repeat with stock Compass/D-Pad hidden; the custom gameplay HUD should remain available.
-- Build a Deathrace while the other player watches. No join flag/course should be advertised until Save. Cancel an unfinished draft, reopen, Save, enroll, Leave/re-enroll and host Start without any Ready step.
-- Cross checkpoints, rewind with Up and recross. Skip a checkpoint without crossing a later gate: no teleport. Cross a later Required/Finish: missed-gate warning and last-cleared-checkpoint recovery. Guides and Chevrons should not penalize.
-- Hippy jump through a gate and continue. Separately try a true bail and accidental board runout, including a finish during their grace.
-- Place air gates, floor/wall/air Chevrons, tilt/roll using X plus R3, Undo/Redo after reopening, and inspect Route Info/object labels. Check the taller flag and red Finish compass icon.
-- Check the compact themed intro and exact Deathrace nearby/map/details identity. Recheck 1-UP and R.E.S.K.A.T.E. enrollment, letters, trick zone and solo copy flow.
+1. On Skate2Improved and Skate3Improved, select Arrow and check the original sideways Chevron appears. Place, tilt and reset it, change maps and return.
+2. Save with tap Start; load with hold Start. Confirm with A or Enter and briefly keep it held: the gate count must stay unchanged. After release, a new press should place normally. Repeat Cancel, Rename and Load .json.
+3. Name/save a route. The list must show only this map. Use D-pad Right for pencil and folder; rename and check the JSON filename. Share/import the file on the matching map.
+4. Enroll once as guest and start as host. Check flag-facing lineup, stationary countdown and selected duration. The Finish must not complete before Required gates.
+5. Bail normally, recover with spread-eagle/rolling, hippy jump and stay offboard. Check the one-second genuine-bail grace, safe-ground return direction and onboard approach speed. D-pad Up should return behind a gate with runway.
+6. Change stock/custom maps, toggle stock Compass/D-Pad, and inspect challenge HUD, nearby banner/map-card identity and normal Skate Jam cleanup.
+7. Check builder control bounds, degree labels/reset, gentle Arrow floor alignment and the original grounded main flag's RT height boundary.
 
-Automated checks pass; these live checks are pending. The exact combined runtime has not yet been checked in game. Publishing does not count as gameplay validation.
+These are live checks for this build; results are not claimed in advance.

@@ -136,6 +136,7 @@ struct State {
     std::atomic<bool> prompt_pointer{false};
     // The item grids' search box (item_browser_overlay.cpp): "-" opens it while a grid has the focus.
     std::atomic<bool> item_search_visible{false}, item_search_focus_requested{false};
+    std::atomic<bool> race_route_dialog_visible{false};
     std::atomic<bool> item_search_character_pending{false}, item_search_escape_pending{false};
     std::atomic<bool> input_attached{false};
     std::atomic<bool> stop{false};
@@ -345,6 +346,7 @@ bool item_browser_open();
 void item_browser_key(ItemBrowserKey key);
 void item_browser_search_cleared(); // Esc in the search box
 void draw_item_browser();
+void draw_race_routes();
 // Queues a private multiplayer action from outside the menu (multiplayer_menu.cpp).
 bool queue_multiplayer_action(const char* action, const std::string& argument);
 bool queue_multiplayer_action(const char* action, const std::string& argument, const std::string& password);
