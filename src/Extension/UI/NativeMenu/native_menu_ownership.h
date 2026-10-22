@@ -104,9 +104,9 @@ public:
     void manager_replaced() noexcept { leases_.clear(); }
 };
 // Both publishers share this stack, including eleven fixed builder rows.
-inline constexpr unsigned custom_hud_stack_item_limit=128;
+inline constexpr unsigned custom_hud_stack_item_limit=256;
 inline bool mode_hud_item(std::int32_t id) noexcept {
-    return id>=0x4d4f4400 && id<0x4d4f444b;
+    return (id>=0x4d4f4400 && id<0x4d4f444b) || (id>=0x4d4f4500 && id<0x4d4f4560);
 }
 inline bool custom_hud_item(std::int32_t id) noexcept {
     return mode_hud_item(id) ||
@@ -121,7 +121,7 @@ template<class Set> void clear_hud_publisher_visibility(Set& visible,bool mode) 
 // Empty presenters remain ACTIVE. Their private anchor Content is blank
 // until configured and requested; inactive native placeholders are pruned.
 inline constexpr auto custom_hud_slot_order=[] {
-    std::array<std::int32_t,89> result{};std::size_t used{};
+    std::array<std::int32_t,185> result{};std::size_t used{};
     const auto append=[&](std::int32_t id) {
         for(std::size_t i=0;i<used;++i)if(result[i]==id)return;
         result[used++]=id;
@@ -132,6 +132,7 @@ inline constexpr auto custom_hud_slot_order=[] {
     for(int id=0;id<75;++id)append(0x4d4f4400+id);
     for(const int id:{0x31555071,0x31555075,0x31555077,0x31555078,0x31555072,0x31555073,0x31555074})append(id);
     for(int id=0;id<6;++id)append(0x31555800+id);
+    for(int id=0;id<96;++id)append(0x4d4f4500+id);
     append(0x31555076); // The persistent Start prompt always paints last.
     return result;
 }();

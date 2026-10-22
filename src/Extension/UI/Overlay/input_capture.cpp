@@ -673,7 +673,7 @@ HCURSOR WINAPI captured_cursor(HCURSOR cursor) {
 int WINAPI captured_show_cursor(BOOL show) {
     // ImGui draws the menu cursor. Do not let the game change the OS display
     // counter while it is open; the counter resumes unchanged on close.
-    if (block_polled_input()) return show ? 0 : -1;
+    if (block_polled_input() || (!overlay_input_access && state().race_route_dialog_visible.load())) return show ? 0 : -1;
     return original<int(WINAPI*)(BOOL)>(input_hooks().show_cursor)(show);
 }
 BOOL WINAPI captured_physical_cursor(int x, int y) {

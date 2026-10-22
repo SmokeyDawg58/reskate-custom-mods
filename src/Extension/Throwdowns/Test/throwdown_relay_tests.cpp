@@ -35,12 +35,15 @@ std::vector<dingosdk::modes::NativeFlagOffer> custom_offers;
 std::vector<std::pair<dingosdk::modes::NativeFlagOffer,std::uint32_t>> custom_joins;
 bool accept_custom_join=true;
 std::set<std::uint32_t> custom_queues;
+std::set<std::uint64_t> restore_tokens;std::vector<std::pair<std::uint64_t,std::uint32_t>> restored_flags;
 dingosdk::multiplayer::one_up::View oneup_view;
 std::vector<std::string> oneup_commands;
 }
 namespace dingosdk::multiplayer::one_up {
 View view() {return oneup_view;}
-bool observe_free_race_flag_spawned(std::uint64_t,std::uint32_t) noexcept {return false;}
+bool restored_race_flag_spawned(std::uint64_t token,std::uint32_t mmid) noexcept {
+    if(!restore_tokens.erase(token))return false;restored_flags.emplace_back(token,mmid);return true;
+}
 bool known_custom_flag_queue(std::uint32_t mmid) noexcept {return custom_queues.contains(mmid);}
 void queue(std::string_view command) {oneup_commands.emplace_back(command);}
 bool adopt_native_one_up_flag(std::uint64_t world,std::uint32_t mmid,const std::array<float,3>&,float,unsigned,unsigned) noexcept {
@@ -183,6 +186,18 @@ const ThrowdownRelayInput no_session{0, {}, true, 0};
 void end_session() {
     tick(no_session);
     calls.clear();
+}
+
+void saved_route_flag_callbacks() {
+    end_session();restored_flags.clear();
+    constexpr std::uint64_t solo=0x4452525300000011ULL,online=solo+1;
+    restore_tokens.insert(solo);throwdown_relay_spawned(solo,9011,10);
+    tick(no_session);check(restored_flags.size()==1 && restored_flags.back().second==9011 && !find("destroy"),"A solo saved-route flag is accepted before offline cleanup can destroy it");
+    const ThrowdownRelayInput in{me,{{other,4}},true,777};tick(in);calls.clear();
+    restore_tokens.insert(online);throwdown_relay_spawned(online,9012,10);tick(in);
+    check(restored_flags.size()==2 && restored_flags.back().second==9012 && !find("destroy"),"An online saved-route flag uses the same owned callback without becoming a remote mirror");
+    throwdown_relay_spawned(12,9013,10);tick(in);check(find("destroy") && find("destroy")->mmid==9013,"Unowned native spawn results still retire normally");
+    end_session();
 }
 
 void native_queue_banner_lifetime() {
@@ -916,6 +931,7 @@ void grouped_number_checks() {
 int main() {
     try {
         native_queue_banner_lifetime();
+        saved_route_flag_callbacks();
         guest_flow();
         private_draft_relay_flow();
         leader_flow();

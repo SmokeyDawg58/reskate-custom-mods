@@ -7,6 +7,7 @@ void capture(EXCEPTION_POINTERS*) noexcept {}
 void capture_game_fatal(DWORD, EXCEPTION_POINTERS*) noexcept {}
 void set_destination(std::wstring_view) noexcept {}
 void set_gpu(std::wstring_view, std::wstring_view) noexcept {}
+void set_gpu_breadcrumbs(bool) noexcept {}
 }
 namespace dingosdk::trace {
 bool start() noexcept { return false; }

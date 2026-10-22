@@ -58,6 +58,7 @@ public:
     explicit RaceRouteLibrary(std::filesystem::path directory,std::filesystem::path legacy={}):directory_(std::move(directory)),legacy_directory_(std::move(legacy)) {}
     const std::vector<NamedRaceRoute>& routes() const noexcept {return routes_;}
     void read();
+    void erase(std::uint64_t id);
     std::filesystem::path path(std::uint64_t id) const;
     std::uint64_t import_json(const std::filesystem::path& source,const std::string& current_map);
     const NamedRaceRoute* find(std::uint64_t id) const noexcept {

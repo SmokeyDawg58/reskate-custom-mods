@@ -32,10 +32,14 @@ struct Placement {
     Facing facing=default_facing;
     std::optional<SetupRequest> pending_setup;
     std::optional<ModeSetupRequest> pending_race_flag;
+    struct Restore {std::array<float,3> at;float yaw{};std::uint64_t token{},retry{};};
+    std::optional<Restore> restore;
+    std::uint32_t restore_sequence{};
     std::string status;
 };
 Placement& placement() { static Placement p; return p; }
 void reset(Placement& p) {
+    p.restore.reset();
     p.step=Step::idle; p.spawn.reset(); p.facing=default_facing;p.mmid=0; p.sent=0;
     p.created=p.setup_seen=p.flag_seen=p.exited=p.cancelling=p.destroy_queued=p.destroyed=false;
     p.handed_off=p.match_seen=false;
@@ -159,7 +163,45 @@ std::uint32_t native_flag_mode_game() noexcept {
 }
 bool native_flag_mode_waiting() noexcept {
     auto& p=placement();std::lock_guard lock(p.mutex);
-    return p.race_game && p.step==Step::waiting && p.handed_off && p.spawn && p.mmid;
+    return p.race_game && p.step==Step::waiting && p.handed_off && p.spawn && p.mmid && !p.restore;
+}
+namespace {constexpr std::uint64_t restore_token_prefix=0x4452525300000000ULL;}
+bool restore_race_flag(std::uint64_t world,std::uint32_t game,const std::array<float,3>& at,float yaw) noexcept {
+    try {
+    if(!world || !game || !std::isfinite(yaw) || !std::all_of(at.begin(),at.end(),[](float n){return std::isfinite(n) && std::abs(n)<100000.f;}))return false;
+    const auto mode=modes::native_view();
+    if(!mode.active || !mode.leading || !mode.placing || mode.world!=world || mode.game!=game || !mode.state || mode.state->phase!=modes::Phase::setup)return false;
+    auto& p=placement();std::lock_guard lock(p.mutex);
+    if(p.step!=Step::waiting || !p.handed_off || p.generic_mode || p.world!=world || p.race_game!=game || !p.mmid || p.destroy_queued || p.restore)return false;
+    p.status="Restoring the saved starting flag...";p.restore=Placement::Restore{at,yaw};return true;
+    }catch(...){return false;}
+}
+bool restored_race_flag_spawned(std::uint64_t token,std::uint32_t mmid) noexcept {
+    if((token&0xffffffff00000000ULL)!=restore_token_prefix)return false;
+    try {
+    const auto local=view();const auto mode=modes::native_view();auto& p=placement();
+    std::optional<Placement::Restore> accepted;std::uint64_t world{};std::uint32_t game{};
+    {
+        std::lock_guard lock(p.mutex);
+        if(p.restore && p.restore->token==token && p.step==Step::waiting && !p.cancelling && p.world==local.world && p.local==local.local &&
+           mode.active && mode.leading && mode.world==p.world && mode.game==p.race_game && mode.state && mode.state->phase==modes::Phase::setup){
+            if(!mmid){p.restore->token=0;p.restore->retry=GetTickCount64()+1000;return true;}
+            accepted=p.restore;p.restore.reset();world=p.world;game=p.race_game;
+            p.mmid=mmid;p.spawn=accepted->at;p.destroy_queued=p.destroyed=false;
+            const float yaw=accepted->yaw*3.14159265f/180.f,co=std::cos(yaw),si=std::sin(yaw);p.facing={co,0,-si,0,1,0,si,0,co};
+            if(p.custom_mmids.size()==64)p.custom_mmids.erase(p.custom_mmids.begin());p.custom_mmids.push_back(mmid);p.status.clear();
+        }
+    }
+    // No placement lock across native queues or the mode coordinator.
+    if(accepted)modes::accept_restored_race_flag(world,game,accepted->at,accepted->yaw);
+    else if(mmid)queue_throwdown_destroy(mmid); // A cancelled/retired request cannot claim a new match.
+    return true;
+    }catch(...){if(mmid)queue_throwdown_destroy(mmid);return true;}
+}
+bool race_flag_move_pending(std::uint32_t mmid,const std::array<float,3>& at,float yaw) noexcept {
+    auto& p=placement();std::lock_guard lock(p.mutex);
+    return p.step==Step::waiting && !p.cancelling && !p.destroy_queued && p.mmid==mmid &&
+        p.restore && p.restore->at==at && p.restore->yaw==yaw;
 }
 bool native_race_flag_cursor_active() noexcept {
     auto& p=placement();std::lock_guard lock(p.mutex);
@@ -233,7 +275,7 @@ bool adopt_native_one_up_flag(std::uint64_t world,std::uint32_t mmid,
 }
 bool flag_registration_waiting() noexcept {
     auto& p=placement();std::lock_guard lock(p.mutex);
-    return p.step==Step::waiting && p.handed_off && p.spawn && p.mmid;
+    return p.step==Step::waiting && p.handed_off && p.spawn && p.mmid && !p.restore;
 }
 bool flag_registration_retiring() noexcept {
     auto& p=placement();std::lock_guard lock(p.mutex);
@@ -247,6 +289,7 @@ void flag_registration_left() noexcept {
     auto& p=placement(); std::lock_guard lock(p.mutex);
     if(p.step==Step::idle)return;
     p.pending_race_flag.reset(); // Quit/Cancel must not reopen a queued replacement picker.
+    p.restore.reset();
     // sent belongs to the previous navigation step. A newly cancelled flag
     // still needs its Exit, but repeated leave notifications must not queue
     // that same Exit again.
@@ -300,7 +343,16 @@ void observe_flag_created() noexcept {
     if(p.step==Step::setup) p.created=true;
 }
 void observe_flag_position(std::uint32_t mmid,const std::array<float,3>& spawn,const std::array<float,16>* transform) noexcept {
-    auto& p=placement(); std::lock_guard lock(p.mutex);
+    if(!mmid || !std::all_of(spawn.begin(),spawn.end(),[](float n){return std::isfinite(n) && std::abs(n)<100000.f;}))return;
+    auto& p=placement(); std::unique_lock lock(p.mutex);
+    if(p.step==Step::waiting && p.restore && !p.cancelling && p.mmid==mmid && transform){
+        const auto facing=transform_facing(*transform);const float yaw=std::atan2(facing[6],facing[8])*180.f/3.14159265f;
+        float distance{};for(unsigned i=0;i<3;++i)distance+=std::abs(spawn[i]-p.restore->at[i]);
+        if(!valid_facing(facing) || distance>.02f || std::abs(std::remainder(yaw-p.restore->yaw,360.f))>.05f)return;
+        const auto restored=*p.restore;const auto world=p.world;const auto game=p.race_game;
+        p.spawn=spawn;p.facing=facing;p.restore.reset();p.status.clear();lock.unlock();
+        modes::accept_restored_race_flag(world,game,restored.at,restored.yaw);return;
+    }
     if((p.step!=Step::placing && p.step!=Step::flag) || !p.created || !p.flag_seen || !mmid ||
        !std::all_of(spawn.begin(),spawn.end(),[](float n){return std::isfinite(n) && std::abs(n)<100000;})) return;
     if(transform) {
@@ -369,6 +421,7 @@ void tick_flag_placement(const menu_data::Context& c) {
         return;
     }
     std::string command; Step next{}; std::uint32_t destroy{};
+    std::optional<Placement::Restore> restore;
     std::optional<SpawnRequest> handoff;
     std::uint32_t race_game{};
     bool generic_mode{};
@@ -392,6 +445,11 @@ void tick_flag_placement(const menu_data::Context& c) {
         }
         if(p.step==Step::flag && p.flag_seen) { p.step=Step::placing; p.until=now+300000; p.status="Place your starting flag. Score anywhere."; }
         if(p.step==Step::waiting) {
+            if(p.restore){
+                if(p.mmid && !p.destroy_queued && now>=p.restore->retry){
+                    restore=p.restore;p.restore->retry=now+1000;
+                }
+            }
             // Keep the native registration alive: it owns the world flag,
             // waiting notification, and Start/Leave input prompts.
             if(!p.handed_off && p.spawn) {
@@ -452,6 +510,11 @@ void tick_flag_placement(const menu_data::Context& c) {
         }
     }
     if(release) release_one_up_native_placeholder();
+    if(restore){
+        std::uint32_t mmid{};{std::lock_guard lock(p.mutex);if(p.restore && p.restore->at==restore->at && p.restore->yaw==restore->yaw)mmid=p.mmid;}
+        const bool queued=mmid && queue_throwdown_move(mmid,restore->at,restore->yaw);
+        if(!queued){std::lock_guard lock(p.mutex);if(p.restore)p.restore->retry=now+250;}
+    }
     if(handoff) {
         if(generic_mode)modes::accept_native_start_flag(handoff->world,race_game,handoff->position,
             std::atan2(handoff->facing[6],handoff->facing[8])*180.f/3.14159265f);

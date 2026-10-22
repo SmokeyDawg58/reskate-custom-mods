@@ -184,6 +184,8 @@ struct State {
     ComPtr<ID3D12Resource> menu_map_texture, menu_map_upload;
     // The icon of the mod the highlighted item is from (item_browser_overlay.cpp), in the fourth.
     ComPtr<ID3D12Resource> mod_icon_texture, mod_icon_upload;
+    ComPtr<ID3D12Resource> deathrace_texture,deathrace_upload;
+    ImFont* deathrace_names{};ImFont* deathrace_body{};ImFont* deathrace_marker{};ImFont* deathrace_secondary{};ImFont* deathrace_display{};std::array<ImFont*,3> deathrace_clocks{};
     ComPtr<ID3D12GraphicsCommandList> commands;
     ComPtr<ID3D12Fence> fence;
     HANDLE fence_event = nullptr;
@@ -347,6 +349,13 @@ void item_browser_key(ItemBrowserKey key);
 void item_browser_search_cleared(); // Esc in the search box
 void draw_item_browser();
 void draw_race_routes();
+bool deathrace_pending();
+void draw_deathrace();
+void load_deathrace_fonts();
+bool take_deathrace_pixels(CardPixels& pixels);
+void deathrace_image_uploaded(ImTextureID texture);
+void deathrace_image_failed();
+void deathrace_image_lost();
 // Queues a private multiplayer action from outside the menu (multiplayer_menu.cpp).
 bool queue_multiplayer_action(const char* action, const std::string& argument);
 bool queue_multiplayer_action(const char* action, const std::string& argument, const std::string& password);

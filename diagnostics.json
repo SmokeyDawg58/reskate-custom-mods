@@ -1,63 +1,57 @@
 {
-  "result": "AUTOMATED_PASS_LIVE_PENDING",
-  "automated_tests": 92,
-  "base_game": "2.1.1",
-  "assets_version": "1.0.15",
-  "session_protocol": 52,
-  "mode_wire_version": 16,
-  "one_up_wire_version": 5,
-  "source_tree": "56bfd9a5a3ec65834b8bcd074d1e7c405ace0d4e",
+  "result": "PASS",
+  "assets_version": "1.0.27",
+  "native_archive_sha256": "a7d48b7fa02caccaee693907f0d1e165451bd6df0ba081e23539e54a9efaf0ee",
+  "automated_checks": 93,
+  "current_hud_rendered_captures": 70,
+  "effect_audit": {
+    "result": "PASS",
+    "unchanged_original_resources": 2456,
+    "changed_private_effects": 3,
+    "added_private_resources": 3,
+    "native_mesh_resources_preserved": 7,
+    "private_graph_only_expected_fields": true,
+    "compute_binding_metadata_preserved": true,
+    "native_wrapper_relocations_valid": true,
+    "private_shader": "315dd660-39c4-4185-a769-167d6bb93c66",
+    "live_validation": "PENDING"
+  },
+  "pose_shader_audit": {
+    "result": "PASS",
+    "validation": "DXIL assembled, validated, disassembled and compared",
+    "instruction_count": 391,
+    "scale_instructions_changed_from_1_0_26": 3,
+    "other_instructions_unchanged": 388,
+    "native_bindings_unchanged": true,
+    "steady_size_age_width_yaw_cases": 2424,
+    "arrow_shader_unchanged": true,
+    "depth_and_native_mesh_unchanged": true,
+    "live_validation": "PENDING_USER_PLAYTEST"
+  },
+  "native_bundle_reference_count": 17827,
+  "live_validation": "PENDING_1_0_27_USER_PLAYTEST",
+  "installed": false,
+  "game_not_controlled": true,
+  "known_limitations": [
+    "Native gate appearance and reset behavior still require user playtest. Offline GPU previews verify HUD layout, not the game scene."
+  ],
+  "installed_1_0_26_backup_preserved": true,
+  "source_tree": "93a0c59e355ed878f08c30a8124399b99096e50e",
   "upstream_commit": "db99ed4d724dd77edd2abf62f3de0dbc5bb6717e",
+  "release_tag": "v2.1.1-custom-20261022-skate2-hud-native-gates",
   "release_files": {
     "ReSkate.dll": {
-      "bytes": 30663168,
-      "sha256": "3968083c57e2f8a33540c3e626da2357d30dc052aac7dca95be667f33891bc15"
+      "bytes": 36851712,
+      "sha256": "0e2dbc1689831a4703161d8d00bcf4581ca13b406ed8f999f7da776aa3f0c90e"
     },
     "ReSkateLauncher.exe": {
-      "bytes": 5420032,
-      "sha256": "7bb3fd5e1e7d52fba30535472013fe5b05d5e549419694efba09a8eaaf9401e3"
+      "bytes": 5535744,
+      "sha256": "435916d5f272b9ebfba192f708b91fe0a2903f2a20d808f7920aae3420dcbb24"
     },
-    "SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.15.zip": {
-      "bytes": 118592556,
-      "sha256": "0d1d7678d4e9be99042a0521dbb312d96ddc1469aced70f34640093f7a06cebb"
+    "SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.27.zip": {
+      "bytes": 128885151,
+      "sha256": "9780cd8fbeda1bd0e9f1ceeada98702df3d3e6990945e584435f1a814c27249c"
     }
   },
-  "release_tag": "v2.1.1-custom-20261019-deathrace-routes",
-  "published": true,
-  "live_validation": "PENDING",
-  "custom_map_offline_validation": "BOTH_IMPROVED_MAPS_CHEVRON_MESH_MATERIAL_TEXTURE_PIXELS_PASS",
-  "source_reconstruction": "PASS",
-  "native_asset_preservation": {
-    "result": "PASS",
-    "original_resources": 2190,
-    "updated_resources": 2190,
-    "unchanged_resources": 2188,
-    "original_metadata": "BYTE_IDENTICAL",
-    "changed_resources": [
-      [
-        1,
-        "World/ReSkate/Deathrace/FloatingArrow_AT"
-      ],
-      [
-        1,
-        "World/ReSkate/Deathrace/FloatingArrow_A"
-      ]
-    ],
-    "added_resources": []
-  },
-  "lossless_compaction": {
-    "result": "PASS",
-    "tocs": 12,
-    "bundles": 40,
-    "chunks": 309,
-    "references_verified": 15833,
-    "duplicate_stored_payloads_removed": 11223,
-    "old_cas_bytes": 497363466,
-    "new_cas_bytes": 190256034,
-    "saved_bytes": 307107432,
-    "all_encoded_payloads": "BYTE_IDENTICAL",
-    "archive_ownership": "UNCHANGED"
-  },
-  "menu_input_fix": "PHYSICAL_RELEASE_AFTER_DIALOG_TRANSITION",
-  "release_cleanup": "CANCELLED_BY_OWNER"
+  "published": true
 }

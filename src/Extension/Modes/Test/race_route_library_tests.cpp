@@ -18,6 +18,12 @@ int main(int argc,char** argv){try {
     const auto id=library.save({0,"Rooftop Run","Skate3Improved",settings});
     const auto first=library.path(id);check(first.filename()=="Rooftop Run.json" && first.parent_path().filename()=="Skate3Improved","Route and map names form readable local filenames");
     const auto saved=text(first);check(saved.find("Rooftop Run")!=std::string::npos && saved.find("pitch_degrees")!=std::string::npos,"JSON includes the name and readable object geometry");
+    auto readable=dingosdk::Json::parse(saved);check(readable.contains("starting_flag"),"Shared JSON exposes its saved flag position and yaw");
+    check(decode_named_race_json(saved)->settings.points.front()==settings.points.front() && race_start_heading(decode_named_race_json(saved)->settings)==75,
+        "Saved flag position, altitude and direction survive the JSON round trip");
+    readable.erase("starting_flag");check(decode_named_race_json(readable.dump())->settings==settings,"Existing JSON routes retain their original flag without the new descriptive field");
+    readable=dingosdk::Json::parse(saved);readable["starting_flag"]["yaw_degrees"]=45;
+    check(!decode_named_race_json(readable.dump()),"A contradictory flag pose cannot silently move a shared route");
     const auto other=library.save({0,"Other route","Skate3Improved",settings});const auto untouched=text(library.path(other));
     library.rename(id,"New Name");check(!fs::exists(first) && library.path(id).filename()=="New Name.json","Pencil rename moves the actual JSON filename");
     auto edited=settings;edited.points[1][1]=40;library.save({id,"New Name","Skate3Improved",edited});
@@ -51,5 +57,17 @@ int main(int argc,char** argv){try {
     RaceRouteLibrary again(mods,root);again.read();
     check(again.routes().size()==count && again.find(moved_id)->name=="Renamed in Mods" && text(source_json)==source_text && fs::exists(root/"99.race"),
         "A later rename cannot resurrect the old name and both original source files remain unchanged");
+    const auto delete_path=again.path(moved_id);const auto survivors=again.routes().size();
+    again.erase(moved_id);
+    check(!again.find(moved_id) && !fs::exists(delete_path),"Confirmed deletion removes exactly the selected JSON and library row");
+    RaceRouteLibrary after_delete(mods,root);after_delete.read();
+    check(!after_delete.find(moved_id) && after_delete.routes().size()==survivors-1 && text(source_json)==source_text,
+        "Deleted routes remain absent on reopen without modifying original migration backups");
+    const auto new_id=after_delete.save({0,"After deletion","Skate2Improved",settings});
+    check(new_id!=moved_id,"A deleted route ID is not reused by a new saved route");
+    failed=false;try{after_delete.erase(moved_id);}catch(...){failed=true;}
+    check(failed && after_delete.find(new_id),"Stale confirmation cannot delete a different route");
+    migrated.erase(99);RaceRouteLibrary deleted_legacy(root);deleted_legacy.read();
+    check(!deleted_legacy.find(99) && fs::exists(root/"99.race"),"Deleting a migrated JSON cannot resurrect its old binary backup");
     std::cout<<"PASS JSON route save/update/import/rename, readable filenames, map checks, migration backups, exact geometry and collision isolation\n";
 }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

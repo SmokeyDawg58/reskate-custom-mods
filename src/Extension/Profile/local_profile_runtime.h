@@ -102,6 +102,8 @@ bool set_local_progression(const std::vector<std::string>& arguments);
 // prefix. Absent until first written; never exposed to the game's own settings.
 namespace profile_runtime {
 bool local_profile_store_ready() noexcept;
+// The game's Compass on HUD option, read on the client update thread.
+bool local_compass_enabled() noexcept;
 std::optional<bool> local_preference(std::string_view key) noexcept;
 void set_local_preference(std::string_view key, bool value) noexcept;
 // The same "ReSkate." store for numbers and text. A key keeps the type it was

@@ -1,0 +1,27 @@
+{
+  "sources": {
+    "helvetica_presto": "outputs\\Skate2-Deathrace-Research-20261021\\preview\\assets\\data_fe_fonts_helvetica_presto.rx2-1.png",
+    "helvetica_bold": "outputs\\Skate2-Deathrace-Research-20261021\\preview\\assets\\data_fe_fonts_helvetica_bold.rx2-1.png",
+    "markerstreak": "outputs\\Skate2-Deathrace-Research-20261021\\preview\\assets\\data_fe_fonts_markerstreak.rx2-1.png",
+    "board-29": "outputs\\Skate2-Deathrace-Research-20261021\\preview\\assets\\data_fe_source_screens_hud2_leaderboardhud.rx2-29.png",
+    "board-39": "outputs\\Skate2-Deathrace-Research-20261021\\preview\\assets\\data_fe_source_screens_hud2_leaderboardhud.rx2-39.png",
+    "board-41": "outputs\\Skate2-Deathrace-Research-20261021\\preview\\assets\\data_fe_source_screens_hud2_leaderboardhud.rx2-41.png",
+    "board-73": "outputs\\Skate2-Deathrace-Research-20261021\\preview\\assets\\data_fe_source_screens_hud2_leaderboardhud.rx2-73.png",
+    "header-grunge": "outputs\\Skate2-Deathrace-Research-20261021\\preview\\assets\\data_fe_source_screens_hud2_hudobjective2.rx2-37.png",
+    "gate-back": "outputs\\Skate2-Deathrace-Research-20261021\\preview\\assets\\data_content_textures_vitextures.rx2-1.png",
+    "gate-yellow": "outputs\\Skate2-Deathrace-Research-20261021\\preview\\assets\\data_content_textures_vitextures.rx2-11.png",
+    "gate-red": "outputs\\Skate2-Deathrace-Research-20261021\\preview\\assets\\data_content_textures_vitextures.rx2-9.png",
+    "chevron-orange": "outputs\\Skate2-Deathrace-Research-20261021\\preview\\assets\\data_content_textures_vitextures.rx2-3.png"
+  },
+  "approved_preview": "F:\\Codex\\2026-10-11\\reskate-throwdowns-continue\\outputs\\Deathrace-Skate2-Adaptation-Preview-20261021\\deathrace-skate2-adaptation.html",
+  "approved_gates": "F:\\Codex\\2026-10-11\\reskate-throwdowns-continue\\outputs\\Deathrace-Skate2-Adaptation-Preview-20261021\\skate2-gate-concept.html",
+  "atlas_sha256": "eecad8bedd9a77c15fdc18d6d003309daf12d8eb928d11294e589004a674c6ac",
+  "fonts": "Original bitmap glyphs and metrics; no substitute TTF",
+  "materials": "Original Skate 2 material crops, precomposited once for 75% alpha",
+  "gate_parameters": {
+    "layers": 3,
+    "jitter_period": 0.05,
+    "intensity": 0.65,
+    "original_intensity": 0.2
+  }
+}

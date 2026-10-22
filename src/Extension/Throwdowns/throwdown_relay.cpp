@@ -1417,6 +1417,9 @@ std::vector<std::vector<std::uint8_t>> tick_throwdown_relay(std::uintptr_t base,
         std::lock_guard lock(r.mutex);
         r.names = std::move(names);
     }
+    // Saved-route flags are local native registrations even without a Steam
+    // session. Resolve their exact tokens before the offline mirror cleanup.
+    if(input.in_world)std::erase_if(spawned,[](const auto& result){return one_up::restored_race_flag_spawned(std::get<0>(result),std::get<1>(result));});
     const bool linked = input.local && !input.peers.empty();
     try {
         apply_queue_timer(r, linked, now);

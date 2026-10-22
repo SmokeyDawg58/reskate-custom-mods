@@ -60,9 +60,15 @@ struct RaceRotationOrigin {
     void clear() noexcept {captured=false;}
     // Keep the first straight pose across repeated visits to Rotate.
     void capture(float y,float p,float r) noexcept {if(!captured){yaw=y;pitch=p;roll=r;captured=true;}}
-    void update_aim(float camera_yaw,float camera_pitch,float& y,float& p,bool automatic_tilt=false) const noexcept {
-        if(!captured)y=camera_yaw;
-        if(!captured || automatic_tilt)p=camera_pitch;
+    void capture_default(float camera_yaw,float camera_pitch,float snap_step) noexcept {
+        // A nearby authored object's manual tilt/roll is a snapping target,
+        // never this object's default. Size is deliberately absent here.
+        const float straight=snap_step>0?std::remainder(std::round(camera_yaw/snap_step)*snap_step,360.f):camera_yaw;
+        capture(straight,camera_pitch,0.f);
+    }
+    void update_aim(float camera_yaw,float camera_pitch,float& y,float& p,bool manual_rotation=false) const noexcept {
+        // Remembering the reset pose must not latch the preview after Reset.
+        if(!manual_rotation){y=camera_yaw;p=camera_pitch;}
     }
     void restore(float& y,float& p,float& r) const noexcept {y=yaw;p=pitch;r=roll;}
 };

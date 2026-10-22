@@ -1,9 +1,7 @@
-# Throwdown Assets 1.0.15
+# Throwdown Assets 1.0.27
 
-Install the complete matching ZIP under the active Mods directory. Keep layout.toc, initfs_win32, Win32 and Audio directly inside SmokeyDawg58-ReSkate_Throwdown_Assets. Replace the previous copy; avoid enabled duplicates. All PCs need the matching runtime pair and asset version.
+The complete matching pack has 31 files and 25 pinned payloads. It includes compact native archives, fonts, art and audio. Required/Finish/Guide use one steady full-size outer native gate; Chevron animation and original 1.0.26 dependencies are unchanged. Normal native scene depth is retained.
 
-The original sideways Chevron blueprints are restored byte for byte. The runtime retains its previously missing mask texture, resource and streamed pixels on custom-map cores alongside both meshes, defaults and private shader depot. Only two blueprint payloads change from local Assets 1.0.14; 2,188 other payloads and all 2,190 metadata records are preserved.
+Lossless compaction verified 17,827 references, 40 bundles, 12 TOCs and 381 chunks; 330,725,167 redundant CAS bytes were removed. No textures were resized and no archive ownership changed. Use one enabled complete pack, with the matching custom runtime on every PC.
 
-The ZIP is 118,592,556 bytes. Lossless per-archive deduplication saves 307,107,432 CAS bytes and verifies all 15,833 references. It does not resize textures, remove features or change archive ownership. All 19 native/audio payloads remain hash-pinned. The player ZIP contains no runtime binaries, source or private captures.
-
-Authoring/export inputs and the compactor are in src/contrib/throwdown-flags. See the [full notes](RELEASE_NOTES_20261019_211_DEATHRACE_ROUTES.md) for changes and live-validation limits.
+This is the legacy C++ package. The forthcoming 2.1.2 Lua plugin must use its own validated mod manifest and dependencies. The supplied older 1.0.15-without-menu FBMOD is a migration reference and is not substituted into this release.

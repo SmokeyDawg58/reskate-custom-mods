@@ -19,6 +19,11 @@ bool race_flag_registration_owned() noexcept;
 bool mode_flag_registration_owned(std::uint32_t game=0) noexcept;
 std::uint32_t native_flag_mode_game() noexcept;
 bool native_flag_mode_waiting() noexcept;
+// Move this editor's existing native registration to its saved pose. No new
+// donor queue, setup screen or second placement interaction is created.
+bool restore_race_flag(std::uint64_t world,std::uint32_t game,const std::array<float,3>& at,float yaw) noexcept;
+bool race_flag_move_pending(std::uint32_t mmid,const std::array<float,3>& at,float yaw) noexcept;
+bool restored_race_flag_spawned(std::uint64_t token,std::uint32_t mmid) noexcept;
 std::uint32_t native_setup_race_game() noexcept;
 std::uint32_t native_setup_mode_game() noexcept;
 // Close an unconfirmed mode setup before an explicit extra settings action. Never

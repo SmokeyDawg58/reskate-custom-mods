@@ -80,6 +80,7 @@ void destroy_graphics() {
     s.menu_map_texture.Reset(); s.menu_map_upload.Reset();
     menu_map_pixels_lost();
     s.mod_icon_texture.Reset(); s.mod_icon_upload.Reset();
+    s.deathrace_texture.Reset();s.deathrace_upload.Reset();deathrace_image_lost();
     mod_icon_lost();
     s.commands.Reset(); s.rtvs.Reset(); s.srvs.Reset(); s.fence.Reset(); s.device.Reset();
     if (s.fence_event) CloseHandle(s.fence_event);
@@ -288,7 +289,7 @@ bool setup_graphics() {
         return false;
     }
     heap.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heap.NumDescriptors = 4; // ImGui's atlas, the map download card's icon, the menu's map pictures, an item's mod icon (upload_image)
+    heap.NumDescriptors = 5; // ImGui's atlas, the map download card's icon, the menu's map pictures, an item's mod icon (upload_image)
     heap.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     graphics_result = s.device->CreateDescriptorHeap(&heap, IID_PPV_ARGS(&s.srvs));
     if (FAILED(graphics_result)) {
@@ -367,6 +368,7 @@ bool setup_graphics() {
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
     dingosdk::overlay::load_skate_fonts(s.menu);
+    load_deathrace_fonts();
     // Thumbnails are read from the game's own data at startup; the read is
     // normally long finished by the time the first frame gets here.
     // Emotes and Hall of Meat's images reserve their room before the park previews build the atlas, and fill it after.
@@ -738,7 +740,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
     const bool game_text_frame = game_text_pending();
     const bool drone_hud_frame = drone_hud_pending();
     const bool skate_hud_frame = skate_hud_pending();
-    const bool one_up_frame = one_up_pending();
+    const bool one_up_frame = one_up_pending() || deathrace_pending();
     const bool nametag_frame = nametags_pending();
     const bool meat_frame = hall_of_meat_pending();
     const bool item_browser_frame = item_browser_pending();
@@ -802,7 +804,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
     // or every frame would look like a fresh click.)
     if (!interactive) { ImGui::GetIO().ClearInputKeys(); if (!hub_frame) ImGui::GetIO().ClearInputMouse(); }
     feed_menu_gamepad(interactive && (s.visible.load() || s.race_route_dialog_visible.load()) && !s.editor_visible.load());
-    ImGui::GetIO().MouseDrawCursor = owns_menu_cursor(s);
+    ImGui::GetIO().MouseDrawCursor = owns_menu_cursor(s) && !s.race_route_dialog_visible.load();
     ImGui_ImplDX12_NewFrame();
     { OverlayInputAccess access; ImGui_ImplWin32_NewFrame(); }
     update_menu_pointer();
@@ -824,6 +826,7 @@ void render(IDXGISwapChain* presented, UINT flags) {
     draw_trainer_hud();
     draw_notices();
     draw_item_browser();
+    draw_deathrace();
     draw_race_routes();
     draw_chat();
     draw_map_download();
@@ -848,6 +851,10 @@ void render(IDXGISwapChain* presented, UINT flags) {
     upload_card_image(s);
     upload_menu_map_image(s);
     upload_mod_icon(s);
+    {CardPixels pixels;if(take_deathrace_pixels(pixels)){
+        if(const auto id=upload_image(s,pixels,4,s.deathrace_texture,s.deathrace_upload))deathrace_image_uploaded(id);
+        else deathrace_image_failed();
+    }}
     D3D12_RESOURCE_BARRIER barrier{};
     barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
     barrier.Transition.pResource = frame.buffer.Get();

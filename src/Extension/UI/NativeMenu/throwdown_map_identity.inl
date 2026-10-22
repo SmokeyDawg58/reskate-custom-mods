@@ -33,12 +33,36 @@ void restore_bubble_branding(const Context& c,const BubbleBranding& b) {
     if(read<Address>(c.address(icon))==b.applied)
         c.copy(icon,c.address(c.path(b.saved,{0x31f0fdf8,0x0e7a880d})));
 }
+void restore_compass_branding(const Context& c,const CompassBranding& b) {
+    if(b.applied && c.type_of(b.icon.handle)==b.icon.type &&
+       game::native_data().models.value(c.manager,b.icon.handle,0,1) &&
+       read<Address>(c.address(b.icon))==b.applied)c.copy(b.icon,c.address(b.saved));
+}
 void restore_map_branding(const Context& c) {
     auto& b=state().map_branding;
     restore_branding_presenters(c,b.card);
     for(auto& [handle,values]:b.markers)restore_branding_presenters(c,values);
     for(const auto& [handle,bubble]:b.bubbles)restore_bubble_branding(c,bubble);
+    for(const auto& [handle,icon]:b.compass)restore_compass_branding(c,icon);
     b={};
+}
+void brand_flag_compass(const Context& c,Value poi,const std::string& logo) {
+    // MapObjectViewModel.Texture is separate from the map presenters and the
+    // ActivityDisplay world bubble. Custom donor flags can leave it empty.
+    // Publish into the real POI, retaining its native bearing, distance and
+    // Compass on HUD visibility bindings instead of mounting another overlay.
+    const auto icon=c.field(poi,0x6e469d2a);
+    require(kind(icon.type)==3 && size(icon.type)==8,"Throwdown compass texture schema differs.");
+    auto& icons=state().map_branding.compass;
+    auto found=icons.find(poi.handle);
+    if(found!=icons.end() && (found->second.icon.handle!=icon.handle || found->second.icon.type!=icon.type)) {
+        restore_compass_branding(c,found->second);icons.erase(found);found=icons.end();
+    }
+    if(found==icons.end()) {
+        const auto saved=c.field(make(c,texture_schema),0x6e469d2a);c.copy(saved,c.address(icon));
+        found=icons.emplace(poi.handle,CompassBranding{icon,saved,{}}).first;
+    }
+    if(publish_texture(c,icon,logo))found->second.applied=read<Address>(c.address(icon));
 }
 void brand_activity_display(const Context& c,Value display,const std::string& logo) {
     const auto hash=read<std::uint32_t>(read<Address>(display.type));
@@ -127,8 +151,8 @@ void custom_join_details(const Context& c) {
             brand_map_stat(c,c.element(rows,0),"Players",std::to_string(remote->players));
             brand_map_stat(c,c.element(rows,1),remote->key=="race"?"Required Gates":remote->key=="oneup"?"Penalties":"Duration",
                 remote->key=="race"?std::to_string(remote->required_gates):remote->key=="oneup"?"3":std::to_string(remote->duration_s)+"s");
-            brand_map_stat(c,c.element(rows,2),remote->key=="oneup"?"Turn Timer":"Finish Deadline",
-                remote->key=="oneup"?std::to_string(remote->duration_s)+"s":native_hud_race_time(static_cast<std::uint64_t>(remote->duration_s)*1000));
+            brand_map_stat(c,c.element(rows,2),remote->key=="oneup"?"Turn Timer":remote->key=="race"?"Time limit":"Finish Deadline",
+                remote->key=="oneup" || remote->key=="race"?std::to_string(remote->duration_s)+"s":native_hud_race_time(static_cast<std::uint64_t>(remote->duration_s)*1000));
         }
         if(!card.badge.handle) {
             card.badge=make(c,texture_schema);c.set(c.field(card.badge,0xf524c836),288.f);c.set(c.field(card.badge,0x6fbd254e),288.f);
@@ -186,6 +210,7 @@ void throwdown_map_identity(const Context& c) {
                     if(const auto* definition=definition_for(mmid)) {
                         current.insert(handle);
                         brand_flag_bubble(c,poi,data,mmid,definition->logo);
+                        brand_flag_compass(c,poi,definition->logo);
                         if(handle==focused)selected_mmid=mmid;
                         const auto view=reference(c,read<Ref>(c.address(c.field(poi,0x5e7ee0fd))));
                         require(view.type && read<std::uint32_t>(read<Address>(view.type))==0xf88f43c6 && size(view.type)==240,
@@ -217,6 +242,10 @@ void throwdown_map_identity(const Context& c) {
     for(auto it=b.bubbles.begin();it!=b.bubbles.end();) {
         if(current.contains(it->first)){++it;continue;}
         restore_bubble_branding(c,it->second);it=b.bubbles.erase(it);
+    }
+    for(auto it=b.compass.begin();it!=b.compass.end();) {
+        if(current.contains(it->first)){++it;continue;}
+        restore_compass_branding(c,it->second);it=b.compass.erase(it);
     }
     Value panel;
     if(selected_mmid)for(const auto& root:c.roots({0x91cdf6e6})) {
@@ -267,7 +296,7 @@ void throwdown_map_identity(const Context& c) {
         brand_map_stat(c,c.element(rows,0),"Players",std::to_string(remote->players));
         brand_map_stat(c,c.element(rows,1),remote->key=="race"?"Required Gates":"Duration",
             remote->key=="race"?std::to_string(remote->required_gates):std::to_string(remote->duration_s)+"s");
-        brand_map_stat(c,c.element(rows,2),"Time Limit",native_hud_race_time(static_cast<std::uint64_t>(remote->duration_s)*1000));
+        brand_map_stat(c,c.element(rows,2),"Time limit",remote->key=="race"?std::to_string(remote->duration_s)+"s":native_hud_race_time(static_cast<std::uint64_t>(remote->duration_s)*1000));
     } else if(definition->adapter==throwdowns::Adapter::native_one_up) {
         const auto v=one_up::view();
         const auto players=std::count_if(v.state.players.begin(),v.state.players.end(),[](const auto& p){return p.connected;});
@@ -281,7 +310,7 @@ void throwdown_map_identity(const Context& c) {
         const bool race=v.settings.mode==modes::Mode::race;
         const auto checkpoints=modes::mandatory_gates(v.settings,v.settings.points.size());
         brand_map_stat(c,c.element(rows,1),race?"Required gates":"Duration",race?std::to_string(checkpoints):std::to_string(v.settings.duration_s)+"s");
-        brand_map_stat(c,c.element(rows,2),race?"Finish deadline":"Turn Timer",race?std::to_string(v.settings.duration_s)+"s (last 30s visible)":std::to_string(v.settings.turn_s)+"s");
+        brand_map_stat(c,c.element(rows,2),race?"Time limit":"Turn Timer",race?std::to_string(v.settings.duration_s)+"s":std::to_string(v.settings.turn_s)+"s");
     }
 }
 

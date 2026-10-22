@@ -55,7 +55,7 @@ int main(int argc,char** argv) {
         const auto source=mods::required_throwdown_asset_mod(argv[1]);
         require(source.provides_layout && source.directory==fs::path(argv[1])/L"Mods"/mods::native_package::folder,"The standard package mounts directly.");
         require(source.studio_marker && source.skate_sha256.size()==64,"Supported game stamp retained.");
-        require(mods::native_package::files.size()==19,"All 17 native files and both selected audio clips are required.");
+        require(mods::native_package::files.size()==25,"Require the 17 native files, both audio clips and complete native render assets including the player-name face.");
         const auto base=std::wstring(mods::native_package::folder),versioned=base+L"-1.0.1";
         require(mods::throwdown_asset_folder_name(base) && mods::throwdown_asset_folder_name(versioned),"Plain and versioned extraction names are recognized.");
         require(mods::throwdown_asset_folder_name(L"smokeydawg58-reskate_throwdown_assets-12.34.56"),"Windows folder matching is case insensitive.");

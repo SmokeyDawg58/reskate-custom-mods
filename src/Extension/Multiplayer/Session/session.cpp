@@ -211,6 +211,7 @@ void stop(Session &s, std::string reason) {
 // Release world-owned objects and buffered state, keeping Steam connections,
 // admission, password challenges and stable member slots intact.
 void clear_world(Session &s, std::uint64_t now) {
+    s.throwdown_inbox.clear();
     s.voice.reset();
     // The server starts its pose streams and message numbers over with the world.
     s.pose_streams.clear();
@@ -421,6 +422,14 @@ void relay_throwdowns(Session &s, bool in_world, const NativeFrame* offline_skat
             if(!card.custom_name.empty())input.local_name=card.custom_name;
         }
     }
+    // Establish the local world boundary before delivering custom route
+    // packets. They must never be interpreted against the previous map.
+    modes::SessionInput modes_input;
+    modes_input.local=input.local;modes_input.local_name=input.local_name;
+    modes_input.in_world=input.in_world;modes_input.world=in_session?input.world:native_throwdown_world();modes_input.barred=input.barred;
+    modes_input.map=input.in_world?s.available_map:std::string{};
+    for(const auto& peer:input.peers)modes_input.peers.push_back({peer.id,peer.name});
+    modes::synchronize_world(modes_input);
     for (const auto &[sender, message] : s.throwdown_inbox) {
         if(modes::receive(sender,message))continue;
         one_up::receive(sender, message);
@@ -437,10 +446,6 @@ void relay_throwdowns(Session &s, bool in_world, const NativeFrame* offline_skat
     } else {
         for (auto &message : one_up::tick(s.base, input)) send_throwdown(s, std::move(message));
     }
-    modes::SessionInput modes_input;
-    modes_input.local=input.local;modes_input.local_name=input.local_name;
-    modes_input.in_world=input.in_world;modes_input.world=in_session?input.world:native_throwdown_world();modes_input.barred=input.barred;
-    for(const auto& peer:input.peers)modes_input.peers.push_back({peer.id,peer.name});
     for(auto& message:modes::tick(modes_input))send_throwdown(s,std::move(message));
     for(auto& text:modes::take_notices())add_chat(s,0,"ReSkate",std::move(text));
     for (auto &text : take_throwdown_relay_notices()) add_chat(s, 0, "ReSkate", std::move(text));

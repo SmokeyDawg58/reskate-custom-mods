@@ -11,6 +11,9 @@ static std::uint64_t race_world_seen{};
 static std::uint32_t race_game_seen{};
 static dingosdk::modes::Vec3 race_pose_seen{};
 static float race_yaw_seen{};
+static bool restored_outside_lock=true;
+static unsigned restored_handoffs{};
+static dingosdk::modes::Vec3 restored_pose{};static float restored_yaw{};
 static unsigned mode_handoffs{};
 static std::uint64_t mode_world_seen{};
 static std::uint32_t mode_game_seen{};
@@ -31,6 +34,10 @@ bool request_native_quit(std::uint64_t world,std::uint32_t game) noexcept {
 void accept_race_start(std::uint64_t world,std::uint32_t game,const Vec3& at,float yaw) {
     ++race_handoffs;race_world_seen=world;race_game_seen=game;race_pose_seen=at;race_yaw_seen=yaw;
 }
+void accept_restored_race_flag(std::uint64_t world,std::uint32_t game,const Vec3& at,float yaw) {
+    auto& guard=multiplayer::one_up::placement().mutex;if(guard.try_lock())guard.unlock();else restored_outside_lock=false;
+    ++restored_handoffs;race_world_seen=world;race_game_seen=game;restored_pose=at;restored_yaw=yaw;
+}
 void accept_native_start_flag(std::uint64_t world,std::uint32_t game,const Vec3& at,float yaw) {
     ++mode_handoffs;mode_world_seen=world;mode_game_seen=game;mode_pose_seen=at;mode_yaw_seen=yaw;
 }
@@ -47,9 +54,20 @@ std::vector<std::string> commands;
 unsigned released{};
 std::uint32_t nav{};
 bool available=true;
+struct RestoredSpawn {std::uint64_t token{};std::array<float,3> at{};float yaw{};};
+std::vector<RestoredSpawn> restored_spawns;
+static bool move_available=true;static std::vector<std::uint32_t> moved_flags;
+
 }
 namespace dingosdk::multiplayer {
 bool local_throwdown_event_active() noexcept {return false;}
+std::uint32_t local_native_player_id() noexcept {return 7;}
+bool queue_custom_throwdown_flag(std::uint64_t token,std::uint32_t host,const std::string& key,const std::array<float,3>& at,float yaw) noexcept {
+    if(host!=7 || key!="race")return false;restored_spawns.push_back({token,at,yaw});return true;
+}
+bool queue_throwdown_move(std::uint32_t mmid,const std::array<float,3>& at,float yaw) noexcept {
+    if(!move_available)return false;moved_flags.push_back(mmid);restored_spawns.push_back({0,at,yaw});return true;
+}
 void release_one_up_native_placeholder() noexcept { ++released; }
 bool prepare_throwdown_injection() noexcept { return true; }
 bool queue_throwdown_destroy(std::uint32_t id) noexcept { destroyed.push_back(id); return true; }
@@ -571,6 +589,32 @@ int main() {
         current_view.state={};
         check(adopt_native_one_up_flag(901,6002,{10,20,30},90,30,6));
         check(flag_registration_waiting() && owns_flag_registration(6002));
+        abandon_flag_placement();
+        // A route load moves the SAME registration. It must never destroy,
+        // respawn or navigate to the donor setup, even on retries/cancellation.
+        current_view.state={};current_mode_view={};current_mode_view.active=current_mode_view.leading=current_mode_view.placing=true;
+        current_mode_view.world=901;current_mode_view.game=701;current_mode_view.settings.mode=dingosdk::modes::Mode::race;
+        current_mode_view.state=dingosdk::modes::Message{};current_mode_view.state->phase=dingosdk::modes::Phase::setup;
+        check(adopt_native_mode_flag(901,701,8001,{1,2,3},45,120,6,true));
+        const std::array<float,3> saved_start{1000,25,2000};const auto destroyed_before=destroyed.size();const auto ordinary_before=race_handoffs;nav=0;
+        check(!restore_race_flag(902,701,saved_start,-135) && !restore_race_flag(901,702,saved_start,-135));
+        check(restore_race_flag(901,701,saved_start,-135) && !restore_race_flag(901,701,saved_start,-135));
+        check(race_flag_move_pending(8001,saved_start,-135) && !race_flag_move_pending(9999,saved_start,-135));
+        move_available=false;tick();check(destroyed.size()==destroyed_before && restored_spawns.empty() && owns_flag_registration(8001) && nav==0);
+        move_available=true;test_now+=251;tick();check(moved_flags.back()==8001 && restored_spawns.size()==1 && restored_spawns.back().at==saved_start);
+        tick();check(restored_spawns.size()==1 && !native_flag_mode_waiting());
+        const auto moved_transform=native_spawn_transform({saved_start[0],saved_start[1],saved_start[2],-135.f*3.14159265f/180.f});
+        observe_flag_position(9999,saved_start,&moved_transform);check(restored_handoffs==0);
+        observe_flag_position(8001,{999,25,2000},&moved_transform);check(restored_handoffs==0);
+        observe_flag_position(8001,{std::numeric_limits<float>::quiet_NaN(),25,2000},&moved_transform);check(restored_handoffs==0);
+        observe_flag_position(8001,saved_start,&moved_transform);
+        check(restored_handoffs==1 && restored_outside_lock && restored_pose==saved_start && restored_yaw==-135);
+        check(owns_flag_registration(8001) && native_flag_mode_waiting() && race_handoffs==ordinary_before && destroyed.size()==destroyed_before && nav==0);
+        tick();check(restored_handoffs==1 && race_handoffs==ordinary_before);
+        check(restore_race_flag(901,701,{2000,30,3000},90));tick();flag_registration_left();
+        check(!race_flag_move_pending(8001,{2000,30,3000},90));
+        observe_flag_position(8001,{2000,30,3000},&flag_transform);check(restored_handoffs==1);
+        check(restored_race_flag_spawned(0x4452525300000001ULL,8004) && destroyed.back()==8004 && !owns_flag_registration(8004));
         abandon_flag_placement();
         std::cout<<count<<" flag bridge checks passed\n";
         return 0;

@@ -1,21 +1,23 @@
-# ReSkate 2.1.1 custom Throwdowns
+# ReSkate custom Throwdowns — native gates and Skate 2 HUD
 
-**[Latest custom update](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.1.1-custom-20261019-deathrace-routes) | [DLL](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.1-custom-20261019-deathrace-routes/ReSkate.dll) | [Launcher](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.1-custom-20261019-deathrace-routes/ReSkateLauncher.exe) | [Assets 1.0.15](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.1-custom-20261019-deathrace-routes/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.15.zip)**
+**[Current 2.1.1 playtest build](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.1.1-custom-20261022-skate2-hud-native-gates) · [DLL](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.1-custom-20261022-skate2-hud-native-gates/ReSkate.dll) · [Launcher](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.1-custom-20261022-skate2-hud-native-gates/ReSkateLauncher.exe) · [Assets 1.0.27](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.1-custom-20261022-skate2-hud-native-gates/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.27.zip)**
 
-Official ReSkate 2.1.1 with the existing R.E.S.K.A.T.E. integration, Deathrace builder and enroll-once/host-Start multiplayer flow. This update restores the original Chevron, retains its complete texture chain on custom maps, and fixes route-menu confirmation leaking into gate placement. It also publishes the accumulated named JSON route library, sharing/folder actions, recovery, editor and presentation changes.
+Compact Deathrace HUD, native animated world gates/chevrons, JSON route library, custom R.E.S.K.A.T.E., and native enroll/join/host Hold Start flow. This update keeps one steady outer gate, improves controller/menu readability and fixes default orientation reset after object changes. [Detailed changes and verification](docs/RELEASE_NOTES_20261022_NATIVE_GATES_HUD.md).
 
-**All 92 automated checks pass.** Both installed Improved-map inputs were independently rebuilt and inspected offline. Live gameplay on this exact build remains pending, so this is a playtest prerelease. Read the [detailed release notes](docs/RELEASE_NOTES_20261019_211_DEATHRACE_ROUTES.md) for the full change list, evidence and limits.
+**93 automated checks and 70 actual GPU HUD captures pass.** Live testing of this exact Assets 1.0.27 candidate is pending. The preceding 1.0.26 effects were confirmed visible by the owner.
+
+This is the completed custom **ReSkate 2.1.1** runtime, archived before migration to the official **2.1.2 Lua plugin API**. The forthcoming Thunderstore plugin will be separate and use stock ReSkate. This release DLL does not contain the 2.1.2 plugin host.
 
 ## Install
 
-Download all three files above. Close the game and launcher yourself, back up the current files, and put the DLL and launcher beside Skate.exe. Replace the complete Throwdown asset folder under your active Mods directory; keep layout.toc, initfs_win32, Win32 and Audio directly inside SmokeyDawg58-ReSkate_Throwdown_Assets, with one enabled copy. Version-suffixed folders are supported. ModData setups use their active Mods directory. Every PC needs this matching runtime pair and Assets 1.0.15. Launch normally and allow generated files to rebuild if prompted.
+Use all three matching downloads above. Close game and launcher, back up the current runtime pair and asset mod, replace the pair beside Skate.exe, then replace the complete enabled Throwdown Assets folder under Mods. Keep one copy enabled. All PCs need matching files. [Asset details](docs/ASSET_PACK.md).
 
 ## Routes and controls
 
-Tap Start to name/save; hold Start 1.5 seconds to load. The Load menu shows the current map's routes. Use D-pad Right for pencil rename and then folder reveal. Names use a keyboard. Saves are readable, shareable JSON under Mods/ReSkateRoutes/Deathrace/<map>/<route name>.json. The Load .json button imports a validated route. Opening the library migrates compatible older saves while preserving the originals. New worlds start without silently loading old gates.
+Tap Start to save/name (or play an unchanged loaded route); hold Start to load. The library filters the active map. D-pad/left stick navigates all directions; A selects, X renames, Y deletes after confirmation, RB reveals the JSON file, LB imports JSON, B goes back. Names use a physical keyboard. Saved routes are readable/shareable JSON with flag placement and objects under Mods/ReSkateRoutes/Deathrace. Load restores the flag and brings the player to the course.
 
-The compact complete asset ZIP is about 119 MB. Duplicate native storage was removed losslessly; required artwork, resolution, audio and registrations are preserved. Releases contain only the DLL, launcher and complete matching asset pack. Source, exact mods.patch, src/, BUILD_SOURCES.json and SNAPSHOT.json remain here. Historical releases have not been deleted or edited.
+Builder: L3 holds faster flight, R3 changes placement snap; while rotating, L3 resets default orientation. Native host Hold Start and Join remain unchanged. Required gates must be cleared in order before Finish.
 
-See [what to test](PLAYTEST.md), [validation](DIAGNOSTICS.md), [build instructions](docs/BUILD.md), [asset details](docs/ASSET_PACK.md) and [changelog](CHANGELOG.md). Protocol 52, mode wire 16 and 1-UP wire 5 are preserved. No game executable, Steam DLL, personal routes, settings or crash dumps are shipped.
+See [playtest checklist](PLAYTEST.md), [validation](DIAGNOSTICS.md), [build instructions](docs/BUILD.md), and [changelog](CHANGELOG.md). Protocol 52, mode wire 16, 1-UP wire 5. Historical releases and old HUD/source backups are preserved.
 
-Maintained by SmokeyDawg58. Upstream authorship, GPL-3.0, recorded R.E.S.K.A.T.E. contribution credits and substantial OpenAI Codex AI assistance are retained; see [credits](CONTRIBUTORS.md).
+Maintained by SmokeyDawg58. Upstream authorship, GPL-3.0, R.E.S.K.A.T.E. contribution credits and substantial OpenAI Codex assistance are retained; see [credits](CONTRIBUTORS.md).

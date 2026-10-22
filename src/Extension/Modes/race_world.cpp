@@ -1,4 +1,7 @@
 #include "race_world.h"
+#include "race_native_visuals.h"
+#include "race_entity_contract.h"
+#include "race_effect_contract.h"
 #include "race_asset_contract.h"
 #include "race_source_contract.h"
 #include "race_group_reconciliation.h"
@@ -29,6 +32,7 @@ namespace dingosdk::modes::race_world {
 namespace {
 namespace e=addr::skater_entities;
 namespace b=addr::ai_skaters;
+namespace fx=game::build::v20260929::race_effects;
 using Matrix=std::array<float,16>;
 template<class T> T get(std::uintptr_t p) {T v{};memory::peek(p,v);return v;}
 std::uintptr_t ptr(std::uintptr_t p,std::uintptr_t offset=0) {return get<std::uintptr_t>(p+offset);}
@@ -37,11 +41,11 @@ template<std::size_t N> void prefix(std::uintptr_t base,std::uintptr_t rva,const
     std::array<unsigned char,N> actual{};require(memory::peek_bytes(base+rva,actual.data(),N) && actual==expected,"Deathrace entity ABI differs.");
 }
 struct Gate {Vec3 at{};float yaw{},width{};bool finish{},guiding{},arrow{};float roll{},pitch{};bool hidden{};bool operator==(const Gate&) const=default;};
-struct Entity {std::uintptr_t entity{},owner{},context{};unsigned group{},part{};};
+struct Entity {std::uintptr_t entity{},owner{},context{};unsigned group{},part{};detail::CheckpointEntityKind kind{};};
 struct State {
     detail::CheckpointWorldLifetime lifetime;
     std::mutex mutex;std::vector<Entity> entities;std::vector<Gate> gates;
-    std::array<std::uintptr_t,11> assets{};std::array<std::uint16_t,11> asset_domains{};
+    std::array<std::uintptr_t,4> assets{};std::array<std::uint16_t,4> asset_domains{};
     std::uintptr_t context{};std::uint64_t world{},retry{},preview_at{};
     std::uint32_t game{},ready_game{};std::uint64_t ready_world{};
     bool verified{},route_ready{};std::string error,waiting;
@@ -64,18 +68,11 @@ void waiting(State& s,std::string issue) {
     s.waiting=std::move(issue);
     logging::log(logging::Level::debug,logging::Channel::runtime,"Native world objects (Deathrace gates, R.E.S.K.A.T.E. cones): {}",s.waiting);
 }
-constexpr std::array<const char*,11> checkpoint_names{
-    "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AT_Gate",
-    "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AL_Gate",
-    "World/ReSkate/Deathrace/SM_FX_GP_LightningBolt_A_Gate",
-    "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AT_Finish",
-    "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AL_Finish",
-    "World/ReSkate/Deathrace/SM_FX_GP_LightningBolt_A_Finish",
-    "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AT_Guide",
-    "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AL_Guide",
-    "World/ReSkate/Deathrace/SM_FX_GP_LightningBolt_A_Guide",
-    "World/ReSkate/Deathrace/FloatingArrow_AT",
-    "World/ReSkate/Deathrace/FloatingArrow_A"};
+constexpr std::array<const char*,4> checkpoint_names{
+   "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AT_Gate",
+   "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AT_Finish",
+   "World/ReSkate/Deathrace/SM_FX_GP_Checkpoint_A_AT_Guide",
+   "World/ReSkate/Deathrace/FloatingArrow_AT"};
 // A full domain lookup is bounded and done only when entering a race or loading
 // its bundle. Nine known-domain lookups validate the cached pointers thereafter.
 // UI assets are in a child domain, so searching the skater's parents alone
@@ -113,6 +110,47 @@ std::uintptr_t parent_bus(std::uintptr_t base,std::uintptr_t context) {
             return text.data();
         });
 }
+bool live_entity(std::uintptr_t base,const Entity& entity) {
+    return ptr(entity.entity,0x20)==entity.context && ptr(entity.entity,0x40)==entity.owner &&
+        detail::checkpoint_entity_kind(base,entity.entity,[](auto at){return ptr(at);})==entity.kind &&
+        entity.kind!=detail::CheckpointEntityKind::unsupported;
+}
+void move_entity(std::uintptr_t base,const Entity& entity,const Matrix& matrix) {
+    require(live_entity(base,entity),"Native checkpoint entity type or lifetime changed.");
+    if(entity.kind==detail::CheckpointEntityKind::effect) {
+        const auto absolute=detail::absolute_effect_transform(matrix);
+        alignas(16) std::array<unsigned char,0x30> message{};
+        const auto transform=absolute.data();
+        std::memcpy(message.data(),&fx::transform_message,4);
+        std::memcpy(message.data()+8,&transform,sizeof transform);
+        // EffectEntity's own transform message updates its matrix, GPU effect
+        // handle and attached effect state without touching SpatialEntity data.
+        reinterpret_cast<void(*)(std::uintptr_t,const void*)>(base+fx::effect_transform_changed)(entity.entity,message.data());
+    } else {
+        reinterpret_cast<void(*)(std::uintptr_t,const void*,std::uint8_t,std::uint8_t)>(base+e::move_spatial_entity)(entity.entity,matrix.data(),1,1);
+    }
+}
+void initialize_entity(std::uintptr_t base,const Entity& entity,const Matrix& matrix) {
+    require(live_entity(base,entity),"Native checkpoint created an unsupported entity type.");
+    if(entity.kind==detail::CheckpointEntityKind::effect) {
+        alignas(16) std::array<unsigned char,0x38> info{};
+        const auto vtable=base+fx::entity_init_message_vtable;
+        const auto context=entity.context;
+        const auto world=reinterpret_cast<int(*)(const void*)>(base+fx::context_world_id)(&context);
+        const std::uint16_t flags=1;
+        std::memcpy(info.data(),&vtable,sizeof vtable);
+        std::memcpy(info.data()+0x28,&world,sizeof world);
+        std::memcpy(info.data()+0x2c,&flags,sizeof flags);
+        reinterpret_cast<void(*)(std::uintptr_t,const void*)>(base+fx::entity_initialize)(entity.entity,info.data());
+        move_entity(base,entity,matrix);
+        // The regular world-placement helper ends in SpatialEntity-only vtable
+        // callbacks. Start an EffectEntity through its actual native player.
+        if(!ptr(entity.entity,0xd0))
+            reinterpret_cast<void(*)(std::uintptr_t)>(base+fx::effect_start)(entity.entity);
+    } else {
+        reinterpret_cast<void(*)(std::uintptr_t,const void*,std::uintptr_t,std::uint8_t)>(base+e::initialize_placement)(entity.entity,matrix.data(),0,1);
+    }
+}
 Entity create(std::uintptr_t base,std::uintptr_t parent,std::uintptr_t asset,const Matrix& matrix,unsigned group,unsigned part) {
     using CreateBus=std::uintptr_t(*)(std::uintptr_t,std::uintptr_t,std::uintptr_t,std::uintptr_t,std::uint8_t,std::uintptr_t);
     const auto bus=reinterpret_cast<CreateBus>(base+b::create_bus)(ptr(ptr(parent,8),0x48),parent,0,0,0,0);
@@ -126,48 +164,29 @@ Entity create(std::uintptr_t base,std::uintptr_t parent,std::uintptr_t asset,con
     std::array<std::uintptr_t,3> result{};
     reinterpret_cast<void*(*)(void*,void*,std::uintptr_t,std::uintptr_t,std::uintptr_t)>(base+e::create_entity)(result.data(),descriptor.data(),asset,0,0);
     if(result[1])reinterpret_cast<void(*)(std::uintptr_t)>(base+e::release_reference)(result[1]);
-    require(result[0]!=0,"Native checkpoint mesh did not create an entity.");
-    const Entity entity{result[0],ptr(result[0],0x40),ptr(result[0],0x20),group,part};
+    require(result[0]!=0,"Native checkpoint effect did not create an entity.");
+    const Entity entity{result[0],ptr(result[0],0x40),ptr(result[0],0x20),group,part,
+        detail::checkpoint_entity_kind(base,result[0],[](auto at){return ptr(at);})};
     {auto& s=state();std::lock_guard lock(s.mutex);s.entities.push_back(entity);}
-    reinterpret_cast<void(*)(std::uintptr_t,const void*,std::uintptr_t,std::uint8_t)>(base+e::initialize_placement)(entity.entity,matrix.data(),0,1);
+    initialize_entity(base,entity,matrix);
     return entity;
 }
-Matrix mesh_pose(const Gate& gate,unsigned part) {
-    if(gate.arrow)return race_arrow_layer_transform(gate.at,gate.yaw,gate.roll,gate.width,gate.pitch,part);
-    // Exact child transforms from SPF_UI_Checkpoint_Base. One size control
-    // scales the complete gate, including bolt placement, about ground level.
-    constexpr std::array<float,4> sx{7.f,7.f,-2.12332f,2.13802f},sy{7.f,7.f,2.12332f,2.13802f};
-    constexpr std::array<float,4> right_y{0.f,0.f,-.286054f,.0179417f},up_x{0.f,0.f,-.286054f,-.0179417f};
-    constexpr std::array<float,4> x{0.f,0.f,-1.67701f,1.70283f},y{1.70747f,1.70747f,4.31834f,4.34544f};
-    constexpr std::array<float,4> z{.00849477f,0.f,.1f,.1f};
-    const float yaw=gate.yaw*3.14159265f/180.f,co=std::cos(yaw),si=std::sin(yaw),width=gate.width*2.f/7.f;
-    const float scale=gate.width/6.f;
-    const float a=sx[part]*width,bb=right_y[part]*scale,c=up_x[part]*width,d=sy[part]*scale,depth=(part<2?7.f:part==2?2.1425f:2.1381f)*scale;
-    if(gate.pitch!=0.f) {
-        const auto axes=race_gate_axes(gate.yaw,gate.pitch);Matrix result{};
-        for(unsigned axis=0;axis<3;++axis) {
-            result[axis]=axes.right[axis]*a+axes.up[axis]*bb;
-            result[4+axis]=axes.right[axis]*c+axes.up[axis]*d;
-            result[8+axis]=axes.forward[axis]*depth;
-            result[12+axis]=gate.at[axis]+axes.right[axis]*x[part]*width+axes.up[axis]*y[part]*scale+axes.forward[axis]*z[part]*scale;
-        }
-        result[15]=1;return result;
-    }
-    return {co*a,bb,-si*a,0,co*c,d,-si*c,0,si*depth,0,co*depth,0,
-        gate.at[0]+co*x[part]*width+si*z[part]*scale,gate.at[1]+y[part]*scale,gate.at[2]-si*x[part]*width+co*z[part]*scale,1};
+Matrix effect_pose(const Gate& gate) {
+   return race_native_effect_pose(gate.at,gate.yaw,gate.pitch,gate.arrow?gate.roll:0.f,gate.width);
 }
+
 void clear(std::uintptr_t base) {
     auto& s=state();std::vector<Entity> old;
     {std::lock_guard lock(s.mutex);old.swap(s.entities);s.gates.clear();s.dirty.clear();s.route_ready=false;}
     // No lock across native destruction: the shared hook calls us back.
-    for(const auto& e0:old)if(ptr(e0.entity,0x20)==e0.context && ptr(e0.entity,0x40)==e0.owner)
+    for(const auto& e0:old)if(live_entity(base,e0))
         reinterpret_cast<void(*)(std::uintptr_t,std::uintptr_t)>(base+e::destroy_entity)(e0.entity,e0.owner);
 }
 void clear_group(std::uintptr_t base,unsigned group) {
     auto& s=state();std::vector<Entity> old;
     {std::lock_guard lock(s.mutex);for(const auto& entity:s.entities)if(entity.group==group)old.push_back(entity);
         std::erase_if(s.entities,[&](const Entity& entity){return entity.group==group;});}
-    for(const auto& entity:old)if(ptr(entity.entity,0x20)==entity.context && ptr(entity.entity,0x40)==entity.owner)
+    for(const auto& entity:old)if(live_entity(base,entity))
         reinterpret_cast<void(*)(std::uintptr_t,std::uintptr_t)>(base+e::destroy_entity)(entity.entity,entity.owner);
 }
 // The zone's edge, every 4 m or so (8 to 48 cones), at the height of its centre: the placed area,
@@ -240,9 +259,8 @@ void tick_beacon(std::uintptr_t base,std::uintptr_t context,const NativeView& vi
     const float yaw=static_cast<float>(now%6000)/6000.f*2.f*3.14159265f,co=std::cos(yaw),si=std::sin(yaw);
     const Matrix matrix{co*size,0,-si*size,0,0,size,0,0,si*size,0,co*size,0,(*at)[0],(*at)[1]+8.f,(*at)[2],1};
     if(live) {
-        const auto collection=ptr(live->entity,0x70);
-        if(ptr(live->entity,0x20)==live->context && ptr(live->entity,0x40)==live->owner && collection && ptr(collection)==live->entity) {
-            reinterpret_cast<void(*)(std::uintptr_t,const void*,std::uint8_t,std::uint8_t)>(base+e::move_spatial_entity)(live->entity,matrix.data(),1,1);
+        if(live_entity(base,*live)) {
+            move_entity(base,*live,matrix);
             return;
         }
         clear_group(base,beacon_group);
@@ -282,14 +300,11 @@ void tick_zone(std::uintptr_t base,std::uintptr_t context,const NativeView& view
     if(now<s.preview_at)return;
     s.preview_at=now+16;
     // The same number of cones: move them (recreating every frame made Deathrace's preview jump).
-    if(live.size()==points.size() && s.cone_points.size()==points.size() && std::all_of(live.begin(),live.end(),[](const auto& entity) {
-        const auto collection=ptr(entity.entity,0x70);
-        return ptr(entity.entity,0x20)==entity.context && ptr(entity.entity,0x40)==entity.owner && collection && ptr(collection)==entity.entity;
-    })) {
+    if(live.size()==points.size() && s.cone_points.size()==points.size() && std::all_of(live.begin(),live.end(),[base](const auto& entity) {return live_entity(base,entity);})) {
         for(const auto& entity:live) {
             if(entity.group>=points.size())continue;
             const auto matrix=pose(points[entity.group]);
-            reinterpret_cast<void(*)(std::uintptr_t,const void*,std::uint8_t,std::uint8_t)>(base+e::move_spatial_entity)(entity.entity,matrix.data(),1,1);
+            move_entity(base,entity,matrix);
         }
         s.cone_points=points;
         return;
@@ -349,12 +364,17 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
             prefix(base,e::descriptor_init,e::descriptor_init_prefix);prefix(base,e::descriptor_destroy,e::descriptor_destroy_prefix);
             prefix(base,e::create_entity,e::create_entity_prefix);prefix(base,e::initialize_placement,e::initialize_placement_prefix);
             prefix(base,e::move_spatial_entity,e::move_spatial_entity_prefix);
+            prefix(base,fx::entity_initialize,fx::entity_initialize_prefix);prefix(base,fx::context_world_id,fx::context_world_id_prefix);
+            prefix(base,fx::effect_start,fx::effect_start_prefix);prefix(base,fx::effect_transform_changed,fx::effect_transform_changed_prefix);
             // ReSkate's shared entity lifetime hook already detours Destroy.
             // install_entity_hooks below validates or reuses that verified hook.
             prefix(base,b::create_bus,b::create_bus_prefix);prefix(base,b::acquire_bus,b::acquire_bus_prefix);
             std::string detail;require(multiplayer::install_entity_hooks(base,detail),"Native entity lifetime hooks unavailable.");s.verified=true;
         }
         if(zone) {tick_zone(base,context,view,s,now);return;}
+        if(!ptr(base+fx::effect_manager) || !ptr(base+fx::effect_handle_manager)) {
+            waiting(s,"waiting for the native effects system");return;
+        }
         if(!assets_resident(base,s)) {
             // The native registry owns the asset lifetime, not the local client
             // context. Recreate only after all current roots resolve again.
@@ -381,19 +401,29 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
         std::set<unsigned> dirty;
         std::vector<unsigned> live_parts(gates.size());
         std::vector<unsigned> expected_parts;unsigned expected_total{};
-        for(const auto& gate:gates){const auto parts=gate.hidden?0u:gate.arrow?2u:4u;expected_parts.push_back(parts);expected_total+=parts;}
+        for(const auto& gate:gates){const auto parts=gate.hidden?0u:1u;expected_parts.push_back(parts);expected_total+=parts;}
         {std::lock_guard lock(s.mutex);
             for(const auto& entity:s.entities)if(entity.group<live_parts.size())++live_parts[entity.group];
             dirty=detail::pending_checkpoint_groups(s.dirty,live_parts,expected_parts);}
         const auto publish_ready=[&] {
             std::lock_guard lock(s.mutex);s.ready_world=view.world;s.ready_game=view.game;
             s.route_ready=!view.placing && view.route_finish && gates.size()>=2 &&
-                s.entities.size()==expected_total && s.dirty.empty() && live_parts==expected_parts;
+                s.entities.size()==expected_total && s.dirty.empty() && live_parts==expected_parts &&
+                std::all_of(s.entities.begin(),s.entities.end(),[base,&gates](const Entity& entity) {
+                    // EffectManager owns the world parent and its local
+                    // emitters. A world matrix on a child applies placement
+                    // twice. Only inspect their asynchronous readiness here.
+                    return live_entity(base,entity) && detail::checkpoint_particle_handles(base,entity.entity,
+                        [](auto at){return ptr(at);},[](auto at){return get<std::uint32_t>(at);},
+                        [](auto at){return get<std::uint8_t>(at);},entity.group<gates.size() && gates[entity.group].arrow?3u:1u).has_value();
+                });
         };
-        if(gates==s.gates && dirty.empty()) {publish_ready();return;}
+        if(gates==s.gates && dirty.empty()) {
+           publish_ready();return;
+       }
         if(now<s.preview_at)return;
         s.preview_at=now+16;
-        const auto parent=parent_bus(base,context);if(!parent) {waiting(s,"waiting for the native local skater entity bus");return;}
+        const auto parent=expected_total?parent_bus(base,context):0;if(expected_total && !parent) {waiting(s,"waiting for the native local skater entity bus");return;}
         {std::lock_guard lock(s.mutex);
             std::fill(live_parts.begin(),live_parts.end(),0);
             for(const auto& entity:s.entities)if(entity.group<live_parts.size())++live_parts[entity.group];
@@ -401,18 +431,15 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
         unsigned created_groups{};
         for(unsigned i=0;i<std::max(gates.size(),s.gates.size());++i) {
             if(i<gates.size() && i<s.gates.size() && gates[i]==s.gates[i] && !dirty.contains(i))continue;
-            // Move a resident arch in place. Recreating all four meshes five
-            // times a second caused the preview to jump and restart its FX.
+            // Move the existing native effect root in place. Keep its GPU
+            // emitter clocks alive while adjusting the placement preview.
             if(i<gates.size() && i<s.gates.size() && gates[i].finish==s.gates[i].finish && gates[i].guiding==s.gates[i].guiding && gates[i].arrow==s.gates[i].arrow && gates[i].hidden==s.gates[i].hidden && !dirty.contains(i)) {
                 std::vector<Entity> group;
                 {std::lock_guard lock(s.mutex);for(const auto& entity:s.entities)if(entity.group==i)group.push_back(entity);}
-                if(group.size()==expected_parts[i] && std::all_of(group.begin(),group.end(),[](const auto& entity) {
-                    const auto collection=ptr(entity.entity,0x70);
-                    return ptr(entity.entity,0x20)==entity.context && ptr(entity.entity,0x40)==entity.owner && collection && ptr(collection)==entity.entity;
-                })) {
+                if(group.size()==expected_parts[i] && std::all_of(group.begin(),group.end(),[base](const auto& entity) {return live_entity(base,entity);})) {
                     for(const auto& entity:group) {
-                        const auto matrix=mesh_pose(gates[i],entity.part);
-                        reinterpret_cast<void(*)(std::uintptr_t,const void*,std::uint8_t,std::uint8_t)>(base+e::move_spatial_entity)(entity.entity,matrix.data(),1,1);
+                        const auto matrix=effect_pose(gates[i]);
+                        move_entity(base,entity,matrix);
                     }
                     continue;
                 }
@@ -421,15 +448,15 @@ void tick(std::uintptr_t base,std::uintptr_t client,bool ready) noexcept {
             clear_group(base,i);
             if(i<gates.size())++created_groups;
             if(i<gates.size())for(unsigned part=0;part<expected_parts[i];++part) {
-                const auto& gate=gates[i];const auto asset=gate.arrow?9+part:(gate.finish?3:gate.guiding?6:0)+(part<2?part:2);
-                (void)create(base,parent,s.assets[asset],mesh_pose(gate,part),i,part);
+                const auto& gate=gates[i];const auto asset=gate.arrow?3:gate.finish?1:gate.guiding?2:0;
+                (void)create(base,parent,s.assets[asset],effect_pose(gate),i,part);
             }
         }
         {std::lock_guard lock(s.mutex);
             std::fill(live_parts.begin(),live_parts.end(),0);
             for(const auto& entity:s.entities)if(entity.group<live_parts.size())++live_parts[entity.group];}
         s.gates=gates;publish_ready();
-        if(!gates.empty())waiting(s,"native checkpoint entities created");
+        if(!gates.empty())waiting(s,"native looping checkpoint effects created");
     } catch(const std::exception& e0) {
         if(s.error!=e0.what()) {s.error=e0.what();logging::log(logging::Level::error,logging::Channel::runtime,"Deathrace objects: {}",s.error);}
     } catch(...) {logging::write(logging::Level::error,logging::Channel::runtime,"Deathrace object creation failed.");}
@@ -438,6 +465,7 @@ void before_level_transition(std::uintptr_t base,unsigned next) noexcept {
     auto& s=state();bool release{};
     {std::lock_guard lock(s.mutex);release=s.lifetime.before_transition(next,s.game);}
     if(!release)return;
+
     // Retire in the live world before its component data disappears. Saved
     // courses live in game_modes and remain intact.
     try {clear(base);}

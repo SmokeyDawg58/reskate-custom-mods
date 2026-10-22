@@ -152,7 +152,7 @@ constexpr std::array<std::uint32_t, 2> throwdown_score_graphs{0xac8e7dbc, 0x80fa
 struct Job {
     enum class Kind { ai, spawn, start, destroy, join, end_turn, score, remove, total, row, attempt, destroy_event,
                       criteria_attempt, onboarding_complete, challenge_start, challenge_slam, challenge_leave,
-                      beacon_move, beacon_remove } kind;
+                      beacon_move, beacon_remove, move_flag } kind;
     std::uint32_t uid{}, max_players{};
     std::string series;                            // spawn: mode when no placement is recorded
     float score{}; bool flag{true};                // score: value and the native's flag
@@ -1086,6 +1086,26 @@ std::string run_job(const Job& job) {
         e.set_u32(field_mmid, mmid);
         e.send();
         return std::format("AddAIParticipantToCommunityEvent sent: player {:#x} into {} queue MMID {:#x}", job.uid, series, mmid);
+    }
+    case Job::Kind::move_flag: {
+        if(!job.position || !one_up::race_flag_move_pending(job.mmid,*job.position,job.score))return "Expired flag move discarded";
+        Instance e(type_of(event_update));const auto p=find_field(e.type,field_params);
+        if(!p || p->kind!=kind_struct)throw std::runtime_error("Flag update Params unavailable");
+        const auto at=e.value+p->offset;StreamReader reader{job.placement};restore_value(p->type,at,reader,0);
+        if(reader.at!=job.placement.size())throw std::runtime_error("Flag placement stream differs");
+        // Retain the complete original parameters, including custom InstanceId,
+        // host limits and settings arrays. Only the two placement fields change.
+        const auto spawn=find_field(p->type,field_spawn),teleport=find_field(p->type,field_teleport);
+        if(!spawn || spawn->size!=16 || !teleport || teleport->size<12)throw std::runtime_error("Flag pose layout differs");
+        const auto& xyz=*job.position;const std::array<float,4> pose{xyz[0],xyz[1],xyz[2],job.spawn_yaw};
+        std::memcpy(reinterpret_cast<void*>(at+spawn->offset),pose.data(),sizeof pose);
+        std::memcpy(reinterpret_cast<void*>(at+teleport->offset),xyz.data(),sizeof xyz);
+        e.set_u32(field_mmid,job.mmid);e.send();
+        // Injected sends bypass the observation hook. Acknowledge this exact
+        // sent pose explicitly, outside the lab and placement mutexes.
+        const auto transform=one_up::native_spawn_transform(pose);
+        one_up::observe_flag_position(job.mmid,xyz,&transform);
+        return "Moved existing custom flag without opening setup";
     }
     case Job::Kind::spawn: {
         Instance e(type_of(event_debug_spawn));
@@ -2419,6 +2439,15 @@ bool queue_custom_throwdown_flag(std::uint64_t token,std::uint32_t host,const st
         job.max_players=10; // A flag must never auto-start the Spot Battle donor.
         return queue_relay_job(std::move(job),event_debug_spawn);
     } catch(...) {return false;}
+}
+bool queue_throwdown_move(std::uint32_t mmid,const std::array<float,3>& at,float yaw) noexcept {
+    if(!mmid || !one_up::owns_flag_registration(mmid) || !std::isfinite(yaw) ||
+       !std::all_of(at.begin(),at.end(),[](float n){return std::isfinite(n) && std::abs(n)<100000.f;}))return false;
+    try {
+        Job job{Job::Kind::move_flag};job.mmid=mmid;job.position=at;job.score=yaw;job.spawn_yaw=yaw*3.14159265f/180.f;
+        auto& l=lab();{std::lock_guard lock(l.mutex);if(l.hosted_mmid!=mmid || l.params.empty())return false;job.placement=l.params;}
+        return queue_relay_job(std::move(job),event_update);
+    }catch(...){return false;}
 }
 bool queue_throwdown_add(std::uint32_t player, const std::string& series, std::uint32_t mmid) noexcept {
     if (!player || !mmid) return false;

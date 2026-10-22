@@ -1,3 +1,6 @@
+#include "Extension/Modes/race_native_visuals.h"
+#include "Extension/Modes/race_entity_contract.h"
+#include "Extension/Modes/race_effect_contract.h"
 #include "Extension/UI/NativeMenu/native_menu_lifetime.h"
 #include "Extension/UI/NativeMenu/native_array_publication.h"
 #include "Extension/UI/NativeMenu/native_menu_ownership.h"
@@ -6,6 +9,8 @@
 #include "Extension/UI/NativeMenu/native_join_context.h"
 #include "Extension/UI/NativeMenu/native_flag_interaction.h"
 #include "Extension/UI/NativeMenu/native_hud_values.h"
+#include "Extension/UI/NativeMenu/deathrace_native_presentation.h"
+#include "Extension/UI/NativeMenu/deathrace_native_bridge.h"
 #include "Engine/Game/Input/owned_menu_input.h"
 #include "Extension/Throwdowns/native_flag_preview.h"
 #include "Extension/Throwdowns/native_flag_bubble.h"
@@ -1466,7 +1471,7 @@ void exclusive_start_release() {
 }
 void stable_hud_surface_presenters() {
     using namespace dingosdk::multiplayer::menu_data;
-    check(custom_hud_slot_order.size()==89 && custom_hud_slot_order.back()==0x31555076,
+    check(custom_hud_slot_order.size()==185 && custom_hud_slot_order.back()==0x31555076,
           "A single stable catalog owns all mode/1-UP rows with the Start prompt last");
     for(std::size_t i=0;i<custom_hud_slot_order.size();++i) {
         check(custom_hud_item(custom_hud_slot_order[i]),"Every catalog slot belongs to a custom HUD");
@@ -1636,7 +1641,164 @@ int main() {
         native_activity_page_identity_cleanup();native_activity_foreign_page_replacement();
         native_activity_first_frame_presentation();
         map_transition(); interrupted_cleanup(); partial_build_rollback(); interrupted_build_rollback(); window_close(); native_transition_without_load_request(); action_slots(); live_hud_binding(); selected_native_join_context(); native_flag_interaction_owner(); native_hud_clock_and_penalties(); native_one_up_slider_values(); wrapped_waiting_notification(); private_throwdown_graphs(); native_setup_body_reentry(); native_setup_capability_rows(); native_setup_action_ownership(); native_setup_owned_tiles(); native_array_source_retention(); native_store_and_hub_snapshot_lifetimes();
-        std::puts("Native menu lifetime: transitions, cleanup, rollback, action slots, HUD binding, setup presenter reentry, and native array source retention passed.");
+        namespace dr=dingosdk::deathrace_ui;
+        for(const float aspect:{9.f/16.f,4.f/3.f,16.f/10.f,16.f/9.f,21.f/9.f,32.f/9.f,48.f/9.f})
+        for(unsigned screen=0;screen<=static_cast<unsigned>(dr::Screen::results);++screen)
+        for(unsigned players=1;players<=6;++players){
+            dr::Input in;in.aspect=aspect;in.screen=static_cast<dr::Screen>(screen);in.player=std::string(64,'W');in.winner=in.player;
+            in.route=std::string(64,'W');in.map="Skate3Improved";in.required=14;in.cleared=14;in.players=players;
+            in.remaining="60:00.000";in.error="Finish gate needed";in.notification="Required gate 14 passed";
+            in.rows.resize(players);for(unsigned i=0;i<players;++i)in.rows[i]={std::string(64,'W'),"59:59.999","14 / 14 gates",i==0,false,false,i+1};
+            in.routes.resize(12);in.selected_route=11;in.first_route=10;in.route_action=5;
+            const auto scene=dr::compose(in);
+            check(scene.cells.size()<=dr::max_cells,"Every Deathrace screen fits the native cell pool");
+            if(in.screen==dr::Screen::lobby)check(scene.cells.empty(),"The native waiting banner is the only lobby presentation; ImGui cannot replace Hold Start with Hold A");
+            for(const auto& cell:scene.cells){
+                check(!dr::overlaps(cell.box,dr::compass_reserved(scene.width)),"Deathrace leaves the native compass and location banner clear");
+                check(!dr::overlaps(cell.box,dr::dpad_reserved(scene.width)),"Deathrace leaves the native lower-left D-pad clear");
+            }
+            const dr::Frame frame(aspect);
+            for(const auto& cell:scene.cells){check(dr::inside(cell.box,scene.width,scene.height),"Deathrace cells stay inside their layout frame");
+                if(!cell.input.empty())check(dr::input_native_size<=cell.box.w*2 && dr::input_native_size<=cell.box.h*2,
+                    "Device glyphs keep their bounded native size inside every button cell");
+                const auto a=frame.normalized(cell.box.x,cell.box.y),b=frame.normalized(cell.box.x+cell.box.w,cell.box.y+cell.box.h);
+                check(a[0]>=0 && a[1]>=0 && b[0]<=1 && b[1]<=1,"Uniform native fit preserves all cells within the physical viewport");
+                const auto inverse=frame.logical(a[0],a[1]);check(std::abs(inverse[0]-cell.box.x)<.01f && std::abs(inverse[1]-cell.box.y)<.01f,"Native route pointer hits use the same fit as rendered cells");}
+        }
+        check(dr::clock(0)=="00:00.000" && dr::clock(3600000)=="60:00.000","Native design preserves millisecond clocks and hour deadlines");
+        check(dr::safe_text("[evil]<style>")=="[evil]<style>","Plain native labels preserve literal names with markup disabled");
+        check(dr::bounded_text("Required gates",180,34,21,false)=="Required gates" &&
+              dr::bounded_text("Reset original orientation",326,44,21,false)=="Reset original orientation",
+              "Native font advances retain complete builder captions inside their fixed rows");
+        std::string unicode;for(unsigned i=0;i<64;++i)unicode+="\xc3\xa9";
+        const auto clipped=dr::bounded_text(unicode,90,34,21,false);
+        for(std::size_t i=0;i<clipped.size();++i)if(static_cast<unsigned char>(clipped[i])>=128){
+            check(i+1<clipped.size() && static_cast<unsigned char>(clipped[i])==0xc3 && static_cast<unsigned char>(clipped[i+1])==0xa9,
+                  "Ellipsis removes whole UTF-8 characters");++i;
+        }
+        dr::Input winner;winner.screen=dr::Screen::results;winner.winner="Smokey";
+        const auto winner_scene=dr::compose(winner);
+        check(std::any_of(winner_scene.cells.begin(),winner_scene.cells.end(),[](const auto& c){return c.marker && c.text=="SMOKEY WINS!";}),
+              "The native caps marker font receives complete uppercase winner text");
+        dr::acknowledge(10,20,30,1000);
+        check(dr::current(10,20,1200) && !dr::current(11,20,1200) && !dr::current(10,21,1200) && !dr::current(10,20,1500),
+              "A native renderer only owns fresh input in its exact world and challenge");
+        dr::retire();check(!dr::current(10,20,1200),"Native menu/map retirement releases modal input immediately");
+        check(dr::transition_family(dr::Screen::countdown)==dr::transition_family(dr::Screen::go) && dr::transition_family(dr::Screen::go)==dr::transition_family(dr::Screen::racing),"Countdown, GO and racing share one continuous HUD transition");
+        dr::Input presentation;presentation.screen=dr::Screen::lobby;presentation.host_local=true;
+        dr::present(presentation,{},10,20,30,1000);
+        check(dr::presentation_at(1200).has_value() && !dr::presentation_at(1500).has_value(),"Overlay presentation expires if native publication stops");
+        dr::retire();check(!dr::presentation_at(1200).has_value(),"Map/menu retirement clears the overlay presentation as well as input ownership");
+        for(const float width:{1440.f,1920.f,3840.f}){
+            const dr::RouteLayout layout(width,true);
+            check(layout.rows_y+3*70+62<layout.footer_y-12,"Four route rows leave a clear gap above actions");
+            check(layout.box.y>140 && layout.box.y+layout.box.h<1000,"Route dialogs leave the game HUD safe margins");
+        }
+        dr::RouteNavigation nav;
+        for(unsigned route=1;route<9;++route){nav.step(1,9);check(!nav.actions && nav.route==route,"D-pad Down visits every route before its action buttons");}
+        for(unsigned action=0;action<6;++action){nav.step(1,9);check(nav.actions && nav.action==action && nav.route==8,"D-pad Down visits every library action without Left/Right");}
+        nav.step(1,9);check(!nav.actions && nav.route==0,"The vertical library chain wraps safely to its first route");
+        nav.step(-1,9);check(nav.actions && nav.action==5,"D-pad Up reaches the last action from the first route");
+        for(unsigned action=5;action>0;--action){nav.step(-1,9);check(nav.action==action-1,"D-pad Up walks every action in reverse");}
+        nav.step(-1,9);check(!nav.actions && nav.route==8,"Returning from actions preserves the last route");
+        dr::RouteNavigation empty;empty.normalize(0);check(empty.actions && empty.action==4,"An empty library focuses Import JSON");
+        empty.step(1,0);check(empty.action==5,"Empty-library Down reaches Back");empty.step(1,0);check(empty.action==4,"Empty-library actions wrap without an invalid route");
+        dr::RouteNavigation grid{8,0,false};grid.vertical(1,9);check(grid.actions && grid.action==0,"Down from the last route enters the action grid");
+        grid.horizontal(1,9);check(grid.action==1,"Right selects Rename");grid.vertical(1,9);check(grid.action==4,"Down from Rename selects the JSON row");
+        grid.vertical(-1,9);check(grid.action==1,"Up returns independently to Rename");grid.horizontal(1,9);grid.vertical(1,9);check(grid.action==5,"Folder column reaches Back directly");
+        grid.vertical(-1,9);check(grid.action==2,"Up returns to Folder");grid.horizontal(1,9);grid.vertical(1,9);grid.vertical(-1,9);check(grid.action==0,"The third column wraps horizontally before vertical movement");
+        for(unsigned n:{1u,6u,9u})for(unsigned action=0;action<6;++action)for(int direction:{-1,1}){
+            dr::RouteNavigation move{n-1,action,true};move.horizontal(direction,n);check(move.action<6 && move.route<n,"Horizontal movement remains on a valid button");move.vertical(direction,n);check(move.action<6 && move.route<n,"Vertical movement remains on a valid button or route");
+        }
+        dr::Input go;go.screen=dr::Screen::go;auto go_scene=dr::compose(go);bool full_go=false;for(const auto& cell:go_scene.cells)if(cell.paint==dr::Paint::countdown)full_go=cell.text=="GO!";
+        check(std::any_of(go_scene.cells.begin(),go_scene.cells.end(),[](const auto& c){return c.paint==dr::Paint::race_clock;}),"The clock stays mounted during GO");
+        check(std::none_of(go_scene.cells.begin(),go_scene.cells.end(),[](const auto& c){return c.paint==dr::Paint::brush;}),"Legacy red title strokes are absent from the race HUD");
+        check(full_go,"GO! is never run through label truncation or replaced by G...");
+        {
+            namespace c=dingosdk::modes::race_world::detail;
+            namespace fx=dingosdk::game::build::v20260929::race_effects;
+            constexpr std::uintptr_t base=0x140000000,entity=0x1215b663c0,collection=0x200000;
+            // The captured builder crash: EffectEntity, with +0x70 == 0x60.
+            // Calling SpatialEntity placement would read byte [0x60+0xa].
+            std::map<std::uintptr_t,std::uintptr_t> memory{{entity,base+fx::effect_entity_vtable},{entity+0x70,0x60}};
+            unsigned spatial_reads{};
+            const auto read=[&](auto at){if(at==entity+0x70 || at==0x60)++spatial_reads;return memory[at];};
+            check(c::checkpoint_entity_kind(base,entity,read)==c::CheckpointEntityKind::effect && spatial_reads==0,
+                  "Captured EffectEntity must never enter SpatialEntity placement or inspect its collection");
+            memory[entity]=base+123;
+            check(c::checkpoint_entity_kind(base,entity,read)==c::CheckpointEntityKind::unsupported,
+                  "A small non-pointer collection must refuse placement, not dereference engine state");
+            memory[entity+0x70]=collection;memory[collection]=entity;
+            check(c::checkpoint_entity_kind(base,entity,read)==c::CheckpointEntityKind::spatial,
+                  "Real owned SpatialEntity transform collections retain the regular placement path");
+            memory[collection]=entity+8;
+            check(c::checkpoint_entity_kind(base,entity,read)==c::CheckpointEntityKind::unsupported,
+                  "An unowned or reused transform collection cannot select regular placement");
+            const auto pose=dingosdk::modes::race_native_effect_pose({10,20,30},90,45,30,6);
+            const auto absolute=c::absolute_effect_transform(pose);
+            check(std::equal(pose.begin(),pose.begin()+15,absolute.begin()) &&
+                  (std::bit_cast<std::uint32_t>(absolute[15]) & fx::absolute_transform_bits)==fx::absolute_transform_bits,
+                  "Native effect messages keep the exact pose and mark it absolute to prevent double parent transforms");
+            // Captured live native handle layout, including the asynchronous
+            // pending state and the three GPU mesh helpers. Only owned, ready
+            // mesh emitters can receive a full native placement transform.
+            constexpr std::uintptr_t handle=0x36d48730,instance=0x37b1e4f0;
+            memory[entity]=base+fx::effect_entity_vtable;memory[entity+0xd0]=handle;
+            memory[handle+4]=1;memory[handle+8]=instance;memory[instance]=handle;memory[instance+0x40]=3;
+            for(unsigned i=0;i<3;++i){const auto helper=instance+0x48+i*0x20;memory[helper]=base+fx::mesh_emitter_helper_vtable;memory[helper+8]=210+i;memory[helper+0x10]=0x11b6c00380+i*0x260;}
+            const auto particles=[&]{return c::checkpoint_particle_handles(base,entity,read,[&](auto at){return static_cast<std::uint32_t>(memory[at]);},[&](auto at){return static_cast<std::uint8_t>(memory[at]);});};
+            check(particles()==std::array<std::uint32_t,3>{210,211,212},"Captured native GPU emitter handles are ready for full size and rotation");
+            memory[instance+0x40]=1;
+            const auto outer=c::checkpoint_particle_handles(base,entity,read,[&](auto at){return static_cast<std::uint32_t>(memory[at]);},[&](auto at){return static_cast<std::uint8_t>(memory[at]);},1);
+            check(outer && (*outer)[0]==210 && (*outer)[1]==0 && !particles(),"One steady outer gate is ready without reading nonexistent inner emitters; Arrow still requires all three");
+            memory[instance+0x40]=3;
+            memory[handle+4]=0;check(!particles(),"Pending effects must wait for native initialization instead of treating a missing helper as a particle");memory[handle+4]=1;
+            memory[instance]=handle+16;check(!particles(),"A reused effect instance cannot publish particle handles");memory[instance]=handle;
+            memory[instance+0x40]=128;check(!particles(),"Unexpected helper counts are rejected before traversal");memory[instance+0x40]=3;
+            memory[instance+0x48+0x20]=base+1;check(!particles(),"Another native helper type must never enter the GPU transform API");memory[instance+0x48+0x20]=base+fx::mesh_emitter_helper_vtable;
+            memory[instance+0x48+8]=0;check(!particles(),"An invalid native particle handle cannot underflow the engine's handle index");memory[instance+0x48+8]=210;
+            memory[instance+0x48+0x20+8]=210;check(!particles(),"Reused or duplicate particle slots fail closed");
+        }
+        const auto native_right=dingosdk::modes::race_native_effect_pose({10,20,30},0,0,0,6);
+        check(native_right[0]==6 && native_right[1]==0 && native_right[4]==0 && native_right[5]==6 && native_right[12]==10 && native_right[13]==20,"The native chevron defaults to its original right-facing XY plane");
+        const auto native_shimmer=dingosdk::modes::race_native_effect_pose({10,20,30},90,45,30,6);
+        for(const auto v:native_shimmer)check(std::isfinite(v),"Native effect placement handles pitch and roll");
+        check(native_shimmer[12]==10 && native_shimmer[13]==20 && native_shimmer[14]==30,"Native GPU animation must never move the saved world anchor");
+        for(unsigned axis=0;axis<3;++axis) {float length{};for(unsigned j=0;j<3;++j)length+=native_shimmer[axis*4+j]*native_shimmer[axis*4+j];check(std::abs(length-36.f)<.0001f,"Native effect animation does not alter the authored gate scale");}
+        check(dr::ordinal_total(1)=="/1st" && dr::ordinal_total(2)=="/2nd" && dr::ordinal_total(3)=="/3rd" && dr::ordinal_total(4)=="/4th" && dr::ordinal_total(5)=="/5th" && dr::ordinal_total(6)=="/6th","Both placement numbers use their correct ordinal suffix");
+        dr::Input rank;rank.screen=dr::Screen::racing;rank.position=1;rank.players=6;const auto ranked=dr::compose(rank);
+        check(std::any_of(ranked.cells.begin(),ranked.cells.end(),[](const auto& c){return c.paint==dr::Paint::podium && c.rank==1 && c.total==6;}),"Racer count belongs inline beside the position");
+        check(std::none_of(ranked.cells.begin(),ranked.cells.end(),[](const auto& c){return c.text.find("RACERS")!=std::string::npos || c.text.find("PLAYERS")!=std::string::npos;}),"Position denominator has no players/racers label");
+        dr::Input library;library.screen=dr::Screen::load;auto library_scene=dr::compose(library);
+        for(const auto* action:{"UI_PrimaryAction","UI_SecondaryAction","UI_TabPrimaryNavRight","UI_TertiaryAction","UI_TabPrimaryNavLeft","UI_Back","UI_DpadHorizontal","UI_LeftStick"})
+            check(std::any_of(library_scene.cells.begin(),library_scene.cells.end(),[&](const auto& cell){return cell.input==action;}),"Every library shortcut and navigation method exposes its actual button glyph");
+        library.rows.push_back({"✪Smokey✪","00:01.234","0 / 3 gates",true,false,false,1});library.screen=dr::Screen::racing;auto named=dr::compose(library);
+        check(std::any_of(named.cells.begin(),named.cells.end(),[](const auto& c){return c.paint==dr::Paint::player_name && c.text=="✪Smokey✪";}),"Native player-name font receives the full Unicode name unchanged");
+        check(dr::place_suffix(1)=="st" && dr::place_suffix(2)=="nd" && dr::place_suffix(3)=="rd" && dr::place_suffix(4)=="th" && dr::place_suffix(5)=="th" && dr::place_suffix(6)=="th" && dr::place_suffix(11)=="th" && dr::place_suffix(12)=="th" && dr::place_suffix(21)=="st","Placement ordinals handle podiums and teen suffixes");
+        dr::RedlineOptions option;option.scale=100;option.safe=-5;option.opacity=0;option.effects=2;option.normalize();
+        check(option.scale==1.10f && option.safe==0 && option.opacity==.5f && option.effects==1,"HUD settings cannot escape safe scale or readable backing limits");
+        const std::array<float,16> camera{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        const auto ahead=dr::project_gate({0,0,-50},camera,65,1920);
+        check(ahead.valid && !ahead.edge && !ahead.behind && ahead.x==960 && ahead.y==560,"Projected targets use the real camera basis");
+        const auto behind=dr::project_gate({0,0,50},camera,65,1920);
+        check(behind.valid && behind.edge && behind.behind && std::isfinite(behind.x) && std::isfinite(behind.y),"Directly behind targets have a finite stable direction");
+        for(const auto point:std::array<std::array<float,3>,5>{{{1000,0,-1},{-1000,0,-1},{0,1000,-1},{0,-1000,-1},{0,0,-.001f}}}){
+            const auto target=dr::project_gate(point,camera,65,1920);
+            check(target.valid && target.x>=90 && target.x<=1830 && target.y>=300 && target.y<=900,"Off-screen and close targets remain bounded");
+        }
+        check(!dr::project_gate({0,0,-1},camera,0,1920).valid && !dr::project_gate({std::numeric_limits<float>::quiet_NaN(),0,0},camera,65,1920).valid,"Unavailable projection never fabricates a target");
+        dr::GatePulse pulse;check(pulse.update(1,1,true,6,20,1000)==0,"Joining a race never replays old gate clears");
+        check(pulse.update(1,1,true,7,20,1100)==1 && pulse.update(1,1,true,7,20,1280)>.2f && pulse.update(1,1,true,7,20,1460)==0,"Gate pulse decorates one authoritative count change for 360 ms");
+        check(pulse.update(1,1,true,8,20,1500,true)==0 && pulse.update(1,1,true,0,20,1600)==0 && pulse.update(2,1,true,9,20,1700)==0,"Reduced motion, restart and map changes clear effects");
+        check(std::abs(dr::speed_readout(10,false)-36)<.001f && std::abs(dr::speed_readout(10,true)-22.36936f)<.001f,"Speed units convert actual metres per second");
+        dr::Input minimal;minimal.screen=dr::Screen::racing;minimal.required=20;minimal.cleared=6;minimal.remaining="123:45.678";minimal.have_gate=true;minimal.navigation=ahead;minimal.next_gate=7;minimal.gate_distance=50;
+        const auto without_speed=dr::compose(minimal);check(std::none_of(without_speed.cells.begin(),without_speed.cells.end(),[](const auto& c){return c.text=="KM/H" || c.text=="LIVE STANDINGS";}),"Unavailable speed and default live standings stay hidden");
+        minimal.compass=false;const auto no_navigation=dr::compose(minimal);check(std::none_of(no_navigation.cells.begin(),no_navigation.cells.end(),[](const auto& c){return c.paint==dr::Paint::gate_target;}),"Compass off also disables Redline navigation");
+        for(const float aspect:{4.f/3,16.f/9,21.f/9,32.f/9})for(const float scale:{.85f,1.f,1.25f})for(const float safe:{0.f,48.f}){
+            minimal.aspect=aspect;minimal.options.scale=scale;minimal.options.safe=safe;minimal.have_speed=true;minimal.speed_mps=14;minimal.compass=true;
+            const auto layout=dr::compose(minimal);for(const auto& cell:layout.cells)check(dr::inside(cell.box,layout.width,layout.height) && !dr::overlaps(cell.box,dr::compass_reserved(layout.width)) && !dr::overlaps(cell.box,dr::dpad_reserved(layout.width)),"Scaled race HUD preserves native safe areas");
+        }
+        std::puts("Native menu lifetime and Deathrace design: transitions, ownership, recovery, exact clocks and all aspect-ratio layouts passed.");
         return 0;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "%s\n", e.what()); return 1;

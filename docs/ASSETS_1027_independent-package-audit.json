@@ -1,0 +1,12 @@
+{
+  "result": "PASS",
+  "assets_version": "1.0.27",
+  "automated_checks": 93,
+  "current_hud_captures": 70,
+  "asset_files": 31,
+  "source_delta_files": 14,
+  "runtime_and_asset_hashes": "PASS",
+  "installed": false,
+  "published": false,
+  "live_validation": "PENDING_USER_PLAYTEST"
+}

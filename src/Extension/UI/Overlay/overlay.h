@@ -24,6 +24,8 @@
 
 namespace dingosdk::overlay {
 void set_race_route_dialog_active(bool active) noexcept;
+std::array<float,2> deathrace_viewport() noexcept;
+std::string race_route_map_label(const std::string& map);
 struct Level {
     std::string asset;
     std::string display_name;

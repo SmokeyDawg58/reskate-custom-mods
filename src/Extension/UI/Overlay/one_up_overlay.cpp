@@ -1,4 +1,6 @@
 #include "overlay_internal.h"
+#include "Extension/UI/NativeMenu/deathrace_native_bridge.h"
+#include "Extension/Modes/game_modes.h"
 #include "multiplayer_menu_internal.h"
 #include "Extension/UI/skate_theme.h"
 #include "Extension/Throwdowns/one_up_runtime.h"

@@ -24,11 +24,15 @@ struct SessionInput {
     std::vector<SessionPlayer> peers; // the other players in this world (never a dedicated server)
     bool in_world{};          // the world is loaded and playing
     std::uint64_t world{};    // changes whenever the map or world changes
+    std::string map;          // live native root|detached level, not its placement donor
     bool barred{};            // the local player's mods change scoring: they cannot play
 };
 // Session tick (game thread): runs the local game and returns the messages to send to
 // every other player (dropped without a session).
 std::vector<std::vector<std::uint8_t>> tick(const SessionInput &input);
+// Establish the world boundary before dispatching this frame's network inbox.
+// Idempotent; tick also calls it for callers without a transport.
+void synchronize_world(const SessionInput &input);
 // One game mode message from another player (game thread). False when the bytes are not one.
 bool receive(std::uint64_t sender, std::span<const std::uint8_t> message);
 // Lines for the local chat since the last call (game thread).
@@ -61,7 +65,7 @@ struct SavedRaceRouteSummary {
 };
 struct NativeView {
     bool active{}, leading{}, placing{};
-    bool pending_flag{}, flag_placed{}, waiting{};
+    bool pending_flag{}, flag_placed{}, waiting{}, restoring_route{};
     std::uint64_t local{}, leader{}, world{};
     std::uint64_t state_sampled_ms{};
     std::uint32_t game{};
@@ -70,6 +74,7 @@ struct NativeView {
     unsigned route_object=1;
     bool route_snap=true,exit_confirm{},recovering{},rotating{},arrow_height_snapped{};
     float snap_degrees=15.f,clear_progress{},save_progress{};
+    bool route_reusable{};
     unsigned route_dialog{};std::uint64_t route_dialog_serial{};
     std::string route_dialog_error,route_map,route_name;std::vector<SavedRaceRouteSummary> saved_routes;
     unsigned missed_gate{};
@@ -103,6 +108,7 @@ struct NativeFlagOffer {
 std::vector<NativeFlagOffer> native_flag_offers(std::uint64_t world);
 bool join_native_flag_offer(const NativeFlagOffer& offer,std::uint32_t mmid);
 void accept_race_start(std::uint64_t world, std::uint32_t game, const Vec3& at, float yaw);
+void accept_restored_race_flag(std::uint64_t world,std::uint32_t game,const Vec3& at,float yaw);
 // The native flag callback only registers a matching draft's spawn. Starting
 // stays an explicit waiting-HUD hold action, dispatched on the client tick.
 void accept_native_start_flag(std::uint64_t world, std::uint32_t game, const Vec3& at, float yaw);

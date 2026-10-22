@@ -1,0 +1,12 @@
+{
+  "result": "PASS",
+  "validation": "DXIL assembled, validated, disassembled and compared",
+  "instruction_count": 391,
+  "scale_instructions_changed_from_1_0_26": 3,
+  "other_instructions_unchanged": 388,
+  "native_bindings_unchanged": true,
+  "steady_size_age_width_yaw_cases": 2424,
+  "arrow_shader_unchanged": true,
+  "depth_and_native_mesh_unchanged": true,
+  "live_validation": "PENDING_USER_PLAYTEST"
+}

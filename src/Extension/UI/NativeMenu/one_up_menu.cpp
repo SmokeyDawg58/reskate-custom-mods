@@ -3,6 +3,7 @@
 #include "Extension/Throwdowns/challenge_registry.h"
 #include "Extension/Modes/game_modes.h"
 #include "Extension/Modes/race_navigation.h"
+#include "Extension/Profile/local_profile_runtime.h"
 #include "Extension/Modes/race_editor.h"
 #include "Extension/Modes/mode_lobby.h"
 #include "native_menu_data.h"
@@ -11,6 +12,9 @@
 #include "native_setup_roles.h"
 #include "native_hud_selection.h"
 #include "native_hud_values.h"
+#include "deathrace_native_presentation.h"
+#include "deathrace_native_bridge.h"
+#include "Extension/Trainer/trainer.h"
 #include "Extension/UI/Overlay/overlay.h"
 #include "native_menu_dump.h"
 #include "native_menu_internal.h"
@@ -89,11 +93,13 @@ struct MatchPanel {
 };
 struct ModeCard { Value tile, category, description, logo; };
 struct BrandingPresenter { Value slot, saved, model; };
+struct CompassBranding { Value icon,saved; Address applied{}; };
 struct BubbleBranding { Value display, saved; Address applied{}; };
 struct MapBranding {
     Address map{};
     std::map<Handle,std::vector<BrandingPresenter>> markers;
     std::map<Handle,BubbleBranding> bubbles;
+    std::map<Handle,CompassBranding> compass;
     Value panel;
     std::vector<BrandingPresenter> card;
     std::uint32_t card_mmid{};
@@ -122,6 +128,16 @@ struct ChallengeHeader {
     Value frame,row,content,title,badge,frame_anchor,frame_item,anchor,item;
 };
 struct ModeHud {
+    struct NativeCell { Value model,anchor,item,texture,glyph;std::string skin; };
+    struct NativeRace {
+        std::array<NativeCell,deathrace_ui::max_cells> cells;
+        HudPublicationGate publication;
+        std::uint64_t world{},notification_serial{},notification_until{},retry_at{};
+        std::uint32_t game{};
+        std::string notification;
+        unsigned screen=~0U;
+        bool visible{};
+    } native_race;
     ChallengeHeader header;
     HudPublicationGate publication;
     HudCountdownLifecycle countdown_lifecycle;
@@ -148,8 +164,8 @@ struct ModeHud {
     bool exit_visible{},clear_ring_visible{};
     Value clear_ring_anchor,clear_ring_item;
     Value race_header_anchor,race_header_item;
-    Value gate_compass,gate_compass_list,gate_compass_anchor,gate_compass_item;
-    bool gate_compass_visible{};
+    struct CompassMarker {Value image,list,anchor,item;std::size_t point{};bool visible{};};
+    std::array<CompassMarker,1> gate_compass;
     Value score_anchor,score_item;
     unsigned theme_mode=~0U;
     std::array<Value,11> editor_row_anchors,editor_row_items;
@@ -744,6 +760,7 @@ constexpr std::int32_t hud_panel_id=0x31555076;
 constexpr std::int32_t hud_title_id=0x31555077, hud_badge_id=0x31555078;
 constexpr std::int32_t hud_strike_id=0x31555800;
 void clear_hud_state(bool preserve_match_input=false) {
+    deathrace_ui::retire();
     auto& s=state();s.hud_ready.store(false);s.hud_ended_at=0;s.hud_go_until=0;s.hud_countdown_token={};
     s.hud_root={};s.hud_stack={};s.hud_notice={};s.hud_anchor={};s.hud_item={};
     s.hud_timer={};s.hud_timer_anchor={};s.hud_timer_item={};
@@ -2416,6 +2433,8 @@ void waiting_hud(const Context& c) {
     // The registration keeps the world flag alive. Its large waiting card is
     // only needed in the lobby. The native Throwdown Panel owns Quit during
     // play, so hide this presentation without popping its backend queue.
+    // Keep the game's waiting notification and its authored Hold Start input.
+    // The cosmetic Deathrace renderer never replaces the native lobby owner.
     const bool compact=!lobby;
     for(const auto& [notification,presentations]:mounted_notifications) {
         if(!s.waiting_widgets.contains(notification))continue;
@@ -2774,6 +2793,7 @@ void gameplay_hud(const Context& c,std::uint64_t now) {
     try {mode_hud_transients(c,modes::native_view(),now);}
     catch(const std::exception&) { /* Retired native parents are retried safely. */ }
     if(s.in_menu || s.match_panel_open.load()) {
+        deathrace_ui::retire();
         suspend_hud_surface_content(c);
         s.hud_publication.allow(s.hud_stack.handle,one_up::view().state.match,false,now);
         s.mode_hud.publication.allow(s.mode_hud.stack.handle,s.mode_hud.game,false,now);
@@ -2956,6 +2976,7 @@ bool release_native_one_up_menu(std::uintptr_t base) noexcept {
 void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noexcept {
     state().gameplay_input_allowed.store(!loading && !in_menu,std::memory_order_release);
     auto& s=state();if(s.in_menu!=in_menu)s.next_tick=0;s.in_menu=in_menu;
+    if(in_menu || loading || s.match_panel_open.load())deathrace_ui::retire();
     const auto now=GetTickCount64();
     try {
     // Poll at the caller's client tick rate, not the 200ms UI refresh rate.
@@ -2997,7 +3018,7 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
         }
         if(!input_allowed)s.panel_start_request.clear();
     }
-    if(loading)return;
+    if(loading){deathrace_ui::retire();return;}
     if(now<s.next_tick && !one_up::flag_placement_active()) {
         // Retry presentation at frame rate if native model publication lands
         // after its script callback. This never rebuilds/restarts HUD stacks.
@@ -3006,7 +3027,7 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
         // Re-publishing a stack here races its visibility/layout transitions.
         const auto view=modes::native_view();
         if(view.active && view.settings.mode==modes::Mode::race &&
-           view.game==s.mode_hud.game && s.mode_hud.race_rows.handle) {
+           view.game==s.mode_hud.game && (s.mode_hud.race_rows.handle || s.mode_hud.native_race.visible)) {
             const auto ui=read<Address>(base+build::engine::ui_manager);
             const auto manager=ui?read<Address>(ui+0x140):0;
             if(manager && manager==s.manager) {
@@ -3016,7 +3037,8 @@ void tick_native_one_up_menu(std::uintptr_t base,bool loading,bool in_menu) noex
                     if(!in_menu && s.mode_hud.stack.handle && c.type_of(s.mode_hud.stack.handle)==s.mode_hud.stack.type &&
                        hud_publication_allowed(read<bool>(c.address(c.field(s.mode_hud.stack,0x369babfe))),in_menu,
                            s.match_panel_open.load())) {
-                        mode_race_clocks(c,view,now);
+                        if(s.mode_hud.native_race.visible)native_deathrace_fast_values(c,view,now);
+                        else mode_race_clocks(c,view,now);
                         mode_gate_compass_motion(c,view,modes::hud());
                     }
                 } catch(...) { /* A retiring clock must not retire the whole HUD. */ }

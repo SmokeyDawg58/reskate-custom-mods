@@ -10,6 +10,7 @@ add_library(dingosdk_overlay STATIC
     Extension/UI/Overlay/overlay_input.cpp
     Extension/UI/Overlay/item_browser_overlay.cpp
     Extension/UI/Overlay/race_routes_overlay.cpp
+    Extension/UI/Overlay/deathrace_overlay.cpp
     Extension/UI/Overlay/overlay_notices.cpp
     Extension/UI/Overlay/chat_overlay.cpp
     Extension/UI/Overlay/map_download_card.cpp

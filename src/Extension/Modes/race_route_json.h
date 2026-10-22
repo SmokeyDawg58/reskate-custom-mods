@@ -10,6 +10,7 @@ inline std::string encode_named_race_json(const NamedRaceRoute& route) {
     for(const auto k:s.gate_kinds)kinds.push_back(k==RaceGateKind::arrow?"arrow":k==RaceGateKind::guiding?"guide":"required");
     Json data=Json::object();data["format"]="ReSkate Deathrace route";data["version"]=1;
     data["id"]=route.id;data["name"]=race_route_name(route.name);data["map"]=route.map;
+    data["starting_flag"]={{"position",s.points.front()},{"yaw_degrees",race_start_heading(s)}};
     data["settings"]={{"duration_seconds",s.duration_s},{"turn_seconds",s.turn_s},{"strikes",s.strikes},
         {"radius",s.radius},{"area_radius",s.area_radius},{"corners",s.corners},{"points",s.points},
         {"yaw_degrees",s.yaws},{"half_widths",s.widths},{"gate_types",kinds},
@@ -42,6 +43,12 @@ inline std::optional<NamedRaceRoute> decode_named_race_json(std::string_view tex
         const auto& kinds=v.at("gate_types");if(!kinds.is_array() || kinds.size()>2048)return {};
         for(const auto& kind:kinds){const auto k=kind.get<std::string>();if(k!="required" && k!="guide" && k!="arrow")return {};s.gate_kinds.push_back(k=="arrow"?RaceGateKind::arrow:k=="guide"?RaceGateKind::guiding:RaceGateKind::mandatory);}
         s.spawn=point(v.at("spawn"));s.has_spawn=v.at("has_spawn").get<bool>();s.race_finish=v.at("finish_gate").get<bool>();s.trick_kinds=static_cast<std::uint8_t>(integer("trick_kinds",15));
+        // Older JSON/binary routes already kept the first point and yaw. The
+        // descriptive field makes that pose easy to find in newly shared files.
+        if(j.contains("starting_flag")){
+            const auto& flag=j.at("starting_flag");const auto at=point(flag.at("position"));const auto yaw=number(flag.at("yaw_degrees"));
+            if(s.points.empty() || at!=s.points.front() || yaw!=race_start_heading(s))return {};
+        }
         (void)encode_named_race(r);return r;
     }catch(const std::exception&){return {};}
 }

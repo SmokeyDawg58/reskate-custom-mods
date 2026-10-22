@@ -1,10 +1,17 @@
 #include "overlay_internal.h"
+#include "cursor.h"
+#include "input_capture.h"
 #include "Extension/Modes/game_modes.h"
+#include "Extension/UI/NativeMenu/deathrace_native_bridge.h"
+#include "Extension/UI/NativeMenu/deathrace_native_presentation.h"
 #include <algorithm>
 #include <array>
 #include <string>
 #include <commdlg.h>
 #include "Engine/Core/Platform/path_text.h"
+#include "Engine/Game/World/world_names.h"
+#include "Engine/Game/World/custom_level_manifest.h"
+#include "Engine/Vfs/mod_catalog.h"
 #pragma comment(lib,"comdlg32.lib")
 
 namespace dingosdk::overlay::detail {
@@ -15,27 +22,38 @@ std::string choose_route_json() {
     picker.lpstrFilter=L"Deathrace routes (*.json)\0*.json\0";picker.lpstrFile=filename.data();picker.nMaxFile=static_cast<DWORD>(filename.size());
     picker.lpstrTitle=L"Load a Deathrace route JSON file";
     picker.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR|OFN_DONTADDTORECENT;
+    OverlayInputAccess access;SystemCursorLease cursor;cursor.show();
     return GetOpenFileNameW(&picker)?path_utf8(std::filesystem::path(filename.data())):std::string{};
 }
 std::string route_map_title(const std::string& map) {
-    auto title=map.substr(map.find_last_of("/\\")==std::string::npos?0:map.find_last_of("/\\")+1);
-    for(const auto prefix:{"dingolevel_reskate_","dingolevel_"})if(title.starts_with(prefix)){title.erase(0,std::char_traits<char>::length(prefix));break;}
-    std::replace(title.begin(),title.end(),'_',' ');return title;
+    static const auto levels=[] {
+        std::vector<CustomLevelManifest> manifests;
+        for(const auto& path:mods::level_manifest_paths(mods::catalog()))manifests.push_back(read_custom_level_manifest(path));
+        return combine_custom_level_manifests(manifests).levels;
+    }();
+    return world_destination_name(map,levels,true);
 }
 }
+#include "race_routes_native_input.inl"
 void draw_race_routes() {
     const auto view=modes::native_view();
     if(!view.active || !view.leading || !view.placing || !view.route_dialog)return;
+    if(draw_native_race_routes(view))return;
+    static bool was_foreground{},restore_focus{};
     static std::uint64_t serial{},world{};static std::uint32_t game{};
     static std::array<char,65> name{};
     const bool fresh=serial!=view.route_dialog_serial || world!=view.world || game!=view.game;
     if(fresh){serial=view.route_dialog_serial;world=view.world;game=view.game;name={};
         std::copy_n(view.route_name.c_str(),std::min(view.route_name.size(),name.size()-1),name.data());}
+    const bool foreground=game_window_foreground(state().window.load());
+    const bool focus=fresh || restore_focus || (foreground && !was_foreground);
+    was_foreground=foreground;restore_focus=false;
+    if(focus && foreground)ImGui::SetNextWindowFocus();
     const auto* viewport=ImGui::GetMainViewport();
     const float scale=std::clamp(std::min(viewport->WorkSize.x/1600.f,viewport->WorkSize.y/900.f),.65f,1.4f);
-    const bool renaming=view.route_dialog==3,saving=view.route_dialog==1 || renaming;
+    const bool deleting=view.route_dialog==4,renaming=view.route_dialog==3,saving=view.route_dialog==1 || renaming;
     const float width=std::min(800.f*scale,viewport->WorkSize.x-32.f);
-    const float height=std::min((saving?430.f:640.f)*scale,viewport->WorkSize.y-32.f);
+    const float height=std::min((saving || deleting?430.f:640.f)*scale,viewport->WorkSize.y-32.f);
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x+viewport->WorkSize.x*.5f,viewport->WorkPos.y+viewport->WorkSize.y*.5f),ImGuiCond_Always,ImVec2(.5f,.5f));
     ImGui::SetNextWindowSize(ImVec2(width,height),ImGuiCond_Always);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(28.f*scale,24.f*scale));
@@ -53,13 +71,22 @@ void draw_race_routes() {
         ImGui::SetWindowFontScale(1.1f*scale);
         const auto send=[&](const char* action,std::string argument={}){modes::request_race_route_action(view.world,view.game,action,std::move(argument));};
         ImGui::PushFont(state().menu.heading?state().menu.heading:ImGui::GetFont());
-        ImGui::TextUnformatted(renaming?"RENAME ROUTE":saving?"SAVE DEATHRACE ROUTE":"LOAD DEATHRACE ROUTE");ImGui::PopFont();ImGui::Separator();
+        ImGui::TextUnformatted(deleting?"DELETE ROUTE?":renaming?"RENAME ROUTE":saving?"SAVE DEATHRACE ROUTE":"LOAD DEATHRACE ROUTE");ImGui::PopFont();ImGui::Separator();
         ImGui::TextWrapped("Map: %s",route_map_title(view.route_map).c_str());
-        if(saving) {
+        if(deleting) {
+            ImGui::TextWrapped("Are you sure you want to delete \"%s\"?",view.route_name.c_str());
+            ImGui::TextWrapped("This removes it from your saved routes.");
+            if(!view.route_dialog_error.empty())ImGui::TextWrapped("%s",view.route_dialog_error.c_str());
+            ImGui::Separator();
+            if(focus)ImGui::SetKeyboardFocusHere();
+            if(ImGui::Button("Cancel",ImVec2(180.f*scale,44.f*scale)))send("cancel");
+            if(focus){ImGui::SetItemDefaultFocus();ImGui::SetNavCursorVisible(true);}
+            ImGui::SameLine();if(ImGui::Button("Delete route",ImVec2(180.f*scale,44.f*scale)))send("delete-confirm");
+        } else if(saving) {
             const auto required=modes::mandatory_gates(view.settings,view.settings.points.size());
             if(!renaming)ImGui::Text("%zu Required gates + Finish",required);
             ImGui::TextUnformatted("Route name");ImGui::SetNextItemWidth(-1);
-            if(fresh)ImGui::SetKeyboardFocusHere();
+            if(focus)ImGui::SetKeyboardFocusHere();
             const bool entered=ImGui::InputTextWithHint("##route-name","Name your route",name.data(),name.size(),ImGuiInputTextFlags_EnterReturnsTrue);
             if(!view.route_dialog_error.empty())ImGui::TextWrapped("%s",view.route_dialog_error.c_str());
             ImGui::Separator();
@@ -76,10 +103,10 @@ void draw_race_routes() {
                     if(route.map!=view.route_map)continue;
                     ImGui::PushID(std::to_string(route.id).c_str());
                     const bool matching=route.map==view.route_map;ImGui::BeginDisabled(!matching);
-                    const auto at=ImGui::GetCursorScreenPos();const float row_width=ImGui::GetContentRegionAvail().x-112.f*scale;
-                    if(fresh && first)ImGui::SetKeyboardFocusHere();
+                    const auto at=ImGui::GetCursorScreenPos();const float row_width=ImGui::GetContentRegionAvail().x-164.f*scale;
+                    if(focus && first)ImGui::SetKeyboardFocusHere();
                     if(ImGui::Selectable("##route",false,ImGuiSelectableFlags_None,ImVec2(row_width,88.f*scale)))send("load",std::to_string(route.id));
-                    if(fresh && first){ImGui::SetItemDefaultFocus();ImGui::SetNavCursorVisible(true);}first=false;
+                    if(focus && first){ImGui::SetItemDefaultFocus();ImGui::SetNavCursorVisible(true);}first=false;
                     auto* draw=ImGui::GetWindowDrawList();draw->PushClipRect(at,ImVec2(at.x+row_width,at.y+88.f*scale),true);
                     const auto color=ImGui::GetColorU32(matching?ImGuiCol_Text:ImGuiCol_TextDisabled);
                     draw->AddText(ImVec2(at.x+8.f*scale,at.y+5.f*scale),color,route.name.c_str());
@@ -99,16 +126,32 @@ void draw_race_routes() {
                     icon->AddLine(ImVec2(folder.x+8.f*scale,folder.y+9.f*scale),ImVec2(folder.x+19.f*scale,folder.y+9.f*scale),ink,2.f*scale);
                     icon->AddLine(ImVec2(folder.x+19.f*scale,folder.y+9.f*scale),ImVec2(folder.x+23.f*scale,folder.y+13.f*scale),ink,2.f*scale);
                     if(ImGui::IsItemHovered() || ImGui::IsItemFocused())ImGui::SetTooltip("Show JSON file in folder");
+                    ImGui::SameLine();ImGui::SetCursorScreenPos(ImVec2(ImGui::GetCursorScreenPos().x,at.y+24.f*scale));const auto bin=ImGui::GetCursorScreenPos();
+                    if(ImGui::Button("##delete",ImVec2(40.f*scale,40.f*scale)))send("delete",std::to_string(route.id));
+                    icon->AddRect(ImVec2(bin.x+12.f*scale,bin.y+15.f*scale),ImVec2(bin.x+29.f*scale,bin.y+31.f*scale),ink,2.f*scale,0,2.f*scale);
+                    icon->AddLine(ImVec2(bin.x+9.f*scale,bin.y+12.f*scale),ImVec2(bin.x+32.f*scale,bin.y+12.f*scale),ink,2.f*scale);
+                    icon->AddLine(ImVec2(bin.x+16.f*scale,bin.y+8.f*scale),ImVec2(bin.x+25.f*scale,bin.y+8.f*scale),ink,2.f*scale);
+                    if(ImGui::IsItemHovered() || ImGui::IsItemFocused())ImGui::SetTooltip("Delete route");
                     ImGui::PopID();
                 }
             }
             ImGui::EndChild();
             if(!view.route_dialog_error.empty())ImGui::TextWrapped("%s",view.route_dialog_error.c_str());
-            if(ImGui::Button("Load .json file",ImVec2(200.f*scale,44.f*scale)))if(auto file=choose_route_json();!file.empty())send("import",std::move(file));
+            if(ImGui::Button("Load .json file",ImVec2(200.f*scale,44.f*scale))){auto file=choose_route_json();restore_focus=true;if(!file.empty())send("import",std::move(file));}
             ImGui::SameLine();if(ImGui::Button("Back to builder",ImVec2(220.f*scale,44.f*scale)))send("cancel");
         }
         if(ImGui::IsKeyPressed(ImGuiKey_Escape,false) || ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight,false))send("cancel");
     }
     ImGui::End();ImGui::PopFont();ImGui::PopStyleColor(7);ImGui::PopStyleVar(3);
 }
+}
+
+namespace dingosdk::overlay {
+std::array<float,2> deathrace_viewport() noexcept {
+    RECT bounds{};const auto window=detail::state().window.load();
+    if(window && GetClientRect(window,&bounds) && bounds.right>0 && bounds.bottom>0)
+        return {static_cast<float>(bounds.right),static_cast<float>(bounds.bottom)};
+    return {1920,1080};
+}
+std::string race_route_map_label(const std::string& map){return detail::route_map_title(map);}
 }

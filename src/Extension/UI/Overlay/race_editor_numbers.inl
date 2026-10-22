@@ -1,5 +1,6 @@
 bool race_editor_numbers_visible() {
     const auto view=modes::native_view();
+    if(deathrace_ui::current(view.world,view.game,GetTickCount64()))return false;
     return view.active && view.leading && view.placing && view.settings.mode==modes::Mode::race &&
         !view.exit_confirm && !interface_open() && !multiplayer::native_one_up_match_panel_open();
 }

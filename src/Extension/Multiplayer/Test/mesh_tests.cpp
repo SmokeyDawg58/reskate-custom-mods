@@ -14,6 +14,7 @@
 // Session admission tests do not instantiate a real game-mode world. Mode
 // rules and lifecycle have their own tests; retain the session boundary here.
 namespace dingosdk::modes {
+void synchronize_world(const SessionInput&) {}
 std::vector<std::vector<std::uint8_t>> tick(const SessionInput&) { return {}; }
 bool receive(std::uint64_t, std::span<const std::uint8_t>) { return false; }
 std::vector<std::string> take_notices() { return {}; }
@@ -668,6 +669,9 @@ void throwdown_routing_checks() {
     check(first.transport.send(first.host_id, encode_wire(stale), true), "Could not queue a wrong-world throwdown fixture");
     sim.run(10);
     check(host.throwdown_inbox.empty() && second.throwdown_inbox.empty(), "A throwdown message from another world was relayed");
+    host.throwdown_inbox.emplace_back(guest_id,from_guest);
+    clear_world(host,sim.now);
+    check(host.throwdown_inbox.empty(),"An already queued Throwdown setup survived world cleanup");
 }
 // A lobby's parties are the ones its players form, kept by the host the way a dedicated
 // server keeps them: nobody is in a party for being in the lobby.

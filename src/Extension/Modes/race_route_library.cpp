@@ -70,6 +70,21 @@ std::uint64_t RaceRouteLibrary::save(NamedRaceRoute route) {
     paths_[route.id]=final;
     const auto id=route.id;if(old!=routes_.end())*old=std::move(route);else routes_.push_back(std::move(route));return id;
 }
+void RaceRouteLibrary::erase(std::uint64_t id) {
+    const auto original=path(id);
+    const auto root=std::filesystem::weakly_canonical(directory_);
+    const auto resolved=std::filesystem::weakly_canonical(original);
+    const auto relative=resolved.lexically_relative(root);
+    if(relative.empty() || *relative.begin()==".." || std::filesystem::is_symlink(original) || !std::filesystem::is_regular_file(original))
+        throw std::runtime_error("This saved route file is no longer available.");
+    const auto trash=directory_/".deleted";
+    if(std::filesystem::is_symlink(trash))throw std::runtime_error("The route trash folder cannot be a link.");
+    std::filesystem::create_directories(trash);
+    const auto destination=trash/(std::to_string(id)+".json");
+    if(std::filesystem::exists(destination))throw std::runtime_error("This route has already been deleted. Reopen the library.");
+    std::filesystem::rename(original,destination);
+    paths_.erase(id);std::erase_if(routes_,[&](const auto& route){return route.id==id;});
+}
 void RaceRouteLibrary::read() {
     routes_.clear();paths_.clear();next_=1;
     if(!std::filesystem::exists(directory_)) {
@@ -79,6 +94,14 @@ void RaceRouteLibrary::read() {
     if(std::filesystem::is_symlink(directory_))throw std::runtime_error("The route folder cannot be a link.");
     std::vector<std::filesystem::path> files,legacy;
     for(std::filesystem::recursive_directory_iterator it(directory_),end;it!=end;++it) {
+        if(it.depth()==0 && it->path().filename()==".deleted") {
+            if(it->is_directory() && !it->is_symlink())for(const auto& deleted:std::filesystem::directory_iterator(it->path())) {
+                const auto stem=deleted.path().stem().string();std::uint64_t id{};
+                const auto parsed=std::from_chars(stem.data(),stem.data()+stem.size(),id);
+                if(parsed.ec==std::errc{} && parsed.ptr==stem.data()+stem.size() && id<UINT64_MAX)next_=std::max(next_,id+1);
+            }
+            it.disable_recursion_pending();continue;
+        }
         if(it->is_symlink()){if(it->is_directory())it.disable_recursion_pending();continue;}
         if(it.depth()>1){it.disable_recursion_pending();continue;}
         if(!it->is_regular_file())continue;
@@ -97,7 +120,7 @@ void RaceRouteLibrary::read() {
     for(const auto& file:legacy)try {
         if(routes_.size()>=256)break;
         const auto stem=file.stem().string();std::uint64_t id{};const auto parsed=std::from_chars(stem.data(),stem.data()+stem.size(),id);
-        if(parsed.ec!=std::errc{} || parsed.ptr!=stem.data()+stem.size() || !id || id==UINT64_MAX || find(id))continue;
+        if(parsed.ec!=std::errc{} || parsed.ptr!=stem.data()+stem.size() || !id || id==UINT64_MAX || find(id) || std::filesystem::exists(directory_/".deleted"/(std::to_string(id)+".json")))continue;
         const auto text=read_text(file);const auto bytes=std::span(reinterpret_cast<const std::uint8_t*>(text.data()),text.size());
         if(auto route=decode_named_race(bytes)) {
             route->id=id;next_=std::max(next_,id+1);paths_[id]=file;routes_.push_back(*route);

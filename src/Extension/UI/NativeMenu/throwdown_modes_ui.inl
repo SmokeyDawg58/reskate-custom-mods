@@ -189,7 +189,7 @@ void logo_picker(const Context& c) {
             const auto names=std::array{"S.K.A.T.E.","Spot Battle","Skate Jam"};
             s.picker_stock_logos[i]=picker_logo(c,s.picker_stock[i],s.originals[i].category,true,names[i]);
         }
-        s.oneup_logo=picker_logo(c,s.card,s.category,false,"1-UP");
+
     }
     std::vector<Handle> refs;
     // ContentPresenterTileListItem consumes a ContentPresenterTileViewModel,
@@ -209,9 +209,8 @@ void logo_picker(const Context& c) {
     mode_art(c,std::array{c.field(reskate.logo,0x6e469d2a)},throwdowns::registry().find("native.skate")->logo);
     append_tile(reskate.tile);
     append_tile(s.picker_stock[1]);append_tile(s.picker_stock[2]);
-    append_tile(s.card);
-    mode_art(c,std::array{c.field(s.oneup_logo,0x6e469d2a)},"UI/ReSkate/OneUp/img_OneUp_Blue_1024");
-    for(const auto& d:throwdowns::registry().definitions())if(d.adapter==throwdowns::Adapter::game_mode && d.id!="native.skate") {
+
+    for(const auto& d:throwdowns::registry().definitions())if(d.id=="mode.race") {
         auto& card=s.mode_cards.at(d.id);
         // No generated logo: the donor tile's native artwork, as on the stock cards.
         if(!card.logo.handle)card.logo=picker_logo(c,card.tile,card.category,d.logo.empty(),d.name);
@@ -382,7 +381,7 @@ void mode_hud_publish(const Context& c,bool show,bool countdown,bool intro,bool 
     if(show && h.editor_info_visible){append(h.info_panel_item);append(h.info_item);}
     if(show && h.object_visible)append(h.object_item);
     if(intro){append(h.intro_background_item);append(h.intro_rules_item);}
-    if(race && h.gate_compass_visible)append(h.gate_compass_item);
+    if(race)for(const auto& marker:h.gate_compass)if(marker.visible)append(marker.item);
     // Challenge titles now sit compactly above the compass; no large racing header panel.
     if(results)append(h.results_panel_item);
     for(const auto item:{blind?h.blind_item:Value{},show && !h.letters_layout?h.item:Value{},show && !h.letters_layout?h.badge_item:Value{},show && h.placing_layout?h.placement_item:Value{},show && !h.placing_layout && h.clock_visible?h.clock_item:Value{},show && !h.placing_layout && !h.race_layout && !h.letters_layout?h.score_item:Value{},
@@ -949,49 +948,51 @@ void mode_world_markers(const Context& c,const overlay::ModesHud& feed) {
     for(const auto& player:feed.players)if(!player.self && player.it)mark(player.at,player.name+(feed.infection?"  INFECTED":"  IT"));
     for(const auto& tag:feed.tags)if(!tag.path.empty())mark(tag.path[tag.path.size()/2],"TAGGED");
 }
-void mode_gate_compass_position(const Context& c,ModeHud& h,float offset) {
+void mode_gate_compass_position(const Context& c,ModeHud::CompassMarker& marker,float offset) {
     constexpr float size=modes::race_compass_icon_size;
-    c.set_if_changed(c.field(h.gate_compass_anchor,0x1cff7243),std::array<float,2>{size,size});
-    c.set_if_changed(c.field(h.gate_compass_anchor,0x6efc1a61),false);
-    c.set_if_changed(c.field(h.gate_compass_anchor,0xbe5683d9),false);
+    c.set_if_changed(c.field(marker.anchor,0x1cff7243),std::array<float,2>{size,size});
+    c.set_if_changed(c.field(marker.anchor,0x6efc1a61),false);
+    c.set_if_changed(c.field(marker.anchor,0xbe5683d9),false);
     for(const auto axis:{0xde7d30c7U,0x185a5736U}) {
         const bool vertical=axis==0x185a5736U;
-        // Center the larger visible gate on the native compass strip.
-        for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(h.gate_compass_anchor,{axis,key}),vertical?0.f:.5f);
+        for(const auto key:{0x99bbed5aU,0x49943bedU})c.set_if_changed(c.path(marker.anchor,{axis,key}),vertical?0.f:.5f);
         const auto offsets=native_hud_translation(vertical?modes::race_compass_center_y:offset);
-        c.set_if_changed(c.path(h.gate_compass_anchor,{axis,0x40bfbff4U}),offsets[0]);
-        c.set_if_changed(c.path(h.gate_compass_anchor,{axis,0x1d233266U}),offsets[1]);
-        c.set_if_changed(c.path(h.gate_compass_anchor,{axis,0xfec5e0b1}),.5f);
-        c.set_if_changed(c.path(h.gate_compass_anchor,{axis,0xd01f4a21}),1.f);
+        c.set_if_changed(c.path(marker.anchor,{axis,0x40bfbff4U}),offsets[0]);
+        c.set_if_changed(c.path(marker.anchor,{axis,0x1d233266U}),offsets[1]);
+        c.set_if_changed(c.path(marker.anchor,{axis,0xfec5e0b1}),.5f);
+        c.set_if_changed(c.path(marker.anchor,{axis,0xd01f4a21}),1.f);
     }
 }
 void mode_gate_compass_motion(const Context& c,const modes::NativeView& view,const overlay::ModesHud& feed) {
-    auto& h=state().mode_hud;
-    if(!h.gate_compass_visible || !h.gate_compass_anchor.handle || view.placing || !view.state ||
-       c.type_of(h.gate_compass_anchor.handle)!=h.gate_compass_anchor.type)return;
-    const auto next=modes::race_compass_gate(view.settings,*view.state,view.local);if(!next)return;
-    const auto offset=modes::race_compass_offset(view.settings.points[*next],feed.camera);if(!offset)return;
-    mode_gate_compass_position(c,h,*offset);
+    if(view.placing || !view.state)return;
+    for(auto& marker:state().mode_hud.gate_compass) {
+        if(!marker.visible || !marker.anchor.handle || marker.point>=view.settings.points.size() ||
+           c.type_of(marker.anchor.handle)!=marker.anchor.type)continue;
+        const auto offset=modes::race_compass_offset(view.settings.points[marker.point],feed.camera);if(!offset)continue;
+        mode_gate_compass_position(c,marker,*offset);
+    }
 }
 void mode_gate_compass(const Context& c,const modes::NativeView& view,const overlay::ModesHud& feed) {
-    auto& h=state().mode_hud;h.gate_compass_visible=false;
+    auto& markers=state().mode_hud.gate_compass;
+    for(auto& marker:markers)marker.visible=false;
     if(view.placing || !view.state)return;
-    const auto next=modes::race_compass_gate(view.settings,*view.state,view.local);if(!next)return;
-    const auto offset=modes::race_compass_offset(view.settings.points[*next],feed.camera);if(!offset)return;
-    if(!h.gate_compass.handle)h.gate_compass=make(c,texture_schema);
-    constexpr float size=modes::race_compass_icon_size;
-    c.set_if_changed(c.field(h.gate_compass,0xf524c836),size);c.set_if_changed(c.field(h.gate_compass,0x6fbd254e),size);
-    c.set_if_changed(c.field(h.gate_compass,0xd1997d0c),false);
-    c.set_if_changed(c.field(h.gate_compass,0xcd4a53c0),record_ref(c,"InteractivityColorStylesList/InteractiveColors.Core.AllWhite"));
-    mode_art(c,std::array{c.field(h.gate_compass,0x6e469d2a)},
-        view.settings.race_finish && *next+1==view.settings.points.size()?"UI/ReSkate/Throwdowns/img_FinishGateCompass":"UI/ReSkate/Throwdowns/img_GateCompass");
-    const auto texture_widget=asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget");
-    const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
-    if(!hud_list_has_items(c,h.gate_compass_list,1))hud_list(c,h.gate_compass_list,{{texture_widget,{0,h.gate_compass.handle}}},true,size,0.f);
-    mode_hud_list_cell_size(c,h.gate_compass_list,0,size,size,{texture_widget,{0,h.gate_compass.handle}});
-    mount_hud(c,h.gate_compass_list,list_widget,h.gate_compass_anchor,h.gate_compass_item,mode_hud_id+57,false);
-    mode_gate_compass_position(c,h,*offset);
-    h.gate_compass_visible=true;
+    const auto targets=modes::race_compass_gates(view.settings,*view.state,view.local,profile_runtime::local_compass_enabled());
+    for(std::size_t i=0;i<targets.size() && i<markers.size();++i) {
+        auto& marker=markers[i];marker.point=targets[i];
+        const auto offset=modes::race_compass_offset(view.settings.points[marker.point],feed.camera);if(!offset)continue;
+        if(!marker.image.handle)marker.image=make(c,texture_schema);
+        constexpr float size=modes::race_compass_icon_size;
+        c.set_if_changed(c.field(marker.image,0xf524c836),size);c.set_if_changed(c.field(marker.image,0x6fbd254e),size);
+        c.set_if_changed(c.field(marker.image,0xd1997d0c),false);
+        c.set_if_changed(c.field(marker.image,0xcd4a53c0),record_ref(c,"InteractivityColorStylesList/InteractiveColors.Core.AllWhite"));
+        if(!publish_texture(c,c.field(marker.image,0x6e469d2a),modes::race_compass_art(view.settings,marker.point)))continue;
+        const auto texture_widget=asset(c,"UI/Foundations/Components/Media/Icons/Texture_Widget");
+        const auto list_widget=asset(c,"UI/Foundations/Components/Lists/LinearList/Widget/LinearList_Widget");
+        if(!hud_list_has_items(c,marker.list,1))hud_list(c,marker.list,{{texture_widget,{0,marker.image.handle}}},true,size,0.f);
+        mode_hud_list_cell_size(c,marker.list,0,size,size,{texture_widget,{0,marker.image.handle}});
+        mount_hud(c,marker.list,list_widget,marker.anchor,marker.item,mode_hud_id+57+static_cast<int>(i),false);
+        mode_gate_compass_position(c,marker,*offset);marker.visible=true;
+    }
 }
 // Change only an owned text style. Validate the four-channel color layout
 // before finding alpha; unknown reflection layouts retain fully visible text.
@@ -1065,7 +1066,7 @@ void mode_hud_transients(const Context& c,const modes::NativeView& view,std::uin
             c.set_if_changed(c.field(item,0x369babfe),false);
     }
 }
-void mode_hud(const Context& c) {
+void legacy_mode_hud(const Context& c) {
     auto& s=state();auto& h=s.mode_hud;const auto v=modes::native_view();const auto feed=modes::hud();
     const auto* d=v.active?throwdowns::registry().mode(static_cast<unsigned>(v.settings.mode)):nullptr;
     // The native creation page and waiting notification own setup. Gameplay
@@ -1079,7 +1080,7 @@ void mode_hud(const Context& c) {
     const bool race=v.settings.mode==modes::Mode::race;
     // An optional marker must never prevent the scoreboard/title from
     // mounting while a new map's native resources are still arriving.
-    try {mode_gate_compass(c,v,feed);}catch(const std::exception&) {h.gate_compass_visible=false;}
+    try {mode_gate_compass(c,v,feed);}catch(const std::exception&) {for(auto& marker:h.gate_compass)marker.visible=false;}
     // Retry every missing piece independently. A late countdown/style asset
     // previously left title non-null and skipped all remaining initialization.
     if(!h.title.handle)h.title=record_model(c,"TD_Hud_ContentResources/TD_HUD_Header_Label");
@@ -1199,6 +1200,7 @@ void mode_hud(const Context& c) {
                 icons={list_widget,{0,list.handle}};
                 caption=actions[++i].second;
                 if(!cone_editor && v.rotating && i==14 && v.route_object!=4)icons=prompts[i-1];
+                if(!cone_editor && !v.rotating && i==14)icons=prompts[i];
             }
             const auto line_index=lines.size();
             auto& label=h.placement_captions[line_index];
@@ -1212,6 +1214,7 @@ void mode_hud(const Context& c) {
             if(i==1)dynamic_caption=std::string("Object: ")+std::string(modes::race_editor_object_name(v.route_object));
             if(i==5)dynamic_caption=v.rotating?"Finish rotating":"Rotate (5 deg)";
             if(i==7)dynamic_caption=v.rotating?"Yaw - / +":"Undo / Redo";
+            if(i==10 && !cone_editor && v.route_reusable)dynamic_caption="Tap: Play / Hold: Load";
             if(i==10 && !v.editor_warning.empty())dynamic_caption=v.route_finish?"Check route":"Finish line required";
             if(i==9)dynamic_caption=v.rotating?(v.editor_roll_axis?"Arrow up / down":"Tilt up / down"):"Size "+std::to_string(static_cast<int>(std::lround(v.cursor_width/6.f*100.f)))+"%";
             if(i==12)dynamic_caption=v.route_snap?(v.arrow_height_snapped?"Snap ON: line locked":std::string("Snap ON")):"Snap OFF";
@@ -1486,3 +1489,4 @@ void mode_hud(const Context& c) {
     if(feed.results)mode_results(c,v,feed,*d);
     mode_hud_publish(c,!feed.results,(counting && !intro)||go,intro,blind,feed.results,state && state->phase==modes::Phase::playing && !feed.results && !feed.placing);
 }
+#include "deathrace_native_hud.inl"

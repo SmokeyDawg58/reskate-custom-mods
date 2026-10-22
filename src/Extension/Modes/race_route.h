@@ -185,23 +185,6 @@ struct RaceEditorPresses {
     }
 };
 struct RaceGatePose { Vec3 at{}; float yaw{}; };
-// Keep a short trail of confirmed grounded poses. A brief landing, collision,
-// air sample or ragdoll cannot replace the last settled position before a fall.
-class RaceLastSafeSpot {
-    std::deque<std::pair<std::uint64_t,RaceGatePose>> trail;
-    std::optional<RaceGatePose> saved;
-public:
-    void reset() noexcept {trail.clear();saved.reset();}
-    std::optional<RaceGatePose> pose() const noexcept {return saved;}
-    void observe(bool safe,const Vec3& at,float yaw,std::uint64_t now) {
-        if(!safe || !std::isfinite(yaw) || !std::all_of(at.begin(),at.end(),[](float v){return std::isfinite(v);})) {
-            trail.clear();return;
-        }
-        if(!trail.empty() && now<trail.back().first) {reset();}
-        while(!trail.empty() && now-trail.front().first>=250) {saved=trail.front().second;trail.pop_front();}
-        if(trail.empty() || now-trail.back().first>=50)trail.emplace_back(now,RaceGatePose{at,yaw});
-    }
-};
 inline std::size_t previous_required_checkpoint(const Settings& route,std::size_t before) noexcept {
     if(route.points.empty())return 0;
     auto index=std::min(before,route.points.size()-1);
@@ -268,20 +251,6 @@ inline RaceGatePose race_checkpoint_pose(const Settings& route,std::size_t check
     pose.at[0]-=std::sin(yaw)*3.f;pose.at[2]-=std::cos(yaw)*3.f;
     return pose;
 }
-inline RaceGatePose race_return_pose(const Settings& route,std::size_t next,std::size_t checkpoint,
-                                    std::optional<RaceGatePose> safe) noexcept {
-    if(!safe)return race_checkpoint_pose(route,checkpoint);
-    // A safe position remains useful even if the rider had turned around.
-    // Carry their onboard speed towards the next required gate, not their
-    // pre-fall facing. Decorative objects cannot redirect the recovery.
-    for(auto i=next;i<route.points.size();++i)if(!guiding_gate(route,i)) {
-        const float dx=route.points[i][0]-safe->at[0],dz=route.points[i][2]-safe->at[2];
-        if(std::hypot(dx,dz)>.1f)safe->yaw=std::atan2(dx,dz)*180.f/3.14159265f;
-        else if(i<route.yaws.size())safe->yaw=route.yaws[i];
-        break;
-    }
-    return *safe;
-}
 inline RaceGatePose race_recovery_pose(const Settings& route,std::size_t missed) noexcept {
     return race_checkpoint_pose(route,previous_required_checkpoint(route,missed));
 }
@@ -347,6 +316,11 @@ public:
     void begin_edit() noexcept {saved_.reset();}
     bool save(const Settings& route) {if(!race_route_ready(route,route.race_finish))return false;saved_=route;return true;}
     bool ready(const Settings& route) const noexcept {return saved_ && same_race_shape(*saved_,route) && race_route_ready(route,route.race_finish);}
+    // An unchanged loaded/saved course is already on disk. Publish its
+    // current play copy without making the caller name or write it again.
+    bool reuse_saved(const RaceRoutePublication& source,const Settings& route) {
+        return source.ready(route) && save(route);
+    }
     // Native flag placement is a separate editor phase. A stale Join must not
     // enroll a guest while that picker is open, even when old geometry is valid.
     bool accepting(const Settings& route,bool editing,bool flag_pending) const noexcept {

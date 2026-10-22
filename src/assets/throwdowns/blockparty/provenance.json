@@ -1,0 +1,517 @@
+{
+  "origin": "Recovered in-game Block Party/native UI fonts and textures; existing Deathrace logo",
+  "sprites": [
+    {
+      "name": "brush",
+      "source": "img_bannerbrush_large_1600_1600_660.png",
+      "sha256": "00622717976f5deb5be32675291b92b0bca37f00ffde417e0931797d2e628a9a",
+      "alpha_crop": [
+        4,
+        68,
+        1597,
+        541
+      ]
+    },
+    {
+      "name": "smallbrush",
+      "source": "img_bannerbrush_small_692_692_260.png",
+      "sha256": "6f9b71c45ed7d1a19d3571ace4fb436b1cb5d5d1e6e713ed9cf7c2c90df84156",
+      "alpha_crop": [
+        22,
+        25,
+        688,
+        222
+      ]
+    },
+    {
+      "name": "logo",
+      "source": "deathrace-logo.png",
+      "sha256": "13381c6e1c72aeb36592ab03cd3a75706cee236442caf46b422919f3a2d9cc2b",
+      "alpha_crop": [
+        21,
+        17,
+        251,
+        234
+      ]
+    },
+    {
+      "name": "timer",
+      "source": "img_icon_timeroutline_64_32_32.png",
+      "sha256": "c5d3b535bfca65da97d2f7756151889283bc1d8194909fca4550f0fbc836606d",
+      "alpha_crop": [
+        0,
+        0,
+        32,
+        32
+      ]
+    },
+    {
+      "name": "people",
+      "source": "img_generic_playersicon_64_64_64.png",
+      "sha256": "51433321fa969ac1ac5859c4ca97ee137e296bc5d2cf12c54b98c33542846120",
+      "alpha_crop": [
+        4,
+        0,
+        61,
+        64
+      ]
+    },
+    {
+      "name": "warning",
+      "source": "img_generic_warning_128_128_128.png",
+      "sha256": "ff07053ff172c9ca28d765879379a4c8481cc5e7affb3dbf5b6bdbdd7f95c31d",
+      "alpha_crop": [
+        8,
+        8,
+        120,
+        104
+      ]
+    },
+    {
+      "name": "rank1",
+      "source": "img_activityrankbadge_backing1_sliced_128_128_128.png",
+      "sha256": "93913d95b9514269f2c42e117096adb269f937fe67693fd7afa1ed3b99b184af",
+      "alpha_crop": [
+        2,
+        19,
+        127,
+        106
+      ]
+    },
+    {
+      "name": "rank2",
+      "source": "img_activityrankbadge_backing2_sliced_128_64_64.png",
+      "sha256": "6ad18f28c706159506d2a3640dc0baae26a6e0d991f87927043ac3b638ae8002",
+      "alpha_crop": [
+        1,
+        8,
+        64,
+        56
+      ]
+    },
+    {
+      "name": "rank3",
+      "source": "img_activityrankbadge_backing3_sliced_128_128_128.png",
+      "sha256": "822e4cfcb0bb472c82833bd97c7079246bfa6aed15cddd8660cf734b591a7456",
+      "alpha_crop": [
+        9,
+        20,
+        124,
+        106
+      ]
+    },
+    {
+      "name": "grunge",
+      "source": "img_background_grungeside_left_140_140_140.png",
+      "sha256": "180d0cff0d58e7f6ca1c2f7830df92249510b040d210dba01deb3cab425ea0a5",
+      "alpha_crop": [
+        0,
+        0,
+        140,
+        140
+      ]
+    },
+    {
+      "name": "a",
+      "source": "img_xbox_a_108_108_108.png",
+      "sha256": "b38ec58c12c61766f480126518f224d859b6f20f217593d020af37865e18abc5",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "b",
+      "source": "img_xbox_b_108_108_108.png",
+      "sha256": "de066c75e3e01523cd187312a356c1570ec36eed01b8ba253f1993faa6ad3fd0",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "dpad-down",
+      "source": "img_xbox_dpad-down_108_108_108.png",
+      "sha256": "e51e31f93abdc87c2f7e6f9e183c6692987b67ef6cdb4716573079b4a37d4eea",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "dpad-horizontal",
+      "source": "img_xbox_dpad-horizontal_108_108_108.png",
+      "sha256": "050f279c82b92569b1367ab2bd740405523966cf37fdc4752db9010d9f9f145d",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "dpad-left",
+      "source": "img_xbox_dpad-left_108_108_108.png",
+      "sha256": "ff3c4ea7aca60431b3e2b92d8aabb85baa5f76a9594b313ad7425cca3f72817b",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "dpad-right",
+      "source": "img_xbox_dpad-right_108_108_108.png",
+      "sha256": "d41afb056c74e4f4e18aa807589ef052025ec56ee117b1b43ee4c30f5aaec885",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "dpad-up",
+      "source": "img_xbox_dpad-up_108_108_108.png",
+      "sha256": "09f8bb2a2a035876fb255ac1c002991a67241affa1383e987932a3ebf4db871f",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "dpad-vertical",
+      "source": "img_xbox_dpad-vertical_108_108_108.png",
+      "sha256": "0bfa8dcc0dd43bf4ff2d250dd6a33b88a7ffb14a1b5676f091da8043a3fd4132",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "lbumper",
+      "source": "img_xbox_lbumper_108_108_108.png",
+      "sha256": "93618d0c4bd401e5de031958a33fe5650e2c39f29e2d259d34909bdda33294cc",
+      "alpha_crop": [
+        18,
+        26,
+        90,
+        82
+      ]
+    },
+    {
+      "name": "lstick-click",
+      "source": "img_xbox_lstick-click_108_108_108.png",
+      "sha256": "7471e0bf3d4097ec75ac1be1bcc6dd9e4cf4bbcee883ad59d5a73d05227a3577",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        86
+      ]
+    },
+    {
+      "name": "lstick",
+      "source": "img_xbox_lstick_108_108_108.png",
+      "sha256": "af2c6d1007f46c1d7a5e26838d4526350cff2b18518ec007d01c0132a0685f79",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "ltrigger",
+      "source": "img_xbox_ltrigger_108_108_108.png",
+      "sha256": "e7aef2f1d3e51f413616ac7214f0946ea01c58d6dde1c4c9b31111e4acc5c919",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "menu",
+      "source": "img_xbox_menu_108_108_108.png",
+      "sha256": "cbea1a23961cf88bd3e6a3f91d5738b3f17329ec248b77d43e8dd4ba5360958c",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "options",
+      "source": "img_xbox_options_108_108_108.png",
+      "sha256": "1aca65ce1beff046cc5f536387235a9bfd2ca39934ddb0d1ab1ba487271d8efe",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "rbumper",
+      "source": "img_xbox_rbumper_108_108_108.png",
+      "sha256": "a33ec405ebc4f550724ae0bdf2cb3538723cbefd6bd7da6974e6e2052335b0a0",
+      "alpha_crop": [
+        18,
+        26,
+        90,
+        82
+      ]
+    },
+    {
+      "name": "rstick-click",
+      "source": "img_xbox_rstick-click_108_108_108.png",
+      "sha256": "08b9ea2c49fec06b909ebc702fab866844951793661a0d885b04c2abfd551720",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        86
+      ]
+    },
+    {
+      "name": "rstick",
+      "source": "img_xbox_rstick_108_108_108.png",
+      "sha256": "2887e327a035acd9dd6ba124cbcab349b02e1474fbd35ffd7b43707eb2bf859d",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "rtrigger",
+      "source": "img_xbox_rtrigger_108_108_108.png",
+      "sha256": "ba43465764099726b2082243416d0bcfc5270616014ef175d66e9fd54064137a",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "x",
+      "source": "img_xbox_x_108_108_108.png",
+      "sha256": "5988e55779f507441081b7e0ab28f549d7822efbbee06a71c16d18cf2065a157",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    },
+    {
+      "name": "y",
+      "source": "img_xbox_y_108_108_108.png",
+      "sha256": "1941b8585df5b64b5f3d5f3c8c25560ac8afae7177f6014c5ecb02d847003ca8",
+      "alpha_crop": [
+        18,
+        18,
+        90,
+        90
+      ]
+    }
+  ],
+  "uv": {
+    "brush": [
+      0.001953125,
+      0.001953125,
+      0.501953125,
+      0.150390625
+    ],
+    "smallbrush": [
+      0.50390625,
+      0.001953125,
+      0.8291015625,
+      0.09814453125
+    ],
+    "logo": [
+      0.8310546875,
+      0.001953125,
+      0.943359375,
+      0.10791015625
+    ],
+    "timer": [
+      0.9453125,
+      0.001953125,
+      0.9609375,
+      0.017578125
+    ],
+    "people": [
+      0.962890625,
+      0.001953125,
+      0.99072265625,
+      0.033203125
+    ],
+    "warning": [
+      0.001953125,
+      0.15234375,
+      0.056640625,
+      0.19921875
+    ],
+    "rank1": [
+      0.05859375,
+      0.15234375,
+      0.11962890625,
+      0.19482421875
+    ],
+    "rank2": [
+      0.12158203125,
+      0.15234375,
+      0.15234375,
+      0.17578125
+    ],
+    "rank3": [
+      0.154296875,
+      0.15234375,
+      0.21044921875,
+      0.1943359375
+    ],
+    "grunge": [
+      0.21240234375,
+      0.15234375,
+      0.28076171875,
+      0.220703125
+    ],
+    "a": [
+      0.28271484375,
+      0.15234375,
+      0.31787109375,
+      0.1875
+    ],
+    "b": [
+      0.31982421875,
+      0.15234375,
+      0.35498046875,
+      0.1875
+    ],
+    "dpad-down": [
+      0.35693359375,
+      0.15234375,
+      0.39208984375,
+      0.1875
+    ],
+    "dpad-horizontal": [
+      0.39404296875,
+      0.15234375,
+      0.42919921875,
+      0.1875
+    ],
+    "dpad-left": [
+      0.43115234375,
+      0.15234375,
+      0.46630859375,
+      0.1875
+    ],
+    "dpad-right": [
+      0.46826171875,
+      0.15234375,
+      0.50341796875,
+      0.1875
+    ],
+    "dpad-up": [
+      0.50537109375,
+      0.15234375,
+      0.54052734375,
+      0.1875
+    ],
+    "dpad-vertical": [
+      0.54248046875,
+      0.15234375,
+      0.57763671875,
+      0.1875
+    ],
+    "lbumper": [
+      0.57958984375,
+      0.15234375,
+      0.61474609375,
+      0.1796875
+    ],
+    "lstick-click": [
+      0.61669921875,
+      0.15234375,
+      0.65185546875,
+      0.185546875
+    ],
+    "lstick": [
+      0.65380859375,
+      0.15234375,
+      0.68896484375,
+      0.1875
+    ],
+    "ltrigger": [
+      0.69091796875,
+      0.15234375,
+      0.72607421875,
+      0.1875
+    ],
+    "menu": [
+      0.72802734375,
+      0.15234375,
+      0.76318359375,
+      0.1875
+    ],
+    "options": [
+      0.76513671875,
+      0.15234375,
+      0.80029296875,
+      0.1875
+    ],
+    "rbumper": [
+      0.80224609375,
+      0.15234375,
+      0.83740234375,
+      0.1796875
+    ],
+    "rstick-click": [
+      0.83935546875,
+      0.15234375,
+      0.87451171875,
+      0.185546875
+    ],
+    "rstick": [
+      0.87646484375,
+      0.15234375,
+      0.91162109375,
+      0.1875
+    ],
+    "rtrigger": [
+      0.91357421875,
+      0.15234375,
+      0.94873046875,
+      0.1875
+    ],
+    "x": [
+      0.95068359375,
+      0.15234375,
+      0.98583984375,
+      0.1875
+    ],
+    "y": [
+      0.001953125,
+      0.22265625,
+      0.037109375,
+      0.2578125
+    ]
+  }
+}

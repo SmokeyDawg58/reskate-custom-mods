@@ -1,0 +1,6 @@
+Offline authoring chain: create native effects, repair Color0 and ribbon UVs,
+then run repair_native_effect_parent_scale.cpp with the validated private DXIL.
+Assemble deathrace_mesh_loop_sim.ll using IDxcAssembler, and validate its output
+with IDxcValidator. The original shader is included to audit the nine changes.
+Never apply a world matrix to the local particle children: EffectManager owns
+their shared world parent. Keep all four private effect graph imports connected.

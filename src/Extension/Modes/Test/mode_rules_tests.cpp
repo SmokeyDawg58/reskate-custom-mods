@@ -4,6 +4,7 @@
 #include "Extension/Modes/race_route.h"
 #include "Extension/Modes/race_route_library.h"
 #include "Extension/Modes/race_route_json.h"
+#include "Extension/Modes/race_route_scope.h"
 #include "Extension/Modes/race_editor.h"
 #include "Extension/Modes/race_arrow_placement.h"
 #include "Extension/Modes/race_momentum.h"
@@ -1186,6 +1187,15 @@ void race_momentum_recovery_flow() {
     navigation.gate_kinds={RaceGateKind::mandatory,RaceGateKind::guiding,RaceGateKind::arrow,RaceGateKind::mandatory,RaceGateKind::mandatory};
     Message state;state.phase=Phase::playing;Standing rider;rider.player=a;rider.score=1;state.standings={rider};
     check(race_compass_gate(navigation,state,a)==3,"compass skips Guide gates and decorative Chevrons");
+    const auto before_navigation=state;
+    check(race_compass_gates(navigation,state,a,true)==std::vector<std::size_t>{3},
+          "Compass points only to the next Required gate, excluding Guide gates and Arrows");
+    check(race_compass_gates(navigation,state,a,false).empty(),"Compass off suppresses every gate marker");
+    check(state.standings[0].score==before_navigation.standings[0].score,
+          "Compass hints never change authoritative checkpoint progress");
+    check(race_compass_art(navigation,3).ends_with("img_GateCompass") &&
+          race_compass_art(navigation,4).ends_with("img_FinishGateCompass"),
+          "Required and Finish select their own compass artwork");
     state.standings[0].score=4;check(race_compass_gate(navigation,state,a)==4,"compass targets the finish after the last Required gate");
     state.standings[0].score=5;check(!race_compass_gate(navigation,state,a),"finished riders have no compass gate");
     state.standings[0].score=3;state.standings[0].out=true;check(!race_compass_gate(navigation,state,a),"DNF riders have no compass gate");
@@ -1320,11 +1330,14 @@ void race_sound_and_announcements_flow() {
     RaceProgressAudio progress;
     auto snapshot=solo.state(countdown_ms);
     check(progress.update(route,snapshot.phase,snapshot.standings[0].score,false)==RaceGateCue::none,"race start is silent");
+    const auto before_gate_notice=snapshot.call_serial;
     solo.event(a,Event::checkpoint,2,route.points[2],1,countdown_ms+100);
     snapshot=solo.state(countdown_ms+100);
+    check(snapshot.call_serial==before_gate_notice,"Crossing a Required gate updates progress without a passing-gate notification");
     check(progress.update(route,snapshot.phase,snapshot.standings[0].score,false)==RaceGateCue::required,"acknowledged Required gate plays its selected clip");
     solo.event(a,Event::checkpoint,3,route.points[3],2,countdown_ms+200);solo.tick(countdown_ms+201);
     snapshot=solo.state(countdown_ms+201);
+    check(snapshot.call_serial>before_gate_notice,"The finish announcement remains after suppressing passing-gate notices");
     check(snapshot.phase==Phase::results && progress.update(route,snapshot.phase,snapshot.standings[0].score,false)==RaceGateCue::finish,
         "solo finish celebration survives the Playing-to-Results transition");
     check(progress.update(route,snapshot.phase,snapshot.standings[0].score,false)==RaceGateCue::none,"repeated results never replay the finish");
@@ -1376,12 +1389,6 @@ void race_saved_course_and_recovery() {
         check(std::abs((p.at[0]-10)*std::sin(gate_angle)+(p.at[2]-20)*std::cos(gate_angle)+3.f)<.001f && p.at[1]==4 && p.yaw==yaw,
             "Checkpoint returns have three metres of run-up behind the authored gate in every direction");
     }
-    Settings turned;turned.mode=Mode::race;turned.points={{0,0,0},{100,0,20},{0,0,100}};
-    turned.gate_kinds={RaceGateKind::mandatory,RaceGateKind::arrow,RaceGateKind::mandatory};turned.yaws={0,90,0};
-    const auto facing=race_return_pose(turned,1,0,RaceGatePose{{0,0,50},180});
-    check(facing.at==Vec3{0,0,50} && facing.yaw==0 && race_recovery_motion(22,facing.yaw)==Vec3{0,0,22},
-        "Turning away before a fall cannot restore speed backwards or let an Arrow redirect the safe-position return");
-    check(race_return_pose(turned,2,0,std::nullopt).at==Vec3{0,0,-3},"Without a safe spot the return uses the gate run-up");
     const auto pose=race_recovery_pose(*restored,3);check(pose.at==Vec3{0,0,17.f},"recovery skips guides and leaves three metres behind the last mandatory gate");
     check(race_gate_crossing(*restored,1,{0,19,19},{0,19,21}).inside,"enlarged gate accepts enlarged vertical trigger");
     restored->widths[1]=6;check(!race_gate_crossing(*restored,1,{0,19,19},{0,19,21}).inside,"default height excludes high bypass");
@@ -1413,16 +1420,25 @@ void race_saved_course_and_recovery() {
     check(reset_yaw==173.25f && reset_pitch==-35.f && reset_roll==90.f,"L3 restores all original angles without changing position or size");
     original.clear();original.capture(90,0,0);original.restore(reset_yaw,reset_pitch,reset_roll);
     check(reset_yaw==90 && reset_pitch==0 && reset_roll==0,"another object starts with its own straight reset pose");
-    original.update_aim(-37,46,reset_yaw,reset_pitch);
-    check(reset_yaw==90 && reset_pitch==0,"camera movement after Rotate cannot turn or tilt the locked world pose");
-    original.update_aim(-37,-90,reset_yaw,reset_pitch,true);
-    check(reset_yaw==90 && reset_pitch==-90,"automatic Arrow floor tilt still works after Rotate while its world yaw stays fixed");
-    original.update_aim(-80,0,reset_yaw,reset_pitch,true);
-    check(reset_yaw==90 && reset_pitch==0,"looking back into open air restores an automatic Arrow upright without spinning it");
-    reset_pitch=25;original.update_aim(-80,-90,reset_yaw,reset_pitch,false);
-    check(reset_yaw==90 && reset_pitch==25,"explicit manual Arrow tilt is not replaced by camera or floor alignment");
+    original.update_aim(-37,46,reset_yaw,reset_pitch,true);
+    check(reset_yaw==90 && reset_pitch==0,"Manual rotation retains its world pose when aim moves");
+    original.restore(reset_yaw,reset_pitch,reset_roll);
+    original.update_aim(-37,-90,reset_yaw,reset_pitch,false);
+    check(reset_yaw==-37 && reset_pitch==-90,"After Reset, the preview follows yaw and automatic floor tilt despite a retained reset baseline");
+    original.update_aim(-80,0,reset_yaw,reset_pitch,false);
+    check(reset_yaw==-80 && reset_pitch==0,"Looking into open air restores the automatic upright Arrow after Reset");
+    original.capture(-80,0,0);original.restore(reset_yaw,reset_pitch,reset_roll);
+    check(reset_yaw==90 && reset_pitch==0 && reset_roll==0,"Reentering Rotate still resets every axis to the first original orientation");
+    reset_pitch=25;original.update_aim(-80,-90,reset_yaw,reset_pitch,true);
+    check(reset_yaw==90 && reset_pitch==25,"New manual tilt remains stable until Reset is requested again");
     original.clear();original.update_aim(-37,46,reset_yaw,reset_pitch);
-    check(reset_yaw==-37 && reset_pitch==46,"a fresh object can still use camera aim before its first rotation");
+    check(reset_yaw==-37 && reset_pitch==46,"A fresh object follows camera aim");
+    original.capture_default(91,0,90);original.restore(reset_yaw,reset_pitch,reset_roll);
+    check(reset_yaw==90 && reset_pitch==0 && reset_roll==0,"A fresh reset starts from the default aiming pose, not a rotated neighboring gate");
+    original.capture_default(-91,-90,90);original.restore(reset_yaw,reset_pitch,reset_roll);
+    check(reset_yaw==90 && reset_pitch==0 && reset_roll==0,"Resizing and reentering Rotate cannot replace its default reset pose");
+    original.clear();original.capture_default(-91,-90,90);original.restore(reset_yaw,reset_pitch,reset_roll);
+    check(reset_yaw==-90 && reset_pitch==-90 && reset_roll==0,"Switching objects captures a new default with automatic floor tilt and zero manual roll");
     check(race_rotation_degrees(360.f)==0.f && !std::signbit(race_rotation_degrees(-.001f)) && race_rotation_degrees(365.f)==5.f,"rotation readout uses actual angles and no negative zero");
     RaceEditorPresses rotation;
     check(rotation.update(8,100,true)==8 && rotation.update(8,349,true)==0,"rotation taps respond immediately with a short hold delay");
@@ -1653,26 +1669,20 @@ void editor_polish_regressions() {
     check(long_jump.observe(true,100,604,0,false,3600) && long_jump.active(4200),"hippy landing remains protected after an offboard trick state");
     check(!long_jump.observe(true,300,100,0,true,4210),"actual native wipeout still overrides hippy landing protection");
 }
-void race_last_safe_return_flow() {
-    RaceLastSafeSpot safe;
-    check(!safe.pose(),"A new race cannot inherit another match's recovery position");
-    for(unsigned now=100;now<=1100;now+=50)safe.observe(true,{float(now),12,8},35,now);
-    check(safe.pose() && safe.pose()->at==Vec3{850,12,8} && safe.pose()->yaw==35,
-        "A long gap between gates retains the recent grounded spot and its actual facing");
-    safe.observe(false,{1200,-30,8},90,1150);
-    safe.observe(false,{1250,-80,8},90,1600);
-    check(safe.pose()->at==Vec3{850,12,8},"Airborne, bail and rollout samples cannot replace a safe approach spot");
-    safe.observe(true,{1300,-80,8},90,1700);safe.observe(false,{1350,-80,8},90,1750);
-    safe.observe(true,{1400,-80,8},90,2000);
-    check(safe.pose()->at==Vec3{850,12,8},"A brief grounded pulse during recovery does not replace the previous safe position");
-    safe.observe(true,{1450,22,8},-45,2250);
-    check(safe.pose()->at==Vec3{1400,-80,8},"Sustained grounded walking or skating may establish a new safe position");
-    safe.observe(true,{std::numeric_limits<float>::quiet_NaN(),0,0},0,2300);
-    check(safe.pose()->at==Vec3{1400,-80,8},"Invalid telemetry cannot corrupt a saved safe position");
-    safe.reset();check(!safe.pose(),"D-pad Up and missed-Required recovery discard spots ahead of the gate return");
-    safe.observe(true,{5,0,0},0,10);safe.observe(true,{6,0,0},0,260);
-    safe.observe(true,{7,0,0},0,100);
-    check(!safe.pose(),"A restarted clock cannot reuse a future recovery pose");
+void race_gate_return_flow() {
+    Settings route;route.mode=Mode::race;route.points={{0,10,0},{40,20,80},{42,20,90},{400,20,800},{500,20,900}};
+    route.yaws={0,90,90,0,0};route.gate_kinds={RaceGateKind::mandatory,RaceGateKind::mandatory,RaceGateKind::arrow,RaceGateKind::mandatory,RaceGateKind::mandatory};
+    route.race_finish=true;
+    RaceCheckpointFallback checkpoint;
+    RaceMomentum momentum;
+    momentum.observe_onboard(true,23,1000);momentum.observe_onboard(true,24,1100);
+    momentum.observe_onboard(false,80,1110); // The bail/offboard direction and speed cannot replace the onboard approach.
+    const auto pose=race_checkpoint_pose(route,checkpoint.target(route,3));
+    check(pose.at==Vec3{37,20,80} && pose.yaw==90,"Bailing in a large gap returns three metres behind the last Required gate, skipping decorative Arrows");
+    const auto velocity=race_recovery_motion(momentum.before_bail(1150),pose.yaw);
+    check(std::abs(velocity[0]-24)<.001f && std::abs(velocity[2])<.001f,"Recovery keeps the pre-bail onboard speed and sends it forward through the gate, not along the bail direction");
+    checkpoint.step_back(route,3);
+    check(race_checkpoint_pose(route,checkpoint.target(route,3)).at==Vec3{0,10,-3},"A manual rewind remains the recovery target until another checkpoint is cleared");
 }
 void named_race_route_flow() {
     Settings route;route.mode=Mode::race;bool finish{};
@@ -1735,6 +1745,70 @@ void named_race_route_flow() {
           !race_recovered_control(false,504,true,false) && !race_recovered_control(true,700,true,false),
         "A real ragdoll, missing sample or native reset is not mistaken for a recovery");
 }
+void loaded_route_play_flow() {
+    Settings disk;disk.mode=Mode::race;bool finish{};
+    edit_race_route(disk,finish,RaceObject::start,{1,2,3},30,6);
+    edit_race_route(disk,finish,RaceObject::checkpoint,{5,6,30},40,7,0,15);
+    edit_race_route(disk,finish,RaceObject::arrow,{8,9,40},50,5,20,-25);
+    edit_race_route(disk,finish,RaceObject::finish,{10,11,60},60,8);
+    const auto original_disk=disk;
+    auto route=disk;
+    // Loading deliberately retains the session's placed flag and timer. Those
+    // normalization changes must not force an unchanged loaded copy to Save.
+    edit_race_route(route,finish,RaceObject::start,{2,3,4},75,9);route.duration_s=600;
+    RaceRoutePublication loaded,lobby;loaded.save(route);
+    check(!lobby.accepting(route,false,false),"Loaded route remains private while the builder is open");
+    check(lobby.reuse_saved(loaded,route) && lobby.accepting(route,false,false),"Untouched loaded route can enter the playable lobby without naming/saving");
+    check(!lobby.accepting(route,true,false) && !lobby.accepting(route,false,true),"Playing a loaded route preserves editor and native-flag join restrictions");
+    route.duration_s=900;check(lobby.reuse_saved(loaded,route),"Changing the session timer does not overwrite or rename saved geometry");
+    for(unsigned change=0;change<9;++change) {
+        auto edited=route;
+        switch(change) {
+        case 0:edited.points[1][1]+=1;break;
+        case 1:edited.yaws[1]+=5;break;
+        case 2:edited.widths[1]+=1;break;
+        case 3:edited.gate_kinds[1]=RaceGateKind::guiding;break;
+        case 4:edited.arrow_rolls[2]+=5;break;
+        case 5:edited.gate_pitches[2]+=5;break;
+        case 6:edited.race_finish=false;break;
+        case 7:edited.spawn[1]+=1;break;
+        case 8:edited.has_spawn=false;break;
+        }
+        lobby.begin_edit();
+        check(!lobby.reuse_saved(loaded,edited) && !lobby.ready(edited),"Edited or incomplete geometry needs the normal save flow");
+    }
+    check(lobby.reuse_saved(loaded,route),"Undoing all edits restores the unchanged loaded-route play path");
+    RaceRoutePublication fresh;
+    check(!lobby.reuse_saved(fresh,route),"A new unsaved course cannot skip naming");
+    check(disk==original_disk,"Playing keeps the original saved settings untouched");
+}
+void route_map_isolation_flow() {
+    using namespace dingosdk::modes;
+    const std::string root="levels/game/bam_levelroot/bam_levelroot";
+    const std::string first="levels/game/dingolevel_reskate_skate3improved/dingolevel_reskate_skate3improved";
+    const std::string second="levels/game/dingolevel_reskate_skate2improved/dingolevel_reskate_skate2improved";
+    check(race_route_map_key(root+"|"+first)==first && race_route_map_key(root+"|"+second)==second,
+        "Custom maps sharing BAM have separate saved-route identities");
+    check(race_route_map_key(root+"|")=="bam" && race_route_map_key("LEVELS\\GAME\\BAM_LEVELROOT\\BAM_LEVELROOT")=="bam",
+        "Retail route keys survive and path spelling is normalized");
+    check(race_route_map_key("mods/first/map")!=race_route_map_key("mods/second/map"),
+        "Equal custom map leaf names do not share route identity");
+    RaceRouteWorldScope scope;ModeTransfers transfer;
+    check(scope.update(1,77,true,root+"|"+first) && scope.active,"First loaded map establishes a route scope");
+    check(!scope.update(1,77,true,root+"|"+first),"Steady world preserves enrolled challenges");
+    check(scope.update(1,77,true,root+"|"+second),"A detached-map change retires offers even if generation is unchanged");
+    check(scope.update(1,77,false,root+"|"+second) && !scope.active && scope.map.empty(),
+        "Unloading hides all routes and clears the prior map identity");
+    check(scope.update(1,78,true,root+"|"+second) && scope.active,"Next map establishes fresh scope");
+    check(scope.update(1,79,true,root+"|"+second),"Reloading the same asset retires old offers");
+    Message route;route.kind=Message::Kind::setup;route.game=1;route.leader=1;route.settings.mode=Mode::race;
+    for(unsigned i=0;i<1000;++i)route.settings.points.push_back({float(i),0,0});
+    const auto chunks=transport_messages(route);check(chunks.size()>1,"Isolation fixture contains a fragmented remote route");
+    check(!transfer.receive(1,chunks.front(),10),"Partial route waits for its remaining fragments");
+    transfer.clear();bool completed{};
+    for(std::size_t i=1;i<chunks.size();++i)completed|=transfer.receive(1,chunks[i],20).has_value();
+    check(!completed,"A previous map's first fragment cannot complete a route after transition cleanup");
+}
 int main() {
     try {
         editor_polish_regressions();
@@ -1753,8 +1827,10 @@ int main() {
         race_checkpoint_back_flow();
         race_saved_course_and_recovery();
         race_momentum_recovery_flow();
-        race_last_safe_return_flow();
+        race_gate_return_flow();
         named_race_route_flow();
+        loaded_route_play_flow();
+        route_map_isolation_flow();
         race_sound_and_announcements_flow();
         race_clock_flow();
         race_editor_rotation_history();

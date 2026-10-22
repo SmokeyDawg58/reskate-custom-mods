@@ -64,6 +64,8 @@ bool queue_throwdown_spawn(std::uint64_t token, std::uint32_t host, const std::s
 // open; mode rules, membership and start stay on the existing mode protocol.
 bool queue_custom_throwdown_flag(std::uint64_t token,std::uint32_t host,const std::string& key,
     const std::array<float,3>& at,float yaw) noexcept;
+// Replay the original queue's placement update; never creates or joins a donor.
+bool queue_throwdown_move(std::uint32_t mmid,const std::array<float,3>& at,float yaw) noexcept;
 bool queue_throwdown_add(std::uint32_t player, const std::string &series, std::uint32_t mmid) noexcept;
 bool queue_throwdown_remove(std::uint32_t player) noexcept; // RemoveParticipantFromCommunityEvent as `player`
 bool queue_throwdown_start(const std::string &series, std::uint32_t mmid) noexcept;

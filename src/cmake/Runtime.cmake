@@ -314,6 +314,12 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc"
     "FONT_HEADING RCDATA \"${dingosdk_menu_fonts}/Montserrat-ExtraBold.ttf\"\n"
     "FONT_BODY RCDATA \"${dingosdk_menu_fonts}/Montserrat-SemiBold.ttf\"\n"
     "FONT_BRUSH RCDATA \"${dingosdk_menu_fonts}/PermanentMarker-Regular.ttf\"\n")
+file(APPEND "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc"
+    "DEATHRACE_ATLAS RCDATA \"${PROJECT_SOURCE_DIR}/assets/throwdowns/skate2/skate2-hud-atlas.png\"\n"
+    "DEATHRACE_FONT RCDATA \"${PROJECT_SOURCE_DIR}/assets/throwdowns/blockparty/gilroy-extrabold.ttf\"\n"
+    "DEATHRACE_SECONDARY RCDATA \"${PROJECT_SOURCE_DIR}/assets/throwdowns/blockparty/gilroy-semibold.ttf\"\n"
+    "DEATHRACE_NAMES RCDATA \"${PROJECT_SOURCE_DIR}/assets/throwdowns/blockparty/skatemarker-names.ttf\"\n"
+    "DEATHRACE_MARKER RCDATA \"${PROJECT_SOURCE_DIR}/assets/throwdowns/blockparty/skatemarker-caps.ttf\"\n")
 target_sources(dingosdk_runtime PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/menu_fonts.rc")
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generated/throwdown_audio.rc"
     "THROWDOWN_GATE RCDATA \"${PROJECT_SOURCE_DIR}/assets/throwdowns/audio/gate-required.wav\"\n"

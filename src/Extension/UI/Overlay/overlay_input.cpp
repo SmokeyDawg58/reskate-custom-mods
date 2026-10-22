@@ -297,7 +297,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wp, LPARAM lp) {
         }
         if (capture && message == WM_SETCURSOR && LOWORD(lp) == HTCLIENT) {
             OverlayInputAccess access;
-            SetCursor(nullptr); // The software cursor is independent of the game's ShowCursor counter.
+            SetCursor(s.race_route_dialog_visible.load()?LoadCursorW(nullptr,IDC_ARROW):nullptr);
             return TRUE;
         }
         if ((key || release) && wp < s.game_keys.size()) s.game_keys[wp] = key;
