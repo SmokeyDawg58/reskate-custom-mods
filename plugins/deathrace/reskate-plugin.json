@@ -1,0 +1,335 @@
+{
+  "api": 1,
+  "entry": "plugin/main.lua",
+  "side": "client",
+  "permissions": [
+    "console",
+    "storage",
+    "overlay",
+    "menu",
+    "ui.screen",
+    "input",
+    "events.tricks",
+    "skater.read",
+    "skater.teleport",
+    "skater.control",
+    "camera",
+    "world.raycast",
+    "world.entities",
+    "session.read",
+    "session.skaters",
+    "net.session",
+    "chat.local",
+    "throwdowns",
+    "settings.read",
+    "audio.ui",
+    "audio",
+    "files"
+  ],
+  "resident": [
+    {
+      "bundle": "win32/levels/game/bam_levelroot/bam_coregameassets",
+      "roots": [
+        "world/reskate/deathrace/",
+        "world/reskate/throwdowns/",
+        "ui/reskate/throwdowns/"
+      ],
+      "shaders": [
+        {
+          "name": "world/reskate/deathrace/checkpoints_win32_shaderstate/shaderblockdepot_12937733901070835605",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "world/reskate/deathrace/arrows_win32_shaderstate/shaderblockdepot_12937733901070835605",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "world/reskate/deathrace/straightarrows_win32_shaderstate/shaderblockdepot_5371451861984644426",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "effects/gestures/effectblueprints/ebp_gesture_airdj_turntable_bundle_win32_shaderstate/shaderblockdepot_2132924549203053683",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        }
+      ]
+    },
+    {
+      "bundle": "win32/levels/game/bam_levelroot/gameplay_activities",
+      "roots": [
+        "world/reskate/deathrace/",
+        "world/reskate/throwdowns/",
+        "ui/reskate/throwdowns/"
+      ],
+      "shaders": [
+        {
+          "name": "world/reskate/deathrace/checkpoints_win32_shaderstate/shaderblockdepot_12937733901070835605",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "effects/gestures/effectblueprints/ebp_gesture_airdj_turntable_bundle_win32_shaderstate/shaderblockdepot_2132924549203053683",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        }
+      ]
+    },
+    {
+      "bundle": "win32/levels/game/dingolevel_ftue_island/dingolevel_ftue_island",
+      "roots": [
+        "world/reskate/deathrace/",
+        "world/reskate/throwdowns/",
+        "ui/reskate/throwdowns/"
+      ],
+      "shaders": [
+        {
+          "name": "world/reskate/deathrace/checkpoints_win32_shaderstate/shaderblockdepot_12937733901070835605",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "world/reskate/deathrace/arrows_win32_shaderstate/shaderblockdepot_12937733901070835605",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "world/reskate/deathrace/straightarrows_win32_shaderstate/shaderblockdepot_5371451861984644426",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "effects/gestures/effectblueprints/ebp_gesture_airdj_turntable_bundle_win32_shaderstate/shaderblockdepot_2132924549203053683",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        }
+      ]
+    },
+    {
+      "bundle": "win32/levels/game/dingolevel_isle_of_grom/dingolevel_isle_of_grom",
+      "roots": [
+        "world/reskate/deathrace/",
+        "world/reskate/throwdowns/",
+        "ui/reskate/throwdowns/"
+      ],
+      "shaders": [
+        {
+          "name": "world/reskate/deathrace/checkpoints_win32_shaderstate/shaderblockdepot_12937733901070835605",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "world/reskate/deathrace/arrows_win32_shaderstate/shaderblockdepot_12937733901070835605",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "world/reskate/deathrace/straightarrows_win32_shaderstate/shaderblockdepot_5371451861984644426",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "effects/gestures/effectblueprints/ebp_gesture_airdj_turntable_bundle_win32_shaderstate/shaderblockdepot_2132924549203053683",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        }
+      ]
+    },
+    {
+      "bundle": "win32/levels/game/dingolevel_mpr/dingolevel_mpr",
+      "roots": [
+        "world/reskate/deathrace/",
+        "world/reskate/throwdowns/",
+        "ui/reskate/throwdowns/"
+      ],
+      "shaders": [
+        {
+          "name": "world/reskate/deathrace/checkpoints_win32_shaderstate/shaderblockdepot_12937733901070835605",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "world/reskate/deathrace/arrows_win32_shaderstate/shaderblockdepot_12937733901070835605",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "world/reskate/deathrace/straightarrows_win32_shaderstate/shaderblockdepot_5371451861984644426",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "effects/gestures/effectblueprints/ebp_gesture_airdj_turntable_bundle_win32_shaderstate/shaderblockdepot_2132924549203053683",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        }
+      ]
+    },
+    {
+      "bundle": "win32/levels/game/dingolevel_sdm/dingolevel_sdm_int_001/dingolevel_sdm_int_001",
+      "roots": [
+        "world/reskate/deathrace/",
+        "world/reskate/throwdowns/",
+        "ui/reskate/throwdowns/"
+      ],
+      "shaders": [
+        {
+          "name": "world/reskate/deathrace/checkpoints_win32_shaderstate/shaderblockdepot_12937733901070835605",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "world/reskate/deathrace/arrows_win32_shaderstate/shaderblockdepot_12937733901070835605",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "world/reskate/deathrace/straightarrows_win32_shaderstate/shaderblockdepot_5371451861984644426",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "effects/gestures/effectblueprints/ebp_gesture_airdj_turntable_bundle_win32_shaderstate/shaderblockdepot_2132924549203053683",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        }
+      ]
+    },
+    {
+      "bundle": "win32/levels/game/dingolevel_sdm/dingolevel_sdm_int_002/dingolevel_sdm_int_002",
+      "roots": [
+        "world/reskate/deathrace/",
+        "world/reskate/throwdowns/",
+        "ui/reskate/throwdowns/"
+      ],
+      "shaders": [
+        {
+          "name": "world/reskate/deathrace/checkpoints_win32_shaderstate/shaderblockdepot_12937733901070835605",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "world/reskate/deathrace/arrows_win32_shaderstate/shaderblockdepot_12937733901070835605",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "world/reskate/deathrace/straightarrows_win32_shaderstate/shaderblockdepot_5371451861984644426",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        },
+        {
+          "name": "effects/gestures/effectblueprints/ebp_gesture_airdj_turntable_bundle_win32_shaderstate/shaderblockdepot_2132924549203053683",
+          "roots": [
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_gate",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_finish",
+            "world/reskate/deathrace/sm_fx_gp_checkpoint_a_at_guide",
+            "world/reskate/deathrace/floatingarrow_at"
+          ]
+        }
+      ]
+    }
+  ]
+}

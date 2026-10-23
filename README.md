@@ -1,23 +1,22 @@
-# ReSkate custom Throwdowns — native gates and Skate 2 HUD
+# Deathrace for ReSkate — Lua mod
 
-**[Current 2.1.1 playtest build](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/v2.1.1-custom-20261022-skate2-hud-native-gates) · [DLL](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.1-custom-20261022-skate2-hud-native-gates/ReSkate.dll) · [Launcher](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.1-custom-20261022-skate2-hud-native-gates/ReSkateLauncher.exe) · [Assets 1.0.27](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/download/v2.1.1-custom-20261022-skate2-hud-native-gates/SmokeyDawg58-ReSkate_Throwdown_Assets-1.0.27.zip)**
+**[Deathrace Lua 1.0.38 preview](https://github.com/SmokeyDawg58/reskate-custom-mods/releases/tag/deathrace-lua-v1.0.38)** · [Lua source](plugins/deathrace) · [Details and requirements](docs/DEATHRACE_LUA_1_0_38.md)
 
-Compact Deathrace HUD, native animated world gates/chevrons, JSON route library, custom R.E.S.K.A.T.E., and native enroll/join/host Hold Start flow. This update keeps one steady outer gate, improves controller/menu readability and fixes default orientation reset after object changes. [Detailed changes and verification](docs/RELEASE_NOTES_20261022_NATIVE_GATES_HUD.md).
+The owner-approved Deathrace builder, saved routes/flag placement, native animated gates and chevrons, and compact Skate 2 HUD as a Lua/native-assets mod. Only Deathrace is added to Throwdowns.
 
-**93 automated checks and 70 actual GPU HUD captures pass.** Live testing of this exact Assets 1.0.27 candidate is pending. The preceding 1.0.26 effects were confirmed visible by the owner.
+**This preview needs the separate local SDK test runtime.** Its generalized APIs are not all in official ReSkate 2.1.2 yet. The mod contains no ReSkate runtime or launcher. It is not a stock-2.1.2 or Thunderstore release, and no SDK PR has been submitted for this snapshot. See the [compatibility notes](docs/DEATHRACE_LUA_1_0_38.md) before installing.
 
-This is the completed custom **ReSkate 2.1.1** runtime, archived before migration to the official **2.1.2 Lua plugin API**. The forthcoming Thunderstore plugin will be separate and use stock ReSkate. This release DLL does not contain the 2.1.2 plugin host.
+The owner approved the current build in game. Offline Lua/SDK, route, input, audio-format, package and asset checks pass; wider multiplayer remains unverified.
 
-## Install
+## Controls
 
-Use all three matching downloads above. Close game and launcher, back up the current runtime pair and asset mod, replace the pair beside Skate.exe, then replace the complete enabled Throwdown Assets folder under Mods. Keep one copy enabled. All PCs need matching files. [Asset details](docs/ASSET_PACK.md).
+Tap Start to save/name; hold Start for the route library. D-pad/left stick navigates all directions. A selects, X renames, Y deletes after confirmation, RB shows the folder, LB imports JSON and B returns. Route names use the keyboard; held Backspace repeats. L3 holds faster flight; L3 in rotation resets original orientation. Native Join and host Hold Start remain.
 
-## Routes and controls
+## Repository
 
-Tap Start to save/name (or play an unchanged loaded route); hold Start to load. The library filters the active map. D-pad/left stick navigates all directions; A selects, X renames, Y deletes after confirmation, RB reveals the JSON file, LB imports JSON, B goes back. Names use a physical keyboard. Saved routes are readable/shareable JSON with flag placement and objects under Mods/ReSkateRoutes/Deathrace. Load restores the flag and brings the player to the course.
+- [Lua mod source and HUD artwork](plugins/deathrace)
+- [Lua release notes and SDK requirements](docs/DEATHRACE_LUA_1_0_38.md)
+- [Historical pre-Lua build](docs/LEGACY_README_20261022.md) and [historical source overlay](src)
+- [Credits](CONTRIBUTORS.md) and [license](LICENSE)
 
-Builder: L3 holds faster flight, R3 changes placement snap; while rotating, L3 resets default orientation. Native host Hold Start and Join remain unchanged. Required gates must be cleared in order before Finish.
-
-See [playtest checklist](PLAYTEST.md), [validation](DIAGNOSTICS.md), [build instructions](docs/BUILD.md), and [changelog](CHANGELOG.md). Protocol 52, mode wire 16, 1-UP wire 5. Historical releases and old HUD/source backups are preserved.
-
-Maintained by SmokeyDawg58. Upstream authorship, GPL-3.0, R.E.S.K.A.T.E. contribution credits and substantial OpenAI Codex assistance are retained; see [credits](CONTRIBUTORS.md).
+Maintained by SmokeyDawg58. ReSkate upstream authorship and substantial OpenAI Codex assistance are retained. Old releases remain available for reference.

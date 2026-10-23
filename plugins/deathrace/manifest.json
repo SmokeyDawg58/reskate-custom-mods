@@ -1,0 +1,7 @@
+{
+  "name": "Deathrace",
+  "version_number": "1.0.38",
+  "website_url": "https://github.com/SmokeyDawg58/reskate-custom-mods",
+  "description": "Deathrace Lua course builder with native animated gates, saved starts and a compact Skate 2 HUD. Local SDK validation build.",
+  "dependencies": []
+}
