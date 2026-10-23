@@ -4,7 +4,7 @@ The working Deathrace course builder, native animated gates/chevrons, saved flag
 
 **Requires the separate generalized SDK test runtime** at local commit `190d4edb46b7f24337667f843b0c809aa1baaed9`. Those APIs are not all in public ReSkate 2.1.2. This is a prerelease snapshot for the local SDK test setup, not a plug-and-play release for stock 2.1.2. The SDK is not bundled, pushed or submitted as a PR here. No Thunderstore listing is created.
 
-Download `SmokeyDawg58-Deathrace-1.0.38.zip`, extract its complete `SmokeyDawg58-Deathrace` folder under `Mods`, and enable one copy after closing the game and launcher. Keep routes outside the package under `Mods/.reskate_plugin_data/SmokeyDawg58-Deathrace/routes/`. Preserve your existing saves when updating. Every player needs matching compatible versions; two-PC multiplayer remains unverified.
+Download `SmokeyDawg58-Deathrace-1.0.38.zip`, create `Mods/SmokeyDawg58-Deathrace` and extract the ZIP contents into that folder (the archive has mod files at its root), and enable one copy after closing the game and launcher. Keep routes outside the package under `Mods/.reskate_plugin_data/SmokeyDawg58-Deathrace/routes/`. Preserve your existing saves when updating. Every player needs matching compatible versions; two-PC multiplayer remains unverified.
 
 ## Included behavior
 
